@@ -16,11 +16,16 @@ kubectl get ingress -n travel-agent-cloud
 
 The default Ingress has no host rule. On a single VPS with K3s Traefik, it can be tested through the server public IP after images are published.
 
-Images:
+Deployment images:
 
 ```text
-ghcr.io/sinxy-sai/travel-agent-cloud-frontend:latest
-ghcr.io/sinxy-sai/travel-agent-cloud-agent-runtime:latest
+docker.io/sinxysai/travel-agent-cloud-frontend:latest
+docker.io/sinxysai/travel-agent-cloud-agent-runtime:latest
 ```
 
-If the GHCR packages are private, create an image pull secret or make the packages public before applying these manifests.
+The GHCR workflow is still kept for image publishing, but these K3s manifests pull from Docker Hub by default because it is usually easier for domestic VPS networking.
+
+If your Docker Hub namespace is not `sinxysai`, update the image fields in:
+
+- `agent-runtime.yaml`
+- `frontend.yaml`

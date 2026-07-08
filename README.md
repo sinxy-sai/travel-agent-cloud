@@ -79,9 +79,18 @@ http://localhost:5173
 
 ## K3s Deployment
 
-After GitHub Actions publishes images to GHCR:
+After GitHub Actions publishes images to Docker Hub:
 
 ```bash
 kubectl apply -k deploy/k8s
 kubectl get pods -n travel-agent-cloud
 ```
+
+Docker Hub image publishing requires these GitHub repository secrets:
+
+```text
+DOCKERHUB_USERNAME
+DOCKERHUB_TOKEN
+```
+
+The GHCR image workflow is kept, but the default K3s manifests currently deploy Docker Hub images.

@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: agent-runtime
-          image: ghcr.io/sinxy-sai/travel-agent-cloud-agent-runtime:latest
-          imagePullPolicy: Always
+          image: docker.io/sinxysai/travel-agent-cloud-agent-runtime:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
           env:
