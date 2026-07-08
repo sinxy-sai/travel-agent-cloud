@@ -1,96 +1,124 @@
 # Travel Agent Cloud
 
-基于 Spring Cloud + Kubernetes/K3s + AI Agent 的多用户并发旅游助手系统。
+基于 React + FastAPI + Spring Cloud 规划的多用户并发 AI 旅游助手项目，目标是在 VPS 上通过 Docker、K3s 和 GitHub Actions 完成全栈部署。
 
-## Project Goal
+## 项目目标
 
-本项目面向旅游规划场景，提供多轮对话、行程生成、旅游知识检索、地图天气工具调用、行程保存与导出等能力。
+本项目面向旅游规划场景，提供多轮对话、行程生成、旅游知识检索、地图天气工具调用、行程保存与导出等能力。当前阶段先实现可运行的前端工作台和 Agent Runtime，后续再逐步接入 Java 微服务、数据库、用户体系和真实大模型能力。
 
-## Tech Stack
+## 技术栈
 
 - Frontend: React, Vite, TypeScript, Tailwind CSS, Ant Design, TanStack Query, Zustand
-- Backend: Java 17, Spring Boot, Spring Cloud, Spring Cloud Gateway
+- Agent Runtime: Python, FastAPI
+- Backend Services: Java 17, Spring Boot, Spring Cloud, Spring Cloud Gateway
 - Auth: Sa-Token, JWT, Redis
-- Agent Runtime: Python, FastAPI, LangGraph or HelloAgents, MCP
 - Data: MySQL, Redis, MinIO, pgvector or Qdrant
 - Async: RabbitMQ
-- Deployment: Docker, K3s, Helm, Ingress, cert-manager
-- CI/CD: GitHub Actions, GHCR
+- Deployment: Docker, K3s, Kubernetes Ingress
+- CI/CD: GitHub Actions, Docker Hub, GHCR
 - Observability: Prometheus, Grafana, Loki, OpenTelemetry
 
-## Planned Modules
+## 当前模块
 
-- travel-gateway
-- travel-auth
-- travel-user
-- travel-agent
-- travel-trip
-- travel-knowledge
-- travel-task
-- travel-common
+- `frontend`: React + Vite 旅游助手前端工作台
+- `agent-runtime`: FastAPI Agent 服务，提供行程规划和对话接口
+- `services`: 后续 Spring Cloud 微服务预留目录
+- `deploy`: K3s/Kubernetes 部署清单
+- `scripts`: 服务器初始化和本地 smoke test 脚本
 
-## Current Milestone
+## 本地开发
 
-The first runnable version contains:
+日常开发优先在本地测试，不需要每次都部署到 VPS。
 
-- `frontend`: React + Vite trip planner workspace
-- `agent-runtime`: FastAPI mock travel planning service
-- `services`: placeholders for future Spring Cloud services
-- `scripts`: VPS bootstrap scripts
-- `deploy`: future Kubernetes and Helm deployment assets
+启动 Agent Runtime:
 
-## Local Development
-
-Start Agent Runtime:
-
-```bash
+```powershell
 cd agent-runtime
 python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Start frontend:
+启动前端:
 
-```bash
+```powershell
 cd frontend
 npm install
+$env:VITE_AGENT_API_BASE_URL="http://localhost:8000"
 npm run dev
 ```
 
-Open:
+访问本地页面:
 
 ```text
 http://localhost:5173
 ```
 
-## Docker Compose
+本地 API smoke test:
+
+```powershell
+.\scripts\smoke-test.ps1 http://localhost:8000
+```
+
+Linux 或 VPS 上可以运行:
+
+```bash
+bash scripts/smoke-test.sh http://localhost:8000
+```
+
+## Docker Compose 本地测试
+
+如果想模拟容器环境，可以使用 Docker Compose:
 
 ```bash
 docker compose up --build
 ```
 
-Open:
+访问:
 
 ```text
 http://localhost:5173
 ```
 
-## K3s Deployment
+## 自动部署流程
 
-After GitHub Actions publishes images to Docker Hub:
+当前推荐流程:
 
-```bash
-kubectl apply -k deploy/k8s
-kubectl get pods -n travel-agent-cloud
+```text
+本地测试 -> git push main -> CI -> 构建 Docker Hub 镜像 -> 自动部署到 K3s
 ```
 
-Docker Hub image publishing requires these GitHub repository secrets:
+自动部署已经通过 `.github/workflows/deploy-k3s.yml` 配置：
+
+- `CI` 成功后触发 `Build Images Docker Hub`
+- Docker Hub 镜像构建成功后触发 `Deploy K3s`
+- 自动部署默认使用 commit SHA 作为镜像 tag
+- 手动部署入口仍然保留，可以在 GitHub Actions 页面运行 `Deploy K3s`
+- GHCR 镜像构建 workflow 保留，但 K3s 默认部署 Docker Hub 镜像
+
+需要配置 GitHub repository secrets:
 
 ```text
 DOCKERHUB_USERNAME
 DOCKERHUB_TOKEN
+VPS_HOST
+VPS_USER
+VPS_SSH_KEY
 ```
 
-The GHCR image workflow is kept, but the default K3s manifests currently deploy Docker Hub images.
+## K3s 手动验证
+
+服务器上可以用这些命令检查部署状态:
+
+```bash
+sudo kubectl get nodes
+sudo kubectl get pods -n travel-agent-cloud
+sudo kubectl get ingress -n travel-agent-cloud
+```
+
+如果需要手动应用部署清单:
+
+```bash
+sudo kubectl apply -k deploy/k8s
+sudo kubectl get pods -n travel-agent-cloud
+```

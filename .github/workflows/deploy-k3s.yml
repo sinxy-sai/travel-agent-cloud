@@ -1,13 +1,28 @@
 name: Deploy K3s
 
 on:
+  workflow_run:
+    workflows: ["Build Images Docker Hub"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      imageTag:
+        description: "Docker image tag to deploy"
+        required: true
+        default: "latest"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.imageTag || github.event.workflow_run.head_sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
 
       - name: Configure SSH
         run: |
@@ -23,5 +38,12 @@ jobs:
 
       - name: Apply Kubernetes manifests
         run: |
-          ssh -i ~/.ssh/travel-agent-cloud "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" "kubectl apply -k ~/travel-agent-cloud/deploy/k8s && kubectl get pods -n travel-agent-cloud"
-
+          ssh -i ~/.ssh/travel-agent-cloud "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" "\
+            sudo kubectl apply -k ~/travel-agent-cloud/deploy/k8s && \
+            sudo kubectl set image deployment/frontend frontend=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-frontend:${IMAGE_TAG} -n travel-agent-cloud && \
+            sudo kubectl set image deployment/agent-runtime agent-runtime=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-agent-runtime:${IMAGE_TAG} -n travel-agent-cloud && \
+            sudo kubectl rollout restart deployment/frontend -n travel-agent-cloud && \
+            sudo kubectl rollout restart deployment/agent-runtime -n travel-agent-cloud && \
+            sudo kubectl rollout status deployment/frontend -n travel-agent-cloud --timeout=180s && \
+            sudo kubectl rollout status deployment/agent-runtime -n travel-agent-cloud --timeout=180s && \
+            sudo kubectl get pods -n travel-agent-cloud"

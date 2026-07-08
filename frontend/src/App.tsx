@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Button, Input, InputNumber, Select, Spin } from 'antd';
 import { SendOutlined } from '@ant-design/icons';
-import { createTripPlan, type TripPlanResponse } from './lib/api';
+import { createTripPlan, sendChatMessage, type ChatMessage, type TripPlanResponse } from './lib/api';
 
 const interestOptions = [
   'city walk',
@@ -20,10 +20,21 @@ export default function App() {
   const [budget, setBudget] = useState('moderate');
   const [interests, setInterests] = useState<string[]>(['local food', 'city walk']);
   const [plan, setPlan] = useState<TripPlanResponse | null>(null);
+  const [conversationId, setConversationId] = useState<string | undefined>();
+  const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
-  const mutation = useMutation({
+  const tripPlanMutation = useMutation({
     mutationFn: createTripPlan,
     onSuccess: setPlan,
+  });
+
+  const chatMutation = useMutation({
+    mutationFn: sendChatMessage,
+    onSuccess: (response) => {
+      setConversationId(response.conversationId);
+      setChatMessages((messages) => [...messages, response.message]);
+    },
   });
 
   const requestPreview = useMemo(
@@ -31,9 +42,32 @@ export default function App() {
     [budget, days, destination, interests],
   );
 
+  const sendMessage = () => {
+    const message = chatInput.trim();
+    if (!message || chatMutation.isPending) {
+      return;
+    }
+
+    setChatMessages((messages) => [
+      ...messages,
+      {
+        id: `local-${Date.now()}`,
+        role: 'USER',
+        content: message,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    setChatInput('');
+    chatMutation.mutate({
+      message,
+      conversationId,
+      mode: 'TRIP_PLANNING',
+    });
+  };
+
   return (
     <main className="min-h-screen bg-mist">
-      <section className="mx-auto grid min-h-screen max-w-7xl grid-cols-1 gap-6 px-5 py-6 lg:grid-cols-[360px_1fr]">
+      <section className="mx-auto grid min-h-screen max-w-[1480px] grid-cols-1 gap-6 px-5 py-6 xl:grid-cols-[340px_minmax(0,1fr)_360px]">
         <aside className="rounded-lg bg-white p-5 shadow-panel">
           <div className="mb-6">
             <p className="text-sm font-medium uppercase tracking-wide text-trail">Travel Agent Cloud</p>
@@ -79,9 +113,9 @@ export default function App() {
             <Button
               type="primary"
               icon={<SendOutlined />}
-              loading={mutation.isPending}
+              loading={tripPlanMutation.isPending}
               onClick={() =>
-                mutation.mutate({
+                tripPlanMutation.mutate({
                   destination,
                   days,
                   budget,
@@ -101,25 +135,25 @@ export default function App() {
             <h2 className="mt-1 text-xl font-semibold text-ink">{requestPreview}</h2>
           </div>
 
-          {mutation.isPending && (
+          {tripPlanMutation.isPending && (
             <div className="flex h-80 items-center justify-center">
               <Spin tip="Planning route..." />
             </div>
           )}
 
-          {mutation.isError && (
+          {tripPlanMutation.isError && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
               Agent runtime is unavailable. Start the FastAPI service and try again.
             </div>
           )}
 
-          {!mutation.isPending && !plan && !mutation.isError && (
+          {!tripPlanMutation.isPending && !plan && !tripPlanMutation.isError && (
             <div className="rounded-lg border border-dashed border-slate-300 p-8 text-slate-600">
               Generate a plan to preview the first Agent Runtime response.
             </div>
           )}
 
-          {plan && !mutation.isPending && (
+          {plan && !tripPlanMutation.isPending && (
             <div>
               <div className="mb-5">
                 <h2 className="text-2xl font-semibold text-ink">{plan.title}</h2>
@@ -153,6 +187,60 @@ export default function App() {
             </div>
           )}
         </section>
+
+        <aside className="flex min-h-[560px] flex-col rounded-lg bg-ink p-5 text-white shadow-panel">
+          <div className="mb-4">
+            <p className="text-sm font-medium uppercase tracking-wide text-mist/70">Agent chat</p>
+            <h2 className="mt-2 text-2xl font-semibold">Planning thread</h2>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+            {chatMessages.length === 0 && (
+              <div className="rounded-lg border border-white/15 bg-white/5 p-4 text-sm leading-6 text-mist/80">
+                Ask for a route, constraints, or a planning change.
+              </div>
+            )}
+
+            {chatMessages.map((message) => (
+              <ChatBubble key={message.id} message={message} />
+            ))}
+
+            {chatMutation.isPending && (
+              <div className="rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-mist/80">Thinking...</div>
+            )}
+
+            {chatMutation.isError && (
+              <div className="rounded-lg border border-red-300/40 bg-red-500/10 p-3 text-sm text-red-100">
+                Agent runtime is unavailable.
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <Input.TextArea
+              value={chatInput}
+              onChange={(event) => setChatInput(event.target.value)}
+              onPressEnter={(event) => {
+                if (!event.shiftKey) {
+                  event.preventDefault();
+                  sendMessage();
+                }
+              }}
+              rows={4}
+              maxLength={2000}
+              placeholder="Ask the agent to adjust the trip..."
+            />
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              loading={chatMutation.isPending}
+              onClick={sendMessage}
+              className="w-full"
+            >
+              Send message
+            </Button>
+          </div>
+        </aside>
       </section>
     </main>
   );
@@ -164,5 +252,24 @@ function PlanBlock({ title, value }: { title: string; value: string }) {
       <p className="text-sm font-medium text-trail">{title}</p>
       <p className="mt-1 text-sm leading-6 text-slate-700">{value}</p>
     </div>
+  );
+}
+
+function ChatBubble({ message }: { message: ChatMessage }) {
+  const isUser = message.role === 'USER';
+
+  return (
+    <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div
+        className={`max-w-[92%] rounded-lg px-3 py-2 text-sm leading-6 ${
+          isUser ? 'bg-coral text-white' : 'bg-white text-ink'
+        }`}
+      >
+        <p className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-70">
+          {isUser ? 'You' : 'Agent'}
+        </p>
+        <p>{message.content}</p>
+      </div>
+    </article>
   );
 }
