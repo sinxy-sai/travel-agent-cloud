@@ -1,0 +1,35 @@
+# SSH keys and local secrets
+.ssh/
+*.pem
+*.key
+*.pub
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+
+# Java
+target/
+*.class
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node / React
+node_modules/
+dist/
+build/
+.vite/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
