@@ -1,5 +1,6 @@
 resources:
   - namespace.yaml
+  - postgres.yaml
   - agent-runtime.yaml
   - frontend.yaml
   - ingress.yaml
