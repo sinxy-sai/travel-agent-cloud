@@ -1,8 +1,10 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent import handle_chat
-from app.conversations import ConversationNotFoundError, ConversationStore
+from app.conversations import ConversationNotFoundError, ConversationStore, DatabaseConversationStore
+from app.db import maybe_create_session_factory
+from app.llm import LLMClient
 from app.planner import build_mock_trip_plan
 from app.schemas import (
     ChatRequest,
@@ -14,9 +16,11 @@ from app.schemas import (
     TripPlanResponse,
 )
 from app.settings import get_settings
+from app.users import get_user_id
 
 settings = get_settings()
-conversation_store = ConversationStore()
+session_factory = maybe_create_session_factory(settings)
+conversation_store = DatabaseConversationStore(session_factory) if session_factory else ConversationStore()
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
@@ -30,14 +34,21 @@ app.add_middleware(
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": settings.app_name, "env": settings.app_env}
+def health() -> dict[str, str | bool]:
+    return {
+        "status": "ok",
+        "service": settings.app_name,
+        "env": settings.app_env,
+        "llmEnabled": LLMClient(settings).enabled,
+        "databaseEnabled": session_factory is not None,
+    }
 
 
 @app.post("/api/v1/trip-plan", response_model=TripPlanResponse)
-def create_trip_plan(request: TripPlanRequest) -> TripPlanResponse:
-    response = build_mock_trip_plan(request)
+def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_id)) -> TripPlanResponse:
+    response = LLMClient(settings).generate_trip_plan(request) or build_mock_trip_plan(request)
     conversation = conversation_store.get_or_create(
+        user_id=user_id,
         conversation_id=None,
         mode="TRIP_PLANNING",
         title=response.title,
@@ -48,28 +59,30 @@ def create_trip_plan(request: TripPlanRequest) -> TripPlanResponse:
         f"Plan {request.days} days in {request.destination}, budget={request.budget}, interests={request.interests}",
     )
     conversation_store.append_message(conversation, MessageRole.ASSISTANT, response.summary)
+    conversation_store.save_trip_plan(user_id, conversation, request, response)
     return response
 
 
 @app.post("/api/v1/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+def chat(request: ChatRequest, user_id: str = Depends(get_user_id)) -> ChatResponse:
     try:
-        return handle_chat(request, conversation_store)
+        return handle_chat(user_id, request, conversation_store, settings)
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
 
 
 @app.get("/api/v1/conversations", response_model=ConversationListResponse)
 def list_conversations(
+    user_id: str = Depends(get_user_id),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100, alias="pageSize"),
 ) -> ConversationListResponse:
-    return conversation_store.list(page=page, page_size=page_size)
+    return conversation_store.list(user_id=user_id, page=page, page_size=page_size)
 
 
 @app.get("/api/v1/conversations/{conversation_id}", response_model=Conversation)
-def get_conversation(conversation_id: str) -> Conversation:
+def get_conversation(conversation_id: str, user_id: str = Depends(get_user_id)) -> Conversation:
     try:
-        return conversation_store.get(conversation_id)
+        return conversation_store.get(user_id, conversation_id)
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc

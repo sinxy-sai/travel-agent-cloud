@@ -66,6 +66,11 @@ const api = axios.create({
   timeout: 30000,
 });
 
+api.interceptors.request.use((config) => {
+  config.headers.set('X-User-Id', getAnonymousUserId());
+  return config;
+});
+
 export async function createTripPlan(request: TripPlanRequest): Promise<TripPlanResponse> {
   const response = await api.post<TripPlanResponse>('/api/v1/trip-plan', request);
   return response.data;
@@ -90,4 +95,19 @@ export async function listConversations(page = 1, pageSize = 20): Promise<Conver
 export async function getConversation(conversationId: string): Promise<Conversation> {
   const response = await api.get<Conversation>(`/api/v1/conversations/${conversationId}`);
   return response.data;
+}
+
+function getAnonymousUserId(): string {
+  const storageKey = 'travel-agent-cloud.user-id';
+  const existing = window.localStorage.getItem(storageKey);
+  if (existing) {
+    return existing;
+  }
+
+  const userId =
+    typeof window.crypto?.randomUUID === 'function'
+      ? `anon:${window.crypto.randomUUID()}`
+      : `anon:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+  window.localStorage.setItem(storageKey, userId);
+  return userId;
 }

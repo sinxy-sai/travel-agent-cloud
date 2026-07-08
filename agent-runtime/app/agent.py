@@ -1,16 +1,20 @@
 from app.conversations import ConversationStore
+from app.llm import LLMClient
 from app.schemas import AgentMode, ChatRequest, ChatResponse, MessageRole
+from app.settings import Settings
 
 
-def handle_chat(request: ChatRequest, store: ConversationStore) -> ChatResponse:
+def handle_chat(user_id: str, request: ChatRequest, store: ConversationStore, settings: Settings) -> ChatResponse:
     conversation = store.get_or_create(
+        user_id=user_id,
         conversation_id=request.conversation_id,
         mode=request.mode,
         title=_title_from_message(request.message),
     )
     store.append_message(conversation, MessageRole.USER, request.message)
 
-    content = _build_rule_based_reply(request)
+    llm_client = LLMClient(settings)
+    content = llm_client.generate_chat_reply(conversation.messages, request.mode) or _build_rule_based_reply(request)
     assistant_message = store.append_message(conversation, MessageRole.ASSISTANT, content)
 
     return ChatResponse(

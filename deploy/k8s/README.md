@@ -29,3 +29,17 @@ If your Docker Hub namespace is not `sinxysai`, update the image fields in:
 
 - `agent-runtime.yaml`
 - `frontend.yaml`
+
+`postgres.yaml` is optional and is not part of the default kustomization. Apply it only after creating `postgres-secrets`:
+
+```bash
+kubectl create secret generic postgres-secrets \
+  -n travel-agent-cloud \
+  --from-literal=POSTGRES_USER='travel_agent' \
+  --from-literal=POSTGRES_PASSWORD='change-me' \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl apply -f deploy/k8s/postgres.yaml
+```
+
+Then add `DATABASE_URL` to `agent-runtime-secrets` and restart `agent-runtime`.

@@ -80,6 +80,14 @@ docker compose up --build
 http://localhost:5173
 ```
 
+Docker Compose 会同时启动本地 PostgreSQL，并给 `agent-runtime` 注入:
+
+```text
+DATABASE_URL=postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
+```
+
+后端会自动创建当前需要的 `conversations`、`messages`、`trip_plans` 表。
+
 ## 自动部署流程
 
 当前推荐流程:
@@ -122,3 +130,91 @@ sudo kubectl get ingress -n travel-agent-cloud
 sudo kubectl apply -k deploy/k8s
 sudo kubectl get pods -n travel-agent-cloud
 ```
+
+## 配置真实大模型
+
+`agent-runtime` 默认使用 mock 响应。要在 K3s 里启用 OpenAI-compatible 模型接口，在服务器执行:
+
+```bash
+sudo kubectl create secret generic agent-runtime-secrets \
+  -n travel-agent-cloud \
+  --from-literal=LLM_PROVIDER=openai_compatible \
+  --from-literal=LLM_API_KEY='你的 API Key' \
+  --from-literal=LLM_BASE_URL='https://api.openai.com/v1' \
+  --from-literal=LLM_MODEL='你的模型名称' \
+  --dry-run=client -o yaml | sudo kubectl apply -f -
+```
+
+然后重启 Agent Runtime:
+
+```bash
+sudo kubectl rollout restart deployment/agent-runtime -n travel-agent-cloud
+sudo kubectl rollout status deployment/agent-runtime -n travel-agent-cloud
+```
+
+验证是否启用:
+
+```bash
+curl http://localhost/health
+```
+
+返回里的 `llmEnabled` 为 `true` 表示真实模型配置已经生效。
+
+你本地的 `agent-runtime/.env` 只用于本机测试，不会自动同步到 VPS。VPS 上的大模型配置也要写入 Kubernetes Secret:
+
+```bash
+sudo kubectl create secret generic agent-runtime-secrets \
+  -n travel-agent-cloud \
+  --from-literal=LLM_PROVIDER=openai_compatible \
+  --from-literal=LLM_API_KEY='你的 API Key' \
+  --from-literal=LLM_BASE_URL='https://api.deepseek.com' \
+  --from-literal=LLM_MODEL='deepseek-v4-flash' \
+  --dry-run=client -o yaml | sudo kubectl apply -f -
+```
+
+## 配置 PostgreSQL 持久化
+
+当前后端支持两种存储模式:
+
+- 未配置 `DATABASE_URL`: 使用内存存储，Pod 重启后会话丢失。
+- 配置 `DATABASE_URL`: 使用数据库持久化，并按 `X-User-Id` 隔离不同用户的会话。
+
+如果要在 K3s 内部署项目自带的 PostgreSQL，先创建数据库 Secret:
+
+```bash
+sudo kubectl create secret generic postgres-secrets \
+  -n travel-agent-cloud \
+  --from-literal=POSTGRES_USER='travel_agent' \
+  --from-literal=POSTGRES_PASSWORD='换成强密码' \
+  --dry-run=client -o yaml | sudo kubectl apply -f -
+```
+
+再部署 PostgreSQL:
+
+```bash
+sudo kubectl apply -f deploy/k8s/postgres.yaml
+sudo kubectl rollout status deployment/postgres -n travel-agent-cloud
+```
+
+然后把数据库连接写入 `agent-runtime-secrets`。如果这个 Secret 已经用于 LLM 配置，下面命令要同时保留原来的 LLM 字段:
+
+```bash
+sudo kubectl create secret generic agent-runtime-secrets \
+  -n travel-agent-cloud \
+  --from-literal=DATABASE_URL='postgresql://travel_agent:换成强密码@postgres:5432/travel_agent_cloud' \
+  --from-literal=LLM_PROVIDER=openai_compatible \
+  --from-literal=LLM_API_KEY='你的 API Key' \
+  --from-literal=LLM_BASE_URL='https://api.deepseek.com' \
+  --from-literal=LLM_MODEL='deepseek-v4-flash' \
+  --dry-run=client -o yaml | sudo kubectl apply -f -
+```
+
+重启后端:
+
+```bash
+sudo kubectl rollout restart deployment/agent-runtime -n travel-agent-cloud
+sudo kubectl rollout status deployment/agent-runtime -n travel-agent-cloud
+curl http://localhost/health
+```
+
+返回里的 `databaseEnabled` 为 `true` 表示数据库持久化已经生效。

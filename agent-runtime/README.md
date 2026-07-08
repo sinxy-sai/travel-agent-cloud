@@ -17,6 +17,33 @@ Health check:
 curl http://localhost:8000/health
 ```
 
+The runtime uses mock responses by default. To connect an OpenAI-compatible chat completion API, create `.env` from `.env.example` and set:
+
+```bash
+LLM_PROVIDER=openai_compatible
+LLM_API_KEY=your-api-key
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=your-model-name
+```
+
+If the model is not configured or the provider call fails, the service falls back to deterministic mock responses so local development and deployment checks still work.
+
+## Persistence
+
+The runtime uses in-memory conversation storage by default. Set `DATABASE_URL` to enable SQL-backed storage:
+
+```bash
+DATABASE_URL=postgresql://travel_agent:password@localhost:5432/travel_agent_cloud
+```
+
+When database storage is enabled, the service creates the current tables on startup:
+
+- `conversations`
+- `messages`
+- `trip_plans`
+
+Conversation APIs are scoped by `X-User-Id`. This is an anonymous-user boundary for the current milestone, not a replacement for real authentication.
+
 ## API
 
 Create a structured trip plan:
