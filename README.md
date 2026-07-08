@@ -28,3 +28,39 @@
 - travel-knowledge
 - travel-task
 - travel-common
+
+## Current Milestone
+
+The first runnable version contains:
+
+- `frontend`: React + Vite trip planner workspace
+- `agent-runtime`: FastAPI mock travel planning service
+- `services`: placeholders for future Spring Cloud services
+- `scripts`: VPS bootstrap scripts
+- `deploy`: future Kubernetes and Helm deployment assets
+
+## Local Development
+
+Start Agent Runtime:
+
+```bash
+cd agent-runtime
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Start frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:5173
+```

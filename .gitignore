@@ -26,10 +26,11 @@ node_modules/
 dist/
 build/
 .vite/
+.npm-cache/
+*.tsbuildinfo
 
 # IDE / OS
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
-
