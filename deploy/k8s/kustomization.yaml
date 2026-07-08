@@ -1,0 +1,5 @@
+resources:
+  - namespace.yaml
+  - agent-runtime.yaml
+  - frontend.yaml
+  - ingress.yaml

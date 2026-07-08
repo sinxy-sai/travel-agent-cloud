@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-runtime
+  namespace: travel-agent-cloud
+  labels:
+    app: agent-runtime
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-runtime
+  template:
+    metadata:
+      labels:
+        app: agent-runtime
+    spec:
+      containers:
+        - name: agent-runtime
+          image: ghcr.io/sinxy-sai/travel-agent-cloud-agent-runtime:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: APP_ENV
+              value: production
+            - name: ALLOWED_ORIGINS
+              value: "*"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-runtime
+  namespace: travel-agent-cloud
+spec:
+  selector:
+    app: agent-runtime
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

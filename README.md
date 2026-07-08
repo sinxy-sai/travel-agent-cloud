@@ -64,3 +64,24 @@ Open:
 ```text
 http://localhost:5173
 ```
+
+## Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+```text
+http://localhost:5173
+```
+
+## K3s Deployment
+
+After GitHub Actions publishes images to GHCR:
+
+```bash
+kubectl apply -k deploy/k8s
+kubectl get pods -n travel-agent-cloud
+```
