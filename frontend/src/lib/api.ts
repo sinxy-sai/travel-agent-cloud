@@ -46,6 +46,11 @@ export interface TripPlanListResponse {
   totalPages: number;
 }
 
+export interface TripPlanListParams {
+  favoriteOnly?: boolean;
+  query?: string;
+}
+
 export type MessageRole = 'USER' | 'ASSISTANT' | 'SYSTEM';
 export type AgentMode = 'CHAT' | 'TRIP_PLANNING';
 
@@ -138,9 +143,13 @@ export async function deleteConversation(conversationId: string): Promise<void> 
   await api.delete(`/api/v1/conversations/${conversationId}`);
 }
 
-export async function listTripPlans(page = 1, pageSize = 20): Promise<TripPlanListResponse> {
+export async function listTripPlans(
+  page = 1,
+  pageSize = 20,
+  params: TripPlanListParams = {},
+): Promise<TripPlanListResponse> {
   const response = await api.get<TripPlanListResponse>('/api/v1/trip-plans', {
-    params: { page, pageSize },
+    params: { page, pageSize, ...params },
   });
   return response.data;
 }

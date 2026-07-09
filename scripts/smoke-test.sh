@@ -104,6 +104,20 @@ if [ "${FIRST_IS_FAVORITE}" != "yes" ]; then
   echo "Trip plan history did not sort favorite plans first" >&2
   exit 1
 fi
+FAVORITE_ONLY_TRIP_PLANS_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20&favoriteOnly=true" \
+  -H "X-User-Id: ${USER_ID}")"
+FAVORITE_ONLY_HAS_FAVORITE="$(printf '%s' "${FAVORITE_ONLY_TRIP_PLANS_JSON}" | python3 -c 'import json, sys; data = json.load(sys.stdin).get("data", []); print("yes" if data and data[0].get("favorite") else "no")')"
+if [ "${FAVORITE_ONLY_HAS_FAVORITE}" != "yes" ]; then
+  echo "Trip plan favoriteOnly filter did not return favorite plans" >&2
+  exit 1
+fi
+SEARCH_TRIP_PLANS_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20&query=Chengdu" \
+  -H "X-User-Id: ${USER_ID}")"
+SEARCH_HAS_CREATED_PLAN="$(printf '%s' "${SEARCH_TRIP_PLANS_JSON}" | TRIP_PLAN_ID="${TRIP_PLAN_ID}" python3 -c 'import json, os, sys; data = json.load(sys.stdin).get("data", []); trip_plan_id = os.environ["TRIP_PLAN_ID"]; print("yes" if any(item.get("id") == trip_plan_id for item in data) else "no")')"
+if [ "${SEARCH_HAS_CREATED_PLAN}" != "yes" ]; then
+  echo "Trip plan query filter did not return the created Chengdu plan" >&2
+  exit 1
+fi
 echo
 
 echo "Checking trip plan export API"

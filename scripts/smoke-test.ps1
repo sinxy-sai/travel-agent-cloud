@@ -72,6 +72,14 @@ $favoriteTripPlans = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans?page=1&p
 if (-not $favoriteTripPlans.data[0].favorite) {
   throw "Trip plan history did not sort favorite plans first"
 }
+$favoriteOnlyTripPlans = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans?page=1&pageSize=20&favoriteOnly=true" -Headers $headers
+if (-not $favoriteOnlyTripPlans.data -or -not $favoriteOnlyTripPlans.data[0].favorite) {
+  throw "Trip plan favoriteOnly filter did not return favorite plans"
+}
+$searchTripPlans = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans?page=1&pageSize=20&query=Chengdu" -Headers $headers
+if (-not ($searchTripPlans.data | Where-Object { $_.id -eq $createdTripPlan.savedTripPlanId })) {
+  throw "Trip plan query filter did not return the created Chengdu plan"
+}
 
 Write-Host "Checking trip plan export API"
 $markdown = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/export" -Headers $headers

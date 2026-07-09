@@ -120,8 +120,16 @@ def list_trip_plans(
     user_id: str = Depends(get_user_id),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100, alias="pageSize"),
+    favorite_only: bool = Query(default=False, alias="favoriteOnly"),
+    query: str = Query(default="", max_length=80),
 ) -> TripPlanListResponse:
-    return conversation_store.list_trip_plans(user_id=user_id, page=page, page_size=page_size)
+    return conversation_store.list_trip_plans(
+        user_id=user_id,
+        page=page,
+        page_size=page_size,
+        favorite_only=favorite_only,
+        query=query,
+    )
 
 
 @app.get("/api/v1/trip-plans/{trip_plan_id}", response_model=SavedTripPlan)

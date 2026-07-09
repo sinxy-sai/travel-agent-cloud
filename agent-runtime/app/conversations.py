@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from math import ceil
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import session_scope
@@ -117,9 +117,23 @@ class ConversationStore:
         self._trip_plans[trip_plan.id] = (user_id, trip_plan)
         return trip_plan
 
-    def list_trip_plans(self, user_id: str, page: int, page_size: int) -> TripPlanListResponse:
+    def list_trip_plans(
+        self,
+        user_id: str,
+        page: int,
+        page_size: int,
+        favorite_only: bool = False,
+        query: str = "",
+    ) -> TripPlanListResponse:
+        normalized_query = query.strip().lower()
         trip_plans = sorted(
-            [trip_plan for owner_id, trip_plan in self._trip_plans.values() if owner_id == user_id],
+            [
+                trip_plan
+                for owner_id, trip_plan in self._trip_plans.values()
+                if owner_id == user_id
+                and (not favorite_only or trip_plan.favorite)
+                and _matches_trip_plan_query(trip_plan, normalized_query)
+            ],
             key=lambda trip_plan: (trip_plan.favorite, trip_plan.created_at),
             reverse=True,
         )
@@ -264,14 +278,34 @@ class DatabaseConversationStore:
             session.flush()
             return _to_trip_plan(record)
 
-    def list_trip_plans(self, user_id: str, page: int, page_size: int) -> TripPlanListResponse:
+    def list_trip_plans(
+        self,
+        user_id: str,
+        page: int,
+        page_size: int,
+        favorite_only: bool = False,
+        query: str = "",
+    ) -> TripPlanListResponse:
         with session_scope(self._session_factory) as session:
-            total_items = session.scalar(
-                select(func.count()).select_from(TripPlanRecord).where(TripPlanRecord.user_id == user_id)
-            )
+            where_clauses = [TripPlanRecord.user_id == user_id]
+            if favorite_only:
+                where_clauses.append(TripPlanRecord.is_favorite.is_(True))
+
+            normalized_query = query.strip()
+            if normalized_query:
+                query_pattern = f"%{normalized_query}%"
+                where_clauses.append(
+                    or_(
+                        TripPlanRecord.title.ilike(query_pattern),
+                        TripPlanRecord.destination.ilike(query_pattern),
+                        TripPlanRecord.interests.ilike(query_pattern),
+                    )
+                )
+
+            total_items = session.scalar(select(func.count()).select_from(TripPlanRecord).where(*where_clauses))
             records = session.scalars(
                 select(TripPlanRecord)
-                .where(TripPlanRecord.user_id == user_id)
+                .where(*where_clauses)
                 .order_by(TripPlanRecord.is_favorite.desc(), TripPlanRecord.created_at.desc())
                 .offset((page - 1) * page_size)
                 .limit(page_size)
@@ -360,6 +394,13 @@ def _to_trip_plan(record: TripPlanRecord) -> SavedTripPlan:
         favorite=record.is_favorite,
         created_at=record.created_at,
     )
+
+
+def _matches_trip_plan_query(trip_plan: SavedTripPlan, normalized_query: str) -> bool:
+    if not normalized_query:
+        return True
+    searchable_text = " ".join([trip_plan.title, trip_plan.destination, trip_plan.interests]).lower()
+    return normalized_query in searchable_text
 
 
 def _now() -> datetime:

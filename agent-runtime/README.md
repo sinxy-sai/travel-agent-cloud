@@ -98,6 +98,12 @@ List saved trip plans:
 curl "http://localhost:8000/api/v1/trip-plans?page=1&pageSize=20"
 ```
 
+Filter saved trip plans:
+
+```bash
+curl "http://localhost:8000/api/v1/trip-plans?page=1&pageSize=20&favoriteOnly=true&query=Chengdu"
+```
+
 Get a saved trip plan:
 
 ```bash

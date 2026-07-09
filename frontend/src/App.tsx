@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Empty, Input, InputNumber, Popconfirm, Select, Spin } from 'antd';
+import { Button, Empty, Input, InputNumber, Popconfirm, Segmented, Select, Spin } from 'antd';
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -57,6 +57,9 @@ export default function App() {
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatSuggestions, setChatSuggestions] = useState<string[]>(defaultChatSuggestions);
+  const [tripPlanFilter, setTripPlanFilter] = useState<'ALL' | 'FAVORITES'>('ALL');
+  const [tripPlanSearchInput, setTripPlanSearchInput] = useState('');
+  const [tripPlanSearch, setTripPlanSearch] = useState('');
 
   const conversationsQuery = useQuery({
     queryKey: ['conversations'],
@@ -64,8 +67,12 @@ export default function App() {
   });
 
   const tripPlansQuery = useQuery({
-    queryKey: ['trip-plans'],
-    queryFn: () => listTripPlans(1, 8),
+    queryKey: ['trip-plans', tripPlanFilter, tripPlanSearch],
+    queryFn: () =>
+      listTripPlans(1, 8, {
+        favoriteOnly: tripPlanFilter === 'FAVORITES',
+        query: tripPlanSearch || undefined,
+      }),
   });
 
   const healthQuery = useQuery({
@@ -278,6 +285,7 @@ export default function App() {
             <HistorySection
               title="Recent conversations"
               emptyText="No saved threads yet"
+              hasItems={Boolean(conversationsQuery.data?.data.length)}
               loading={
                 conversationsQuery.isLoading ||
                 loadConversationMutation.isPending ||
@@ -298,11 +306,39 @@ export default function App() {
             <HistorySection
               title="Saved itineraries"
               emptyText="No saved plans yet"
+              hasItems={Boolean(tripPlansQuery.data?.data.length)}
               loading={
                 tripPlansQuery.isLoading ||
                 loadTripPlanMutation.isPending ||
                 deleteTripPlanMutation.isPending ||
                 updateTripPlanFavoriteMutation.isPending
+              }
+              controls={
+                <div className="space-y-2">
+                  <Segmented
+                    block
+                    size="small"
+                    value={tripPlanFilter}
+                    options={[
+                      { label: 'All', value: 'ALL' },
+                      { label: 'Favorites', value: 'FAVORITES' },
+                    ]}
+                    onChange={(value) => setTripPlanFilter(value as 'ALL' | 'FAVORITES')}
+                  />
+                  <Input.Search
+                    allowClear
+                    size="small"
+                    placeholder="Search saved trips"
+                    value={tripPlanSearchInput}
+                    onChange={(event) => {
+                      setTripPlanSearchInput(event.target.value);
+                      if (!event.target.value) {
+                        setTripPlanSearch('');
+                      }
+                    }}
+                    onSearch={(value) => setTripPlanSearch(value.trim())}
+                  />
+                </div>
               }
             >
               {tripPlansQuery.data?.data.map((savedTripPlan) => (
@@ -525,14 +561,18 @@ function HistorySection({
   title,
   emptyText,
   loading,
+  hasItems,
+  controls,
   children,
 }: {
   title: string;
   emptyText: string;
   loading: boolean;
+  hasItems?: boolean;
+  controls?: ReactNode;
   children: ReactNode;
 }) {
-  const hasItems = Array.isArray(children) ? children.length > 0 : Boolean(children);
+  const hasVisibleItems = hasItems ?? (Array.isArray(children) ? children.length > 0 : Boolean(children));
 
   return (
     <section className="mb-5">
@@ -540,8 +580,9 @@ function HistorySection({
         <h2 className="text-sm font-semibold text-ink">{title}</h2>
         {loading && <Spin size="small" />}
       </div>
+      {controls && <div className="mb-3">{controls}</div>}
       <div className="space-y-2">
-        {hasItems ? (
+        {hasVisibleItems ? (
           children
         ) : (
           <div className="rounded-md border border-dashed border-slate-200 px-2 py-3">
