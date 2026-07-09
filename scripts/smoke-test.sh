@@ -5,7 +5,19 @@ BASE_URL="${1:-http://localhost:8000}"
 USER_ID="smoke-test-user"
 
 echo "Checking health: ${BASE_URL}/health"
-curl -fsS "${BASE_URL}/health"
+HEALTH_HEADERS="$(mktemp)"
+curl -fsS -D "${HEALTH_HEADERS}" "${BASE_URL}/health"
+if ! grep -qi '^x-request-id:' "${HEALTH_HEADERS}"; then
+  echo "Health API did not return X-Request-ID" >&2
+  rm -f "${HEALTH_HEADERS}"
+  exit 1
+fi
+if ! grep -qi '^x-process-time-ms:' "${HEALTH_HEADERS}"; then
+  echo "Health API did not return X-Process-Time-Ms" >&2
+  rm -f "${HEALTH_HEADERS}"
+  exit 1
+fi
+rm -f "${HEALTH_HEADERS}"
 echo
 
 echo "Checking chat API"

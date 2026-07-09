@@ -8,7 +8,14 @@ $headers = @{
 }
 
 Write-Host "Checking health: $BaseUrl/health"
-Invoke-RestMethod -Uri "$BaseUrl/health"
+$healthResponse = Invoke-WebRequest -Uri "$BaseUrl/health"
+if (-not $healthResponse.Headers["X-Request-ID"]) {
+  throw "Health API did not return X-Request-ID"
+}
+if (-not $healthResponse.Headers["X-Process-Time-Ms"]) {
+  throw "Health API did not return X-Process-Time-Ms"
+}
+$healthResponse.Content | ConvertFrom-Json
 
 Write-Host "Checking chat API"
 $chatBody = @{

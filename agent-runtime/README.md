@@ -28,6 +28,15 @@ LLM_MODEL=your-model-name
 
 If the model is not configured or the provider call fails, the service falls back to deterministic mock responses so local development and deployment checks still work.
 
+## Observability
+
+Every HTTP response includes:
+
+- `X-Request-ID`: generated automatically, or propagated from the incoming `X-Request-ID` header.
+- `X-Process-Time-Ms`: backend request processing time in milliseconds.
+
+Request logs are written to stdout for container collection. Set `LOG_LEVEL=DEBUG`, `INFO`, `WARNING`, or `ERROR` to control runtime verbosity.
+
 ## Persistence
 
 The runtime uses in-memory conversation storage by default. Set `DATABASE_URL` to enable SQL-backed storage:

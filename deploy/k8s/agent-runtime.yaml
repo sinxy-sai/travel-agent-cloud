@@ -26,6 +26,8 @@ spec:
               value: production
             - name: ALLOWED_ORIGINS
               value: "*"
+            - name: LOG_LEVEL
+              value: INFO
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

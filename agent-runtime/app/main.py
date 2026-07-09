@@ -12,6 +12,7 @@ from app.conversations import (
 from app.db import maybe_create_session_factory
 from app.exporter import saved_trip_plan_to_markdown
 from app.llm import LLMClient
+from app.observability import RequestLoggingMiddleware, configure_logging
 from app.planner import build_mock_trip_plan
 from app.schemas import (
     ChatRequest,
@@ -28,11 +29,13 @@ from app.settings import get_settings
 from app.users import get_user_id
 
 settings = get_settings()
+configure_logging(settings)
 session_factory = maybe_create_session_factory(settings)
 conversation_store = DatabaseConversationStore(session_factory) if session_factory else ConversationStore()
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
