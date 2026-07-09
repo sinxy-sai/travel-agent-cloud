@@ -1,9 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Empty, Input, InputNumber, Select, Spin } from 'antd';
-import { HistoryOutlined, SendOutlined } from '@ant-design/icons';
+import { DownloadOutlined, HistoryOutlined, SendOutlined } from '@ant-design/icons';
 import {
   createTripPlan,
+  exportTripPlanMarkdown,
   getConversation,
   getTripPlan,
   listConversations,
@@ -87,6 +88,24 @@ export default function App() {
       if (savedTripPlan.conversationId) {
         setConversationId(savedTripPlan.conversationId);
       }
+    },
+  });
+
+  const exportTripPlanMutation = useMutation({
+    mutationFn: async () => {
+      if (!plan) {
+        return;
+      }
+
+      const markdown = selectedTripPlanId
+        ? await exportTripPlanMarkdown(selectedTripPlanId)
+        : tripPlanToMarkdown(plan, {
+            destination,
+            days,
+            budget,
+            interests: interests.join(', '),
+          });
+      downloadTextFile(markdown, `${slugify(plan.title)}.md`);
     },
   });
 
@@ -240,9 +259,18 @@ export default function App() {
 
           {plan && !tripPlanMutation.isPending && (
             <div>
-              <div className="mb-5">
-                <h2 className="text-2xl font-semibold text-ink">{plan.title}</h2>
-                <p className="mt-2 max-w-3xl text-slate-600">{plan.summary}</p>
+              <div className="mb-5 flex flex-col gap-3 border-b border-slate-200 pb-5 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-2xl font-semibold text-ink">{plan.title}</h2>
+                  <p className="mt-2 max-w-3xl text-slate-600">{plan.summary}</p>
+                </div>
+                <Button
+                  icon={<DownloadOutlined />}
+                  loading={exportTripPlanMutation.isPending}
+                  onClick={() => exportTripPlanMutation.mutate()}
+                >
+                  Export .md
+                </Button>
               </div>
 
               <div className="grid gap-4">
@@ -420,7 +448,7 @@ function TripPlanHistoryItem({
     >
       <p className="truncate text-sm font-medium text-ink">{tripPlan.title}</p>
       <p className="mt-1 text-xs text-slate-500">
-        {tripPlan.destination} · {tripPlan.days} days · {tripPlan.budget}
+        {tripPlan.destination} / {tripPlan.days} days / {tripPlan.budget}
       </p>
       <p className="mt-1 text-xs text-slate-400">{formatDateTime(tripPlan.createdAt)}</p>
     </button>
@@ -460,4 +488,63 @@ function splitInterests(value: string): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function tripPlanToMarkdown(
+  plan: TripPlanResponse,
+  request: { destination: string; days: number; budget: string; interests: string },
+): string {
+  const header = [
+    `# ${plan.title}`,
+    '',
+    `- Destination: ${request.destination}`,
+    `- Days: ${request.days}`,
+    `- Budget: ${request.budget}`,
+  ];
+
+  if (request.interests) {
+    header.push(`- Interests: ${request.interests}`);
+  }
+
+  const body = [
+    '',
+    plan.summary,
+    '',
+    '## Itinerary',
+    '',
+    ...plan.days.flatMap((day) => [
+      `### Day ${day.day}: ${day.theme}`,
+      '',
+      `- Morning: ${day.morning}`,
+      `- Afternoon: ${day.afternoon}`,
+      `- Evening: ${day.evening}`,
+      '',
+    ]),
+  ];
+
+  if (plan.tips.length > 0) {
+    body.push('## Travel notes', '', ...plan.tips.map((tip) => `- ${tip}`), '');
+  }
+
+  return [...header, ...body].join('\n').trim() + '\n';
+}
+
+function downloadTextFile(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function slugify(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'trip-plan';
 }

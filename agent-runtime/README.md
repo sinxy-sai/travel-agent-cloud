@@ -86,4 +86,10 @@ Get a saved trip plan:
 curl http://localhost:8000/api/v1/trip-plans/{tripPlanId}
 ```
 
+Export a saved trip plan as Markdown:
+
+```bash
+curl http://localhost:8000/api/v1/trip-plans/{tripPlanId}/export
+```
+
 If `DATABASE_URL` is configured, conversations and trip plans are persisted to PostgreSQL. Without `DATABASE_URL`, the service uses in-memory storage for local development.

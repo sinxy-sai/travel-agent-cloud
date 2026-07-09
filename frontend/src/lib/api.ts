@@ -129,6 +129,13 @@ export async function getTripPlan(tripPlanId: string): Promise<SavedTripPlan> {
   return response.data;
 }
 
+export async function exportTripPlanMarkdown(tripPlanId: string): Promise<string> {
+  const response = await api.get<string>(`/api/v1/trip-plans/${tripPlanId}/export`, {
+    responseType: 'text',
+  });
+  return response.data;
+}
+
 function getAnonymousUserId(): string {
   const storageKey = 'travel-agent-cloud.user-id';
   const existing = window.localStorage.getItem(storageKey);

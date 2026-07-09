@@ -28,8 +28,28 @@ curl -fsS "${BASE_URL}/api/v1/conversations?page=1&pageSize=20" \
 echo
 
 echo "Checking trip plan history API"
-curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20" \
-  -H "X-User-Id: ${USER_ID}"
+TRIP_PLANS_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20" \
+  -H "X-User-Id: ${USER_ID}")"
+echo "${TRIP_PLANS_JSON}"
+echo
+
+TRIP_PLAN_ID="$(printf '%s' "${TRIP_PLANS_JSON}" | python3 -c 'import json, sys; data = json.load(sys.stdin).get("data", []); print(data[0]["id"] if data else "")')"
+if [ -z "${TRIP_PLAN_ID}" ]; then
+  echo "Trip plan history did not return a saved plan" >&2
+  exit 1
+fi
+
+echo "Checking trip plan export API"
+MARKDOWN="$(curl -fsS "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}/export" \
+  -H "X-User-Id: ${USER_ID}")"
+printf '%s\n' "${MARKDOWN}"
+case "${MARKDOWN}" in
+  \#*) ;;
+  *)
+    echo "Trip plan export did not return markdown" >&2
+    exit 1
+    ;;
+esac
 echo
 
 echo "Smoke test passed"

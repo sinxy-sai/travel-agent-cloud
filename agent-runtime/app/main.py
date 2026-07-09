@@ -1,5 +1,6 @@
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
 from app.agent import handle_chat
 from app.conversations import (
@@ -9,6 +10,7 @@ from app.conversations import (
     TripPlanNotFoundError,
 )
 from app.db import maybe_create_session_factory
+from app.exporter import saved_trip_plan_to_markdown
 from app.llm import LLMClient
 from app.planner import build_mock_trip_plan
 from app.schemas import (
@@ -110,3 +112,24 @@ def get_trip_plan(trip_plan_id: str, user_id: str = Depends(get_user_id)) -> Sav
         return conversation_store.get_trip_plan(user_id, trip_plan_id)
     except TripPlanNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+
+
+@app.get("/api/v1/trip-plans/{trip_plan_id}/export", response_class=PlainTextResponse)
+def export_trip_plan(trip_plan_id: str, user_id: str = Depends(get_user_id)) -> PlainTextResponse:
+    try:
+        saved_trip_plan = conversation_store.get_trip_plan(user_id, trip_plan_id)
+    except TripPlanNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+
+    filename = _download_filename(saved_trip_plan.title)
+    return PlainTextResponse(
+        content=saved_trip_plan_to_markdown(saved_trip_plan),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _download_filename(title: str) -> str:
+    safe_title = "".join(character if character.isalnum() else "-" for character in title.lower())
+    safe_title = "-".join(part for part in safe_title.split("-") if part)
+    return f"{safe_title or 'trip-plan'}.md"
