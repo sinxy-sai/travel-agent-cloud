@@ -7,6 +7,8 @@
 .env.*
 !.env.example
 .secret
+SECRET
+**/SECRET
 
 
 # Logs

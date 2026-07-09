@@ -13,6 +13,8 @@ from app.schemas import (
     Conversation,
     ConversationListResponse,
     MessageRole,
+    SavedTripPlan,
+    TripPlanListResponse,
     TripPlanRequest,
     TripPlanResponse,
 )
@@ -22,9 +24,14 @@ class ConversationNotFoundError(Exception):
     pass
 
 
+class TripPlanNotFoundError(Exception):
+    pass
+
+
 class ConversationStore:
     def __init__(self) -> None:
         self._conversations: dict[str, tuple[str, Conversation]] = {}
+        self._trip_plans: dict[str, tuple[str, SavedTripPlan]] = {}
 
     def get_or_create(self, user_id: str, conversation_id: str | None, mode: AgentMode | str, title: str) -> Conversation:
         if conversation_id:
@@ -85,8 +92,43 @@ class ConversationStore:
         conversation: Conversation,
         request: TripPlanRequest,
         response: TripPlanResponse,
-    ) -> None:
-        return None
+    ) -> SavedTripPlan:
+        trip_plan = SavedTripPlan(
+            id=str(uuid4()),
+            conversation_id=conversation.id,
+            title=response.title,
+            destination=request.destination,
+            days=request.days,
+            budget=request.budget,
+            interests=request.interests,
+            plan=response,
+            created_at=_now(),
+        )
+        self._trip_plans[trip_plan.id] = (user_id, trip_plan)
+        return trip_plan
+
+    def list_trip_plans(self, user_id: str, page: int, page_size: int) -> TripPlanListResponse:
+        trip_plans = sorted(
+            [trip_plan for owner_id, trip_plan in self._trip_plans.values() if owner_id == user_id],
+            key=lambda trip_plan: trip_plan.created_at,
+            reverse=True,
+        )
+        start = (page - 1) * page_size
+        end = start + page_size
+        total_items = len(trip_plans)
+        return TripPlanListResponse(
+            data=trip_plans[start:end],
+            page=page,
+            page_size=page_size,
+            total_items=total_items,
+            total_pages=ceil(total_items / page_size) if total_items else 0,
+        )
+
+    def get_trip_plan(self, user_id: str, trip_plan_id: str) -> SavedTripPlan:
+        item = self._trip_plans.get(trip_plan_id)
+        if item is None or item[0] != user_id:
+            raise TripPlanNotFoundError(trip_plan_id)
+        return item[1]
 
 
 class DatabaseConversationStore:
@@ -163,20 +205,52 @@ class DatabaseConversationStore:
         conversation: Conversation,
         request: TripPlanRequest,
         response: TripPlanResponse,
-    ) -> None:
+    ) -> SavedTripPlan:
         with session_scope(self._session_factory) as session:
-            session.add(
-                TripPlanRecord(
-                    user_id=user_id,
-                    conversation_id=conversation.id,
-                    title=response.title,
-                    destination=request.destination,
-                    days=request.days,
-                    budget=request.budget,
-                    interests=request.interests,
-                    plan=response.model_dump(mode="json", by_alias=True),
-                )
+            record = TripPlanRecord(
+                user_id=user_id,
+                conversation_id=conversation.id,
+                title=response.title,
+                destination=request.destination,
+                days=request.days,
+                budget=request.budget,
+                interests=request.interests,
+                plan=response.model_dump(mode="json", by_alias=True),
             )
+            session.add(record)
+            session.flush()
+            return _to_trip_plan(record)
+
+    def list_trip_plans(self, user_id: str, page: int, page_size: int) -> TripPlanListResponse:
+        with session_scope(self._session_factory) as session:
+            total_items = session.scalar(
+                select(func.count()).select_from(TripPlanRecord).where(TripPlanRecord.user_id == user_id)
+            )
+            records = session.scalars(
+                select(TripPlanRecord)
+                .where(TripPlanRecord.user_id == user_id)
+                .order_by(TripPlanRecord.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).all()
+
+            total = int(total_items or 0)
+            return TripPlanListResponse(
+                data=[_to_trip_plan(record) for record in records],
+                page=page,
+                page_size=page_size,
+                total_items=total,
+                total_pages=ceil(total / page_size) if total else 0,
+            )
+
+    def get_trip_plan(self, user_id: str, trip_plan_id: str) -> SavedTripPlan:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(
+                select(TripPlanRecord).where(TripPlanRecord.id == trip_plan_id, TripPlanRecord.user_id == user_id)
+            )
+            if record is None:
+                raise TripPlanNotFoundError(trip_plan_id)
+            return _to_trip_plan(record)
 
 
 def _get_conversation_record(
@@ -206,6 +280,20 @@ def _to_message(record: MessageRecord) -> ChatMessage:
         id=record.id,
         role=MessageRole(record.role),
         content=record.content,
+        created_at=record.created_at,
+    )
+
+
+def _to_trip_plan(record: TripPlanRecord) -> SavedTripPlan:
+    return SavedTripPlan(
+        id=record.id,
+        conversation_id=record.conversation_id,
+        title=record.title,
+        destination=record.destination,
+        days=record.days,
+        budget=record.budget,
+        interests=record.interests,
+        plan=TripPlanResponse.model_validate(record.plan),
         created_at=record.created_at,
     )
 

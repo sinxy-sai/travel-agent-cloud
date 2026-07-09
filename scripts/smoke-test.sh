@@ -27,4 +27,9 @@ curl -fsS "${BASE_URL}/api/v1/conversations?page=1&pageSize=20" \
   -H "X-User-Id: ${USER_ID}"
 echo
 
+echo "Checking trip plan history API"
+curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20" \
+  -H "X-User-Id: ${USER_ID}"
+echo
+
 echo "Smoke test passed"

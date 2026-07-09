@@ -22,6 +22,26 @@ export interface TripPlanResponse {
   tips: string[];
 }
 
+export interface SavedTripPlan {
+  id: string;
+  conversationId?: string;
+  title: string;
+  destination: string;
+  days: number;
+  budget: string;
+  interests: string;
+  plan: TripPlanResponse;
+  createdAt: string;
+}
+
+export interface TripPlanListResponse {
+  data: SavedTripPlan[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+}
+
 export type MessageRole = 'USER' | 'ASSISTANT' | 'SYSTEM';
 export type AgentMode = 'CHAT' | 'TRIP_PLANNING';
 
@@ -94,6 +114,18 @@ export async function listConversations(page = 1, pageSize = 20): Promise<Conver
 
 export async function getConversation(conversationId: string): Promise<Conversation> {
   const response = await api.get<Conversation>(`/api/v1/conversations/${conversationId}`);
+  return response.data;
+}
+
+export async function listTripPlans(page = 1, pageSize = 20): Promise<TripPlanListResponse> {
+  const response = await api.get<TripPlanListResponse>('/api/v1/trip-plans', {
+    params: { page, pageSize },
+  });
+  return response.data;
+}
+
+export async function getTripPlan(tripPlanId: string): Promise<SavedTripPlan> {
+  const response = await api.get<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}`);
   return response.data;
 }
 

@@ -74,4 +74,16 @@ Get a conversation:
 curl http://localhost:8000/api/v1/conversations/{conversationId}
 ```
 
-Current conversation storage is in memory. It will be replaced by Redis or database-backed storage later.
+List saved trip plans:
+
+```bash
+curl "http://localhost:8000/api/v1/trip-plans?page=1&pageSize=20"
+```
+
+Get a saved trip plan:
+
+```bash
+curl http://localhost:8000/api/v1/trip-plans/{tripPlanId}
+```
+
+If `DATABASE_URL` is configured, conversations and trip plans are persisted to PostgreSQL. Without `DATABASE_URL`, the service uses in-memory storage for local development.

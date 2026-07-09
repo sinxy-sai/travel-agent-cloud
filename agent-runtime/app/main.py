@@ -2,7 +2,12 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent import handle_chat
-from app.conversations import ConversationNotFoundError, ConversationStore, DatabaseConversationStore
+from app.conversations import (
+    ConversationNotFoundError,
+    ConversationStore,
+    DatabaseConversationStore,
+    TripPlanNotFoundError,
+)
 from app.db import maybe_create_session_factory
 from app.llm import LLMClient
 from app.planner import build_mock_trip_plan
@@ -12,6 +17,8 @@ from app.schemas import (
     Conversation,
     ConversationListResponse,
     MessageRole,
+    SavedTripPlan,
+    TripPlanListResponse,
     TripPlanRequest,
     TripPlanResponse,
 )
@@ -86,3 +93,20 @@ def get_conversation(conversation_id: str, user_id: str = Depends(get_user_id)) 
         return conversation_store.get(user_id, conversation_id)
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
+
+
+@app.get("/api/v1/trip-plans", response_model=TripPlanListResponse)
+def list_trip_plans(
+    user_id: str = Depends(get_user_id),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100, alias="pageSize"),
+) -> TripPlanListResponse:
+    return conversation_store.list_trip_plans(user_id=user_id, page=page, page_size=page_size)
+
+
+@app.get("/api/v1/trip-plans/{trip_plan_id}", response_model=SavedTripPlan)
+def get_trip_plan(trip_plan_id: str, user_id: str = Depends(get_user_id)) -> SavedTripPlan:
+    try:
+        return conversation_store.get_trip_plan(user_id, trip_plan_id)
+    except TripPlanNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc

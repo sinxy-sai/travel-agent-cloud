@@ -1,8 +1,19 @@
-import { useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { Button, Input, InputNumber, Select, Spin } from 'antd';
-import { SendOutlined } from '@ant-design/icons';
-import { createTripPlan, sendChatMessage, type ChatMessage, type TripPlanResponse } from './lib/api';
+import { useMemo, useState, type ReactNode } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button, Empty, Input, InputNumber, Select, Spin } from 'antd';
+import { HistoryOutlined, SendOutlined } from '@ant-design/icons';
+import {
+  createTripPlan,
+  getConversation,
+  getTripPlan,
+  listConversations,
+  listTripPlans,
+  sendChatMessage,
+  type ChatMessage,
+  type Conversation,
+  type SavedTripPlan,
+  type TripPlanResponse,
+} from './lib/api';
 
 const interestOptions = [
   'city walk',
@@ -15,18 +26,35 @@ const interestOptions = [
 ];
 
 export default function App() {
+  const queryClient = useQueryClient();
   const [destination, setDestination] = useState('Chengdu');
   const [days, setDays] = useState(3);
   const [budget, setBudget] = useState('moderate');
   const [interests, setInterests] = useState<string[]>(['local food', 'city walk']);
   const [plan, setPlan] = useState<TripPlanResponse | null>(null);
+  const [selectedTripPlanId, setSelectedTripPlanId] = useState<string | undefined>();
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
+  const conversationsQuery = useQuery({
+    queryKey: ['conversations'],
+    queryFn: () => listConversations(1, 8),
+  });
+
+  const tripPlansQuery = useQuery({
+    queryKey: ['trip-plans'],
+    queryFn: () => listTripPlans(1, 8),
+  });
+
   const tripPlanMutation = useMutation({
     mutationFn: createTripPlan,
-    onSuccess: setPlan,
+    onSuccess: (response) => {
+      setPlan(response);
+      setSelectedTripPlanId(undefined);
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+    },
   });
 
   const chatMutation = useMutation({
@@ -34,6 +62,31 @@ export default function App() {
     onSuccess: (response) => {
       setConversationId(response.conversationId);
       setChatMessages((messages) => [...messages, response.message]);
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
+
+  const loadConversationMutation = useMutation({
+    mutationFn: getConversation,
+    onSuccess: (conversation) => {
+      setConversationId(conversation.id);
+      setChatMessages(conversation.messages);
+      setChatInput('');
+    },
+  });
+
+  const loadTripPlanMutation = useMutation({
+    mutationFn: getTripPlan,
+    onSuccess: (savedTripPlan) => {
+      setPlan(savedTripPlan.plan);
+      setSelectedTripPlanId(savedTripPlan.id);
+      setDestination(savedTripPlan.destination);
+      setDays(savedTripPlan.days);
+      setBudget(savedTripPlan.budget);
+      setInterests(splitInterests(savedTripPlan.interests));
+      if (savedTripPlan.conversationId) {
+        setConversationId(savedTripPlan.conversationId);
+      }
     },
   });
 
@@ -126,6 +179,38 @@ export default function App() {
             >
               Generate itinerary
             </Button>
+          </div>
+
+          <div className="mt-6 border-t border-slate-200 pt-5">
+            <HistorySection
+              title="Recent conversations"
+              emptyText="No saved threads yet"
+              loading={conversationsQuery.isLoading || loadConversationMutation.isPending}
+            >
+              {conversationsQuery.data?.data.map((conversation) => (
+                <ConversationHistoryItem
+                  key={conversation.id}
+                  conversation={conversation}
+                  active={conversation.id === conversationId}
+                  onClick={() => loadConversationMutation.mutate(conversation.id)}
+                />
+              ))}
+            </HistorySection>
+
+            <HistorySection
+              title="Saved itineraries"
+              emptyText="No saved plans yet"
+              loading={tripPlansQuery.isLoading || loadTripPlanMutation.isPending}
+            >
+              {tripPlansQuery.data?.data.map((savedTripPlan) => (
+                <TripPlanHistoryItem
+                  key={savedTripPlan.id}
+                  tripPlan={savedTripPlan}
+                  active={savedTripPlan.id === selectedTripPlanId}
+                  onClick={() => loadTripPlanMutation.mutate(savedTripPlan.id)}
+                />
+              ))}
+            </HistorySection>
           </div>
         </aside>
 
@@ -255,6 +340,93 @@ function PlanBlock({ title, value }: { title: string; value: string }) {
   );
 }
 
+function HistorySection({
+  title,
+  emptyText,
+  loading,
+  children,
+}: {
+  title: string;
+  emptyText: string;
+  loading: boolean;
+  children: ReactNode;
+}) {
+  const hasItems = Array.isArray(children) ? children.length > 0 : Boolean(children);
+
+  return (
+    <section className="mb-5">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-ink">{title}</h2>
+        {loading && <Spin size="small" />}
+      </div>
+      <div className="space-y-2">
+        {hasItems ? (
+          children
+        ) : (
+          <div className="rounded-md border border-dashed border-slate-200 px-2 py-3">
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ConversationHistoryItem({
+  conversation,
+  active,
+  onClick,
+}: {
+  conversation: Conversation;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const lastMessage = conversation.messages[conversation.messages.length - 1]?.content ?? 'No messages yet';
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full rounded-md border px-3 py-2 text-left transition ${
+        active ? 'border-trail bg-mist' : 'border-slate-200 bg-white hover:border-trail/60 hover:bg-slate-50'
+      }`}
+    >
+      <div className="flex items-center gap-2 text-sm font-medium text-ink">
+        <HistoryOutlined className="text-trail" />
+        <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
+      </div>
+      <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{lastMessage}</p>
+      <p className="mt-1 text-xs text-slate-400">{formatDateTime(conversation.updatedAt)}</p>
+    </button>
+  );
+}
+
+function TripPlanHistoryItem({
+  tripPlan,
+  active,
+  onClick,
+}: {
+  tripPlan: SavedTripPlan;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full rounded-md border px-3 py-2 text-left transition ${
+        active ? 'border-coral bg-coral/5' : 'border-slate-200 bg-white hover:border-coral/60 hover:bg-slate-50'
+      }`}
+    >
+      <p className="truncate text-sm font-medium text-ink">{tripPlan.title}</p>
+      <p className="mt-1 text-xs text-slate-500">
+        {tripPlan.destination} · {tripPlan.days} days · {tripPlan.budget}
+      </p>
+      <p className="mt-1 text-xs text-slate-400">{formatDateTime(tripPlan.createdAt)}</p>
+    </button>
+  );
+}
+
 function ChatBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'USER';
 
@@ -272,4 +444,20 @@ function ChatBubble({ message }: { message: ChatMessage }) {
       </div>
     </article>
   );
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function splitInterests(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }

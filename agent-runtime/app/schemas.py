@@ -35,6 +35,26 @@ class TripPlanResponse(APIModel):
     tips: list[str]
 
 
+class SavedTripPlan(APIModel):
+    id: str
+    conversation_id: str | None = None
+    title: str
+    destination: str
+    days: int
+    budget: str
+    interests: str
+    plan: TripPlanResponse
+    created_at: datetime
+
+
+class TripPlanListResponse(APIModel):
+    data: list[SavedTripPlan]
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+
+
 class MessageRole(StrEnum):
     USER = "USER"
     ASSISTANT = "ASSISTANT"

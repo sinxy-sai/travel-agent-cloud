@@ -29,4 +29,7 @@ Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plan" -Method Post -ContentType "ap
 Write-Host "Checking conversation list API"
 Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations?page=1&pageSize=20" -Headers $headers
 
+Write-Host "Checking trip plan history API"
+Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans?page=1&pageSize=20" -Headers $headers
+
 Write-Host "Smoke test passed"
