@@ -55,6 +55,7 @@ curl -X POST http://localhost:8000/api/v1/trip-plan \
 ```
 
 The response includes `savedTripPlanId`, which can be used immediately with the saved trip plan APIs.
+Pass `conversationId` in the request body to attach the generated trip plan to an existing planning conversation.
 
 Send a chat message:
 

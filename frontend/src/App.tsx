@@ -71,6 +71,7 @@ export default function App() {
     onSuccess: (response) => {
       setPlan(response);
       setSelectedTripPlanId(response.savedTripPlanId);
+      setConversationId(response.conversationId);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     },
@@ -247,6 +248,7 @@ export default function App() {
                   days,
                   budget,
                   interests: interests.join(', '),
+                  conversationId,
                 })
               }
               className="w-full"

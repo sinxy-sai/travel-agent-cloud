@@ -19,6 +19,9 @@ $chatResponse = Invoke-RestMethod -Uri "$BaseUrl/api/v1/chat" -Method Post -Cont
 if (-not $chatResponse.suggestions -or $chatResponse.suggestions.Count -eq 0) {
   throw "Chat API did not return suggestions"
 }
+if (-not $chatResponse.conversationId) {
+  throw "Chat API did not return conversationId"
+}
 
 Write-Host "Checking trip plan API"
 $tripBody = @{
@@ -26,10 +29,14 @@ $tripBody = @{
   days = 3
   budget = "moderate"
   interests = "local food, city walk"
+  conversationId = $chatResponse.conversationId
 } | ConvertTo-Json
 $createdTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plan" -Method Post -ContentType "application/json" -Headers $headers -Body $tripBody
 if (-not $createdTripPlan.savedTripPlanId) {
   throw "Trip plan API did not return savedTripPlanId"
+}
+if ($createdTripPlan.conversationId -ne $chatResponse.conversationId) {
+  throw "Trip plan API did not bind to the active conversation"
 }
 
 Write-Host "Checking conversation list API"

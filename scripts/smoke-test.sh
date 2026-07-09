@@ -19,17 +19,27 @@ if [ "${HAS_SUGGESTIONS}" != "yes" ]; then
   echo "Chat API did not return suggestions" >&2
   exit 1
 fi
+CHAT_CONVERSATION_ID="$(printf '%s' "${CHAT_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("conversationId", ""))')"
+if [ -z "${CHAT_CONVERSATION_ID}" ]; then
+  echo "Chat API did not return conversationId" >&2
+  exit 1
+fi
 echo
 
 echo "Checking trip plan API"
 CREATED_TRIP_PLAN_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/trip-plan" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: ${USER_ID}" \
-  -d '{"destination":"Chengdu","days":3,"budget":"moderate","interests":"local food, city walk"}')"
+  -d "{\"destination\":\"Chengdu\",\"days\":3,\"budget\":\"moderate\",\"interests\":\"local food, city walk\",\"conversationId\":\"${CHAT_CONVERSATION_ID}\"}")"
 echo "${CREATED_TRIP_PLAN_JSON}"
 CREATED_TRIP_PLAN_ID="$(printf '%s' "${CREATED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("savedTripPlanId", ""))')"
 if [ -z "${CREATED_TRIP_PLAN_ID}" ]; then
   echo "Trip plan API did not return savedTripPlanId" >&2
+  exit 1
+fi
+CREATED_CONVERSATION_ID="$(printf '%s' "${CREATED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("conversationId", ""))')"
+if [ "${CREATED_CONVERSATION_ID}" != "${CHAT_CONVERSATION_ID}" ]; then
+  echo "Trip plan API did not bind to the active conversation" >&2
   exit 1
 fi
 echo

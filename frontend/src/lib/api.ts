@@ -5,6 +5,7 @@ export interface TripPlanRequest {
   days: number;
   budget: string;
   interests: string;
+  conversationId?: string;
 }
 
 export interface TripDay {
@@ -21,6 +22,7 @@ export interface TripPlanResponse {
   days: TripDay[];
   tips: string[];
   savedTripPlanId?: string;
+  conversationId?: string;
 }
 
 export interface SavedTripPlan {

@@ -18,6 +18,7 @@ class TripPlanRequest(APIModel):
     days: int = Field(ge=1, le=14)
     budget: str = Field(min_length=1, max_length=40)
     interests: str = Field(default="", max_length=300)
+    conversation_id: str | None = Field(default=None, max_length=80)
 
 
 class TripDay(APIModel):
@@ -34,6 +35,7 @@ class TripPlanResponse(APIModel):
     days: list[TripDay]
     tips: list[str]
     saved_trip_plan_id: str | None = None
+    conversation_id: str | None = None
 
 
 class SavedTripPlan(APIModel):

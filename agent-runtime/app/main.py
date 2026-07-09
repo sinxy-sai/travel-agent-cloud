@@ -56,12 +56,15 @@ def health() -> dict[str, str | bool]:
 @app.post("/api/v1/trip-plan", response_model=TripPlanResponse)
 def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_id)) -> TripPlanResponse:
     response = LLMClient(settings).generate_trip_plan(request) or build_mock_trip_plan(request)
-    conversation = conversation_store.get_or_create(
-        user_id=user_id,
-        conversation_id=None,
-        mode="TRIP_PLANNING",
-        title=response.title,
-    )
+    try:
+        conversation = conversation_store.get_or_create(
+            user_id=user_id,
+            conversation_id=request.conversation_id,
+            mode="TRIP_PLANNING",
+            title=response.title,
+        )
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
     conversation_store.append_message(
         conversation,
         MessageRole.USER,
@@ -70,6 +73,7 @@ def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_i
     conversation_store.append_message(conversation, MessageRole.ASSISTANT, response.summary)
     saved_trip_plan = conversation_store.save_trip_plan(user_id, conversation, request, response)
     response.saved_trip_plan_id = saved_trip_plan.id
+    response.conversation_id = conversation.id
     return response
 
 
