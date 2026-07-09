@@ -20,6 +20,31 @@ fi
 rm -f "${HEALTH_HEADERS}"
 echo
 
+echo "Checking user profile API"
+UPDATED_PROFILE_JSON="$(curl -fsS -X PATCH "${BASE_URL}/api/v1/me/profile" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${USER_ID}" \
+  -d '{"displayName":"Smoke Test Traveler","homeCity":"Beijing","preferredBudget":"moderate","travelStyle":"relaxed city walks","interests":["local food","museums"]}')"
+echo "${UPDATED_PROFILE_JSON}"
+PROFILE_DISPLAY_NAME="$(printf '%s' "${UPDATED_PROFILE_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("displayName", ""))')"
+if [ "${PROFILE_DISPLAY_NAME}" != "Smoke Test Traveler" ]; then
+  echo "User profile API did not persist displayName" >&2
+  exit 1
+fi
+PROFILE_HAS_INTEREST="$(printf '%s' "${UPDATED_PROFILE_JSON}" | python3 -c 'import json, sys; print("yes" if "local food" in json.load(sys.stdin).get("interests", []) else "no")')"
+if [ "${PROFILE_HAS_INTEREST}" != "yes" ]; then
+  echo "User profile API did not persist interests" >&2
+  exit 1
+fi
+LOADED_PROFILE_JSON="$(curl -fsS "${BASE_URL}/api/v1/me/profile" \
+  -H "X-User-Id: ${USER_ID}")"
+LOADED_PROFILE_BUDGET="$(printf '%s' "${LOADED_PROFILE_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("preferredBudget", ""))')"
+if [ "${LOADED_PROFILE_BUDGET}" != "moderate" ]; then
+  echo "User profile API did not load persisted preferredBudget" >&2
+  exit 1
+fi
+echo
+
 echo "Checking chat API"
 CHAT_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/chat" \
   -H "Content-Type: application/json" \

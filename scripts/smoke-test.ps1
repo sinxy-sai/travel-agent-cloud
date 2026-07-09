@@ -17,6 +17,26 @@ if (-not $healthResponse.Headers["X-Process-Time-Ms"]) {
 }
 $healthResponse.Content | ConvertFrom-Json
 
+Write-Host "Checking user profile API"
+$profileBody = @{
+  displayName = "Smoke Test Traveler"
+  homeCity = "Beijing"
+  preferredBudget = "moderate"
+  travelStyle = "relaxed city walks"
+  interests = @("local food", "museums")
+} | ConvertTo-Json
+$updatedProfile = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/profile" -Method Patch -ContentType "application/json" -Headers $headers -Body $profileBody
+if ($updatedProfile.displayName -ne "Smoke Test Traveler") {
+  throw "User profile API did not persist displayName"
+}
+if (-not ($updatedProfile.interests -contains "local food")) {
+  throw "User profile API did not persist interests"
+}
+$loadedProfile = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/profile" -Headers $headers
+if ($loadedProfile.preferredBudget -ne "moderate") {
+  throw "User profile API did not load persisted preferredBudget"
+}
+
 Write-Host "Checking chat API"
 $chatBody = @{
   message = "I want a relaxed 3-day Chengdu food trip."

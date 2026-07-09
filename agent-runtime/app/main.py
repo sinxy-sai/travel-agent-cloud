@@ -14,6 +14,7 @@ from app.exporter import saved_trip_plan_to_markdown
 from app.llm import LLMClient
 from app.observability import RequestLoggingMiddleware, configure_logging
 from app.planner import build_mock_trip_plan
+from app.profiles import DatabaseUserProfileStore, UserProfileStore
 from app.schemas import (
     ChatRequest,
     ChatResponse,
@@ -26,6 +27,8 @@ from app.schemas import (
     TripPlanRequest,
     TripPlanResponse,
     TripPlanUpdateRequest,
+    UserProfile,
+    UserProfileUpdateRequest,
 )
 from app.settings import get_settings
 from app.users import get_user_id
@@ -34,6 +37,7 @@ settings = get_settings()
 configure_logging(settings)
 session_factory = maybe_create_session_factory(settings)
 conversation_store = DatabaseConversationStore(session_factory) if session_factory else ConversationStore()
+profile_store = DatabaseUserProfileStore(session_factory) if session_factory else UserProfileStore()
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
@@ -88,6 +92,16 @@ def chat(request: ChatRequest, user_id: str = Depends(get_user_id)) -> ChatRespo
         return handle_chat(user_id, request, conversation_store, settings)
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
+
+
+@app.get("/api/v1/me/profile", response_model=UserProfile)
+def get_profile(user_id: str = Depends(get_user_id)) -> UserProfile:
+    return profile_store.get(user_id)
+
+
+@app.patch("/api/v1/me/profile", response_model=UserProfile)
+def update_profile(request: UserProfileUpdateRequest, user_id: str = Depends(get_user_id)) -> UserProfile:
+    return profile_store.update(user_id, request)
 
 
 @app.get("/api/v1/conversations", response_model=ConversationListResponse)

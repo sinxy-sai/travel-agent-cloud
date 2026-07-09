@@ -74,6 +74,22 @@ curl -X POST http://localhost:8000/api/v1/chat \
   -d '{"message":"I want a relaxed 3-day Chengdu food trip","mode":"TRIP_PLANNING"}'
 ```
 
+Get the current user profile:
+
+```bash
+curl http://localhost:8000/api/v1/me/profile \
+  -H "X-User-Id: smoke-test-user"
+```
+
+Update traveler preferences:
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/me/profile \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: smoke-test-user" \
+  -d '{"displayName":"Smoke Test Traveler","homeCity":"Beijing","preferredBudget":"moderate","travelStyle":"relaxed city walks","interests":["local food","museums"]}'
+```
+
 List conversations:
 
 ```bash

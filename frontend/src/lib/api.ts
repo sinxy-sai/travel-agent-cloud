@@ -102,6 +102,24 @@ export interface HealthResponse {
   databaseEnabled: boolean;
 }
 
+export interface UserProfile {
+  userId: string;
+  displayName: string;
+  homeCity: string;
+  preferredBudget: string;
+  travelStyle: string;
+  interests: string[];
+  updatedAt: string;
+}
+
+export interface UserProfileUpdateRequest {
+  displayName?: string;
+  homeCity?: string;
+  preferredBudget?: string;
+  travelStyle?: string;
+  interests?: string[];
+}
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_AGENT_API_BASE_URL ?? '',
   timeout: 30000,
@@ -128,6 +146,16 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
     conversationId: request.conversationId,
     mode: request.mode ?? 'CHAT',
   });
+  return response.data;
+}
+
+export async function getUserProfile(): Promise<UserProfile> {
+  const response = await api.get<UserProfile>('/api/v1/me/profile');
+  return response.data;
+}
+
+export async function updateUserProfile(request: UserProfileUpdateRequest): Promise<UserProfile> {
+  const response = await api.patch<UserProfile>('/api/v1/me/profile', request);
   return response.data;
 }
 

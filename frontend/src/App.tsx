@@ -19,16 +19,19 @@ import {
   getConversation,
   getHealth,
   getTripPlan,
+  getUserProfile,
   listConversations,
   listTripPlans,
   sendChatMessage,
   updateConversationTitle,
   updateTripPlanFavorite,
+  updateUserProfile,
   type ChatMessage,
   type Conversation,
   type HealthResponse,
   type SavedTripPlan,
   type TripPlanResponse,
+  type UserProfile,
 } from './lib/api';
 
 const interestOptions = [
@@ -71,6 +74,12 @@ export default function App() {
   const [tripPlanPage, setTripPlanPage] = useState(1);
   const [renameConversation, setRenameConversation] = useState<Conversation | null>(null);
   const [renameConversationTitle, setRenameConversationTitle] = useState('');
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [profileDisplayName, setProfileDisplayName] = useState('');
+  const [profileHomeCity, setProfileHomeCity] = useState('');
+  const [profilePreferredBudget, setProfilePreferredBudget] = useState('');
+  const [profileTravelStyle, setProfileTravelStyle] = useState('');
+  const [profileInterests, setProfileInterests] = useState<string[]>([]);
 
   const conversationsQuery = useQuery({
     queryKey: ['conversations', conversationPage, conversationSearch],
@@ -94,6 +103,11 @@ export default function App() {
     queryFn: getHealth,
     refetchInterval: 30000,
     retry: 1,
+  });
+
+  const userProfileQuery = useQuery({
+    queryKey: ['user-profile'],
+    queryFn: getUserProfile,
   });
 
   const tripPlanMutation = useMutation({
@@ -166,6 +180,15 @@ export default function App() {
       setRenameConversationTitle('');
       setConversationPage(1);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
+
+  const updateUserProfileMutation = useMutation({
+    mutationFn: updateUserProfile,
+    onSuccess: (profile) => {
+      setProfileModalOpen(false);
+      applyProfilePreferences(profile);
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
     },
   });
 
@@ -263,6 +286,35 @@ export default function App() {
     setChatSuggestions(defaultChatSuggestions);
   };
 
+  const openProfileModal = () => {
+    const profile = userProfileQuery.data;
+    setProfileDisplayName(profile?.displayName ?? '');
+    setProfileHomeCity(profile?.homeCity ?? '');
+    setProfilePreferredBudget(profile?.preferredBudget || budget);
+    setProfileTravelStyle(profile?.travelStyle ?? '');
+    setProfileInterests(profile?.interests.length ? profile.interests : interests);
+    setProfileModalOpen(true);
+  };
+
+  const saveProfile = () => {
+    updateUserProfileMutation.mutate({
+      displayName: profileDisplayName,
+      homeCity: profileHomeCity,
+      preferredBudget: profilePreferredBudget,
+      travelStyle: profileTravelStyle,
+      interests: profileInterests,
+    });
+  };
+
+  function applyProfilePreferences(profile: UserProfile) {
+    if (profile.preferredBudget) {
+      setBudget(profile.preferredBudget);
+    }
+    if (profile.interests.length > 0) {
+      setInterests(profile.interests);
+    }
+  }
+
   const openRenameConversation = (conversation: Conversation) => {
     setRenameConversation(conversation);
     setRenameConversationTitle(conversation.title);
@@ -294,6 +346,12 @@ export default function App() {
           </div>
 
           <RuntimeStatus health={healthQuery.data} loading={healthQuery.isLoading} error={healthQuery.isError} />
+          <TravelerProfile
+            profile={userProfileQuery.data}
+            loading={userProfileQuery.isLoading}
+            onEdit={openProfileModal}
+            onUsePreferences={() => userProfileQuery.data && applyProfilePreferences(userProfileQuery.data)}
+          />
 
           <div className="space-y-4">
             <label className="block">
@@ -641,6 +699,69 @@ export default function App() {
           placeholder="Conversation title"
         />
       </Modal>
+      <Modal
+        title="Traveler profile"
+        open={profileModalOpen}
+        okText="Save"
+        onOk={saveProfile}
+        confirmLoading={updateUserProfileMutation.isPending}
+        onCancel={() => setProfileModalOpen(false)}
+      >
+        <div className="space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Display name</span>
+            <Input
+              maxLength={80}
+              value={profileDisplayName}
+              onChange={(event) => setProfileDisplayName(event.target.value)}
+              placeholder="Anonymous traveler"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Home city</span>
+            <Input
+              maxLength={80}
+              value={profileHomeCity}
+              onChange={(event) => setProfileHomeCity(event.target.value)}
+              placeholder="Beijing"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Preferred budget</span>
+            <Select
+              allowClear
+              value={profilePreferredBudget || undefined}
+              onChange={(value) => setProfilePreferredBudget(value ?? '')}
+              className="w-full"
+              options={[
+                { value: 'low', label: 'Low' },
+                { value: 'moderate', label: 'Moderate' },
+                { value: 'premium', label: 'Premium' },
+              ]}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Travel style</span>
+            <Input
+              maxLength={80}
+              value={profileTravelStyle}
+              onChange={(event) => setProfileTravelStyle(event.target.value)}
+              placeholder="Relaxed city walks"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Interests</span>
+            <Select
+              mode="tags"
+              maxCount={12}
+              value={profileInterests}
+              onChange={setProfileInterests}
+              className="w-full"
+              options={interestOptions.map((value) => ({ value, label: value }))}
+            />
+          </label>
+        </div>
+      </Modal>
     </main>
   );
 }
@@ -680,6 +801,56 @@ function RuntimeStatus({
         <StatusRow label="PostgreSQL" active={Boolean(health?.databaseEnabled)} muted={!runtimeOnline || loading} />
       </div>
     </section>
+  );
+}
+
+function TravelerProfile({
+  profile,
+  loading,
+  onEdit,
+  onUsePreferences,
+}: {
+  profile?: UserProfile;
+  loading: boolean;
+  onEdit: () => void;
+  onUsePreferences: () => void;
+}) {
+  const hasPreferences = Boolean(profile?.preferredBudget || profile?.interests.length);
+
+  return (
+    <section className="mb-5 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-ink">Traveler profile</h2>
+          <p className="mt-1 truncate text-xs text-slate-500">{profile?.displayName || 'Anonymous traveler'}</p>
+        </div>
+        {loading ? (
+          <Spin size="small" />
+        ) : (
+          <Button type="text" size="small" icon={<EditOutlined />} aria-label="Edit traveler profile" onClick={onEdit} />
+        )}
+      </div>
+      <div className="grid gap-2 text-xs text-slate-600">
+        <ProfileDetail label="Home" value={profile?.homeCity} />
+        <ProfileDetail label="Budget" value={profile?.preferredBudget} />
+        <ProfileDetail label="Style" value={profile?.travelStyle} />
+        <ProfileDetail label="Interests" value={profile?.interests.join(', ')} />
+      </div>
+      {hasPreferences && (
+        <Button size="small" className="mt-3 w-full" onClick={onUsePreferences}>
+          Use preferences
+        </Button>
+      )}
+    </section>
+  );
+}
+
+function ProfileDetail({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-2 py-2">
+      <span className="font-medium text-slate-500">{label}</span>
+      <span className="min-w-0 truncate text-right text-slate-700">{value || '-'}</span>
+    </div>
   );
 }
 
