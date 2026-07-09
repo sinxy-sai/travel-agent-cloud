@@ -104,6 +104,14 @@ Get a saved trip plan:
 curl http://localhost:8000/api/v1/trip-plans/{tripPlanId}
 ```
 
+Favorite or unfavorite a saved trip plan:
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/trip-plans/{tripPlanId} \
+  -H "Content-Type: application/json" \
+  -d '{"favorite":true}'
+```
+
 Delete a saved trip plan:
 
 ```bash

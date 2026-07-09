@@ -86,6 +86,26 @@ if [ -z "${TRIP_PLAN_ID}" ]; then
   exit 1
 fi
 
+echo "Checking trip plan favorite API"
+FAVORITE_TRIP_PLAN_JSON="$(curl -fsS -X PATCH "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${USER_ID}" \
+  -d '{"favorite":true}')"
+echo "${FAVORITE_TRIP_PLAN_JSON}"
+IS_FAVORITE="$(printf '%s' "${FAVORITE_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("favorite") else "no")')"
+if [ "${IS_FAVORITE}" != "yes" ]; then
+  echo "Trip plan favorite API did not persist favorite=true" >&2
+  exit 1
+fi
+FAVORITE_TRIP_PLANS_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20" \
+  -H "X-User-Id: ${USER_ID}")"
+FIRST_IS_FAVORITE="$(printf '%s' "${FAVORITE_TRIP_PLANS_JSON}" | python3 -c 'import json, sys; data = json.load(sys.stdin).get("data", []); print("yes" if data and data[0].get("favorite") else "no")')"
+if [ "${FIRST_IS_FAVORITE}" != "yes" ]; then
+  echo "Trip plan history did not sort favorite plans first" >&2
+  exit 1
+fi
+echo
+
 echo "Checking trip plan export API"
 MARKDOWN="$(curl -fsS "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}/export" \
   -H "X-User-Id: ${USER_ID}")"

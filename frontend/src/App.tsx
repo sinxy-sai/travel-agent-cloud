@@ -1,7 +1,15 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Empty, Input, InputNumber, Popconfirm, Select, Spin } from 'antd';
-import { DeleteOutlined, DownloadOutlined, HistoryOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  HistoryOutlined,
+  PlusOutlined,
+  SendOutlined,
+  StarFilled,
+  StarOutlined,
+} from '@ant-design/icons';
 import {
   createTripPlan,
   deleteConversation,
@@ -13,6 +21,7 @@ import {
   listConversations,
   listTripPlans,
   sendChatMessage,
+  updateTripPlanFavorite,
   type ChatMessage,
   type Conversation,
   type HealthResponse,
@@ -130,6 +139,14 @@ export default function App() {
         setSelectedTripPlanId(undefined);
         setPlan(null);
       }
+      queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+    },
+  });
+
+  const updateTripPlanFavoriteMutation = useMutation({
+    mutationFn: ({ tripPlanId, favorite }: { tripPlanId: string; favorite: boolean }) =>
+      updateTripPlanFavorite(tripPlanId, favorite),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     },
   });
@@ -281,7 +298,12 @@ export default function App() {
             <HistorySection
               title="Saved itineraries"
               emptyText="No saved plans yet"
-              loading={tripPlansQuery.isLoading || loadTripPlanMutation.isPending || deleteTripPlanMutation.isPending}
+              loading={
+                tripPlansQuery.isLoading ||
+                loadTripPlanMutation.isPending ||
+                deleteTripPlanMutation.isPending ||
+                updateTripPlanFavoriteMutation.isPending
+              }
             >
               {tripPlansQuery.data?.data.map((savedTripPlan) => (
                 <TripPlanHistoryItem
@@ -290,6 +312,12 @@ export default function App() {
                   active={savedTripPlan.id === selectedTripPlanId}
                   onClick={() => loadTripPlanMutation.mutate(savedTripPlan.id)}
                   onDelete={() => deleteTripPlanMutation.mutate(savedTripPlan.id)}
+                  onToggleFavorite={() =>
+                    updateTripPlanFavoriteMutation.mutate({
+                      tripPlanId: savedTripPlan.id,
+                      favorite: !savedTripPlan.favorite,
+                    })
+                  }
                 />
               ))}
             </HistorySection>
@@ -564,11 +592,13 @@ function TripPlanHistoryItem({
   active,
   onClick,
   onDelete,
+  onToggleFavorite,
 }: {
   tripPlan: SavedTripPlan;
   active: boolean;
   onClick: () => void;
   onDelete: () => void;
+  onToggleFavorite: () => void;
 }) {
   return (
     <div
@@ -583,6 +613,14 @@ function TripPlanHistoryItem({
         </p>
         <p className="mt-1 text-xs text-slate-400">{formatDateTime(tripPlan.createdAt)}</p>
       </button>
+      <Button
+        type="text"
+        size="small"
+        icon={tripPlan.favorite ? <StarFilled /> : <StarOutlined />}
+        aria-label={tripPlan.favorite ? 'Unfavorite itinerary' : 'Favorite itinerary'}
+        className={tripPlan.favorite ? 'text-amber-500' : 'text-slate-400'}
+        onClick={onToggleFavorite}
+      />
       <Popconfirm title="Delete itinerary?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={onDelete}>
         <Button danger type="text" size="small" icon={<DeleteOutlined />} aria-label="Delete itinerary" />
       </Popconfirm>

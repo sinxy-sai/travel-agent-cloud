@@ -120,7 +120,7 @@ class ConversationStore:
     def list_trip_plans(self, user_id: str, page: int, page_size: int) -> TripPlanListResponse:
         trip_plans = sorted(
             [trip_plan for owner_id, trip_plan in self._trip_plans.values() if owner_id == user_id],
-            key=lambda trip_plan: trip_plan.created_at,
+            key=lambda trip_plan: (trip_plan.favorite, trip_plan.created_at),
             reverse=True,
         )
         start = (page - 1) * page_size
@@ -145,6 +145,13 @@ class ConversationStore:
         if item is None or item[0] != user_id:
             raise TripPlanNotFoundError(trip_plan_id)
         del self._trip_plans[trip_plan_id]
+
+    def update_trip_plan_favorite(self, user_id: str, trip_plan_id: str, favorite: bool) -> SavedTripPlan:
+        item = self._trip_plans.get(trip_plan_id)
+        if item is None or item[0] != user_id:
+            raise TripPlanNotFoundError(trip_plan_id)
+        item[1].favorite = favorite
+        return item[1]
 
 
 class DatabaseConversationStore:
@@ -265,7 +272,7 @@ class DatabaseConversationStore:
             records = session.scalars(
                 select(TripPlanRecord)
                 .where(TripPlanRecord.user_id == user_id)
-                .order_by(TripPlanRecord.created_at.desc())
+                .order_by(TripPlanRecord.is_favorite.desc(), TripPlanRecord.created_at.desc())
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             ).all()
@@ -295,6 +302,18 @@ class DatabaseConversationStore:
             )
             if result.rowcount == 0:
                 raise TripPlanNotFoundError(trip_plan_id)
+
+    def update_trip_plan_favorite(self, user_id: str, trip_plan_id: str, favorite: bool) -> SavedTripPlan:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(
+                select(TripPlanRecord).where(TripPlanRecord.id == trip_plan_id, TripPlanRecord.user_id == user_id)
+            )
+            if record is None:
+                raise TripPlanNotFoundError(trip_plan_id)
+
+            record.is_favorite = favorite
+            session.flush()
+            return _to_trip_plan(record)
 
 
 def _get_conversation_record(
@@ -338,6 +357,7 @@ def _to_trip_plan(record: TripPlanRecord) -> SavedTripPlan:
         budget=record.budget,
         interests=record.interests,
         plan=TripPlanResponse.model_validate(record.plan),
+        favorite=record.is_favorite,
         created_at=record.created_at,
     )
 

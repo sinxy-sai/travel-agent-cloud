@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -20,6 +20,7 @@ def create_session_factory(database_url: str) -> sessionmaker[Session]:
 
     engine = create_engine(normalized_url, **engine_kwargs)
     Base.metadata.create_all(engine)
+    _ensure_existing_schema(engine)
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
@@ -33,6 +34,23 @@ def _normalize_database_url(database_url: str) -> str:
     if database_url.startswith("postgresql://"):
         return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
     return database_url
+
+
+def _ensure_existing_schema(engine) -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table("trip_plans"):
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("trip_plans")}
+    with engine.begin() as connection:
+        if "is_favorite" not in columns:
+            connection.execute(text("ALTER TABLE trip_plans ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT FALSE"))
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_trip_plans_user_favorite_created "
+                "ON trip_plans (user_id, is_favorite, created_at)"
+            )
+        )
 
 
 @contextmanager

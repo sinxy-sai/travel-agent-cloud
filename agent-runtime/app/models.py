@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -45,7 +45,10 @@ class MessageRecord(Base):
 
 class TripPlanRecord(Base):
     __tablename__ = "trip_plans"
-    __table_args__ = (Index("ix_trip_plans_user_created", "user_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_trip_plans_user_created", "user_id", "created_at"),
+        Index("ix_trip_plans_user_favorite_created", "user_id", "is_favorite", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(String(80), index=True)
@@ -56,4 +59,5 @@ class TripPlanRecord(Base):
     budget: Mapped[str] = mapped_column(String(40))
     interests: Mapped[str] = mapped_column(String(300), default="")
     plan: Mapped[dict] = mapped_column(JSON)
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

@@ -34,6 +34,7 @@ export interface SavedTripPlan {
   budget: string;
   interests: string;
   plan: TripPlanResponse;
+  favorite: boolean;
   createdAt: string;
 }
 
@@ -151,6 +152,11 @@ export async function getTripPlan(tripPlanId: string): Promise<SavedTripPlan> {
 
 export async function deleteTripPlan(tripPlanId: string): Promise<void> {
   await api.delete(`/api/v1/trip-plans/${tripPlanId}`);
+}
+
+export async function updateTripPlanFavorite(tripPlanId: string, favorite: boolean): Promise<SavedTripPlan> {
+  const response = await api.patch<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}`, { favorite });
+  return response.data;
 }
 
 export async function exportTripPlanMarkdown(tripPlanId: string): Promise<string> {

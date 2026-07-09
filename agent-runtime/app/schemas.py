@@ -47,7 +47,12 @@ class SavedTripPlan(APIModel):
     budget: str
     interests: str
     plan: TripPlanResponse
+    favorite: bool = False
     created_at: datetime
+
+
+class TripPlanUpdateRequest(APIModel):
+    favorite: bool
 
 
 class TripPlanListResponse(APIModel):

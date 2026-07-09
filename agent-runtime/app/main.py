@@ -24,6 +24,7 @@ from app.schemas import (
     TripPlanListResponse,
     TripPlanRequest,
     TripPlanResponse,
+    TripPlanUpdateRequest,
 )
 from app.settings import get_settings
 from app.users import get_user_id
@@ -127,6 +128,18 @@ def list_trip_plans(
 def get_trip_plan(trip_plan_id: str, user_id: str = Depends(get_user_id)) -> SavedTripPlan:
     try:
         return conversation_store.get_trip_plan(user_id, trip_plan_id)
+    except TripPlanNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+
+
+@app.patch("/api/v1/trip-plans/{trip_plan_id}", response_model=SavedTripPlan)
+def update_trip_plan(
+    trip_plan_id: str,
+    request: TripPlanUpdateRequest,
+    user_id: str = Depends(get_user_id),
+) -> SavedTripPlan:
+    try:
+        return conversation_store.update_trip_plan_favorite(user_id, trip_plan_id, request.favorite)
     except TripPlanNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
 

@@ -60,6 +60,19 @@ if (-not $tripPlans.data -or $tripPlans.data.Count -eq 0) {
   throw "Trip plan history did not return a saved plan"
 }
 
+Write-Host "Checking trip plan favorite API"
+$favoriteBody = @{
+  favorite = $true
+} | ConvertTo-Json
+$favoriteTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)" -Method Patch -ContentType "application/json" -Headers $headers -Body $favoriteBody
+if (-not $favoriteTripPlan.favorite) {
+  throw "Trip plan favorite API did not persist favorite=true"
+}
+$favoriteTripPlans = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans?page=1&pageSize=20" -Headers $headers
+if (-not $favoriteTripPlans.data[0].favorite) {
+  throw "Trip plan history did not sort favorite plans first"
+}
+
 Write-Host "Checking trip plan export API"
 $markdown = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/export" -Headers $headers
 if (-not ($markdown -like "# *")) {
