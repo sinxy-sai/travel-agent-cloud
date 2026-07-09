@@ -55,6 +55,7 @@ export default function App() {
   const [interests, setInterests] = useState<string[]>(['local food', 'city walk']);
   const [plan, setPlan] = useState<TripPlanResponse | null>(null);
   const [selectedTripPlanId, setSelectedTripPlanId] = useState<string | undefined>();
+  const [selectedTripPlanFavorite, setSelectedTripPlanFavorite] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -91,6 +92,7 @@ export default function App() {
     onSuccess: (response) => {
       setPlan(response);
       setSelectedTripPlanId(response.savedTripPlanId);
+      setSelectedTripPlanFavorite(false);
       setConversationId(response.conversationId);
       setConversationPage(1);
       setTripPlanPage(1);
@@ -125,6 +127,7 @@ export default function App() {
     onSuccess: (savedTripPlan) => {
       setPlan(savedTripPlan.plan);
       setSelectedTripPlanId(savedTripPlan.id);
+      setSelectedTripPlanFavorite(savedTripPlan.favorite);
       setDestination(savedTripPlan.destination);
       setDays(savedTripPlan.days);
       setBudget(savedTripPlan.budget);
@@ -151,6 +154,7 @@ export default function App() {
     onSuccess: (_response, deletedTripPlanId) => {
       if (deletedTripPlanId === selectedTripPlanId) {
         setSelectedTripPlanId(undefined);
+        setSelectedTripPlanFavorite(false);
         setPlan(null);
       }
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
@@ -160,7 +164,10 @@ export default function App() {
   const updateTripPlanFavoriteMutation = useMutation({
     mutationFn: ({ tripPlanId, favorite }: { tripPlanId: string; favorite: boolean }) =>
       updateTripPlanFavorite(tripPlanId, favorite),
-    onSuccess: () => {
+    onSuccess: (savedTripPlan) => {
+      if (savedTripPlan.id === selectedTripPlanId) {
+        setSelectedTripPlanFavorite(savedTripPlan.favorite);
+      }
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     },
   });
@@ -234,6 +241,10 @@ export default function App() {
     setChatMessages([]);
     setChatInput('');
     setChatSuggestions(defaultChatSuggestions);
+  };
+
+  const toggleTripPlanFavorite = (tripPlanId: string, favorite: boolean) => {
+    updateTripPlanFavoriteMutation.mutate({ tripPlanId, favorite });
   };
 
   return (
@@ -392,12 +403,7 @@ export default function App() {
                   active={savedTripPlan.id === selectedTripPlanId}
                   onClick={() => loadTripPlanMutation.mutate(savedTripPlan.id)}
                   onDelete={() => deleteTripPlanMutation.mutate(savedTripPlan.id)}
-                  onToggleFavorite={() =>
-                    updateTripPlanFavoriteMutation.mutate({
-                      tripPlanId: savedTripPlan.id,
-                      favorite: !savedTripPlan.favorite,
-                    })
-                  }
+                  onToggleFavorite={() => toggleTripPlanFavorite(savedTripPlan.id, !savedTripPlan.favorite)}
                 />
               ))}
             </HistorySection>
@@ -435,13 +441,25 @@ export default function App() {
                   <h2 className="text-2xl font-semibold text-ink">{plan.title}</h2>
                   <p className="mt-2 max-w-3xl text-slate-600">{plan.summary}</p>
                 </div>
-                <Button
-                  icon={<DownloadOutlined />}
-                  loading={exportTripPlanMutation.isPending}
-                  onClick={() => exportTripPlanMutation.mutate()}
-                >
-                  Export .md
-                </Button>
+                <div className="flex flex-wrap gap-2 md:justify-end">
+                  {selectedTripPlanId && (
+                    <Button
+                      icon={selectedTripPlanFavorite ? <StarFilled /> : <StarOutlined />}
+                      loading={updateTripPlanFavoriteMutation.isPending}
+                      onClick={() => toggleTripPlanFavorite(selectedTripPlanId, !selectedTripPlanFavorite)}
+                      className={selectedTripPlanFavorite ? 'text-amber-500' : undefined}
+                    >
+                      {selectedTripPlanFavorite ? 'Favorited' : 'Favorite'}
+                    </Button>
+                  )}
+                  <Button
+                    icon={<DownloadOutlined />}
+                    loading={exportTripPlanMutation.isPending}
+                    onClick={() => exportTripPlanMutation.mutate()}
+                  >
+                    Export .md
+                  </Button>
+                </div>
               </div>
 
               <div className="grid gap-4">
