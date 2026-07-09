@@ -80,6 +80,12 @@ List conversations:
 curl "http://localhost:8000/api/v1/conversations?page=1&pageSize=20"
 ```
 
+Search conversations:
+
+```bash
+curl "http://localhost:8000/api/v1/conversations?page=1&pageSize=20&query=Chengdu"
+```
+
 Get a conversation:
 
 ```bash

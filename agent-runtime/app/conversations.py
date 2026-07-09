@@ -68,9 +68,14 @@ class ConversationStore:
             if owner_id == user_id and trip_plan.conversation_id == conversation_id:
                 trip_plan.conversation_id = None
 
-    def list(self, user_id: str, page: int, page_size: int) -> ConversationListResponse:
+    def list(self, user_id: str, page: int, page_size: int, query: str = "") -> ConversationListResponse:
+        normalized_query = query.strip().lower()
         conversations = sorted(
-            [conversation for owner_id, conversation in self._conversations.values() if owner_id == user_id],
+            [
+                conversation
+                for owner_id, conversation in self._conversations.values()
+                if owner_id == user_id and _matches_conversation_query(conversation, normalized_query)
+            ],
             key=lambda conversation: conversation.updated_at,
             reverse=True,
         )
@@ -212,14 +217,26 @@ class DatabaseConversationStore:
                 )
             )
 
-    def list(self, user_id: str, page: int, page_size: int) -> ConversationListResponse:
+    def list(self, user_id: str, page: int, page_size: int, query: str = "") -> ConversationListResponse:
         with session_scope(self._session_factory) as session:
-            total_items = session.scalar(
-                select(func.count()).select_from(ConversationRecord).where(ConversationRecord.user_id == user_id)
-            )
+            where_clauses = [ConversationRecord.user_id == user_id]
+            normalized_query = query.strip()
+            if normalized_query:
+                query_pattern = f"%{normalized_query}%"
+                matching_message_conversation_ids = select(MessageRecord.conversation_id).where(
+                    MessageRecord.content.ilike(query_pattern)
+                )
+                where_clauses.append(
+                    or_(
+                        ConversationRecord.title.ilike(query_pattern),
+                        ConversationRecord.id.in_(matching_message_conversation_ids),
+                    )
+                )
+
+            total_items = session.scalar(select(func.count()).select_from(ConversationRecord).where(*where_clauses))
             records = session.scalars(
                 select(ConversationRecord)
-                .where(ConversationRecord.user_id == user_id)
+                .where(*where_clauses)
                 .order_by(ConversationRecord.updated_at.desc())
                 .offset((page - 1) * page_size)
                 .limit(page_size)
@@ -394,6 +411,13 @@ def _to_trip_plan(record: TripPlanRecord) -> SavedTripPlan:
         favorite=record.is_favorite,
         created_at=record.created_at,
     )
+
+
+def _matches_conversation_query(conversation: Conversation, normalized_query: str) -> bool:
+    if not normalized_query:
+        return True
+    searchable_text = " ".join([conversation.title, *[message.content for message in conversation.messages]]).lower()
+    return normalized_query in searchable_text
 
 
 def _matches_trip_plan_query(trip_plan: SavedTripPlan, normalized_query: str) -> bool:

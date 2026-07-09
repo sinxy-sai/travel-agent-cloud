@@ -52,6 +52,10 @@ $conversations = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations?page=1&pa
 if (-not $conversations.data -or $conversations.data.Count -eq 0) {
   throw "Conversation history did not return a saved conversation"
 }
+$searchConversations = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations?page=1&pageSize=20&query=Chengdu" -Headers $headers
+if (-not ($searchConversations.data | Where-Object { $_.id -eq $chatResponse.conversationId })) {
+  throw "Conversation query filter did not return the created Chengdu conversation"
+}
 
 Write-Host "Checking trip plan history API"
 $tripPlans = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans?page=1&pageSize=20" -Headers $headers

@@ -90,6 +90,10 @@ export interface ConversationListResponse {
   totalPages: number;
 }
 
+export interface ConversationListParams {
+  query?: string;
+}
+
 export interface HealthResponse {
   status: string;
   service: string;
@@ -127,9 +131,13 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
   return response.data;
 }
 
-export async function listConversations(page = 1, pageSize = 20): Promise<ConversationListResponse> {
+export async function listConversations(
+  page = 1,
+  pageSize = 20,
+  params: ConversationListParams = {},
+): Promise<ConversationListResponse> {
   const response = await api.get<ConversationListResponse>('/api/v1/conversations', {
-    params: { page, pageSize },
+    params: { page, pageSize, ...params },
   });
   return response.data;
 }

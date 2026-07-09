@@ -63,12 +63,17 @@ export default function App() {
   const [tripPlanFilter, setTripPlanFilter] = useState<'ALL' | 'FAVORITES'>('ALL');
   const [tripPlanSearchInput, setTripPlanSearchInput] = useState('');
   const [tripPlanSearch, setTripPlanSearch] = useState('');
+  const [conversationSearchInput, setConversationSearchInput] = useState('');
+  const [conversationSearch, setConversationSearch] = useState('');
   const [conversationPage, setConversationPage] = useState(1);
   const [tripPlanPage, setTripPlanPage] = useState(1);
 
   const conversationsQuery = useQuery({
-    queryKey: ['conversations', conversationPage],
-    queryFn: () => listConversations(conversationPage, historyPageSize),
+    queryKey: ['conversations', conversationPage, conversationSearch],
+    queryFn: () =>
+      listConversations(conversationPage, historyPageSize, {
+        query: conversationSearch || undefined,
+      }),
   });
 
   const tripPlansQuery = useQuery({
@@ -322,6 +327,25 @@ export default function App() {
                 conversationsQuery.isLoading ||
                 loadConversationMutation.isPending ||
                 deleteConversationMutation.isPending
+              }
+              controls={
+                <Input.Search
+                  allowClear
+                  size="small"
+                  placeholder="Search conversations"
+                  value={conversationSearchInput}
+                  onChange={(event) => {
+                    setConversationSearchInput(event.target.value);
+                    if (!event.target.value) {
+                      setConversationSearch('');
+                      setConversationPage(1);
+                    }
+                  }}
+                  onSearch={(value) => {
+                    setConversationSearch(value.trim());
+                    setConversationPage(1);
+                  }}
+                />
               }
               footer={
                 <HistoryPagination

@@ -67,6 +67,13 @@ if [ -z "${CONVERSATION_ID}" ]; then
   echo "Conversation history did not return a saved conversation" >&2
   exit 1
 fi
+SEARCH_CONVERSATIONS_JSON="$(curl -fsS "${BASE_URL}/api/v1/conversations?page=1&pageSize=20&query=Chengdu" \
+  -H "X-User-Id: ${USER_ID}")"
+SEARCH_HAS_CREATED_CONVERSATION="$(printf '%s' "${SEARCH_CONVERSATIONS_JSON}" | CHAT_CONVERSATION_ID="${CHAT_CONVERSATION_ID}" python3 -c 'import json, os, sys; data = json.load(sys.stdin).get("data", []); conversation_id = os.environ["CHAT_CONVERSATION_ID"]; print("yes" if any(item.get("id") == conversation_id for item in data) else "no")')"
+if [ "${SEARCH_HAS_CREATED_CONVERSATION}" != "yes" ]; then
+  echo "Conversation query filter did not return the created Chengdu conversation" >&2
+  exit 1
+fi
 
 echo "Checking trip plan history API"
 TRIP_PLANS_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20" \
