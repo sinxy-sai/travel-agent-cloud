@@ -15,7 +15,11 @@ if (-not $healthResponse.Headers["X-Request-ID"]) {
 if (-not $healthResponse.Headers["X-Process-Time-Ms"]) {
   throw "Health API did not return X-Process-Time-Ms"
 }
-$healthResponse.Content | ConvertFrom-Json
+$health = $healthResponse.Content | ConvertFrom-Json
+$health
+if (-not ($health.PSObject.Properties.Name -contains "messageQueueEnabled")) {
+  throw "Health API did not return messageQueueEnabled"
+}
 
 Write-Host "Checking user profile API"
 $profileBody = @{

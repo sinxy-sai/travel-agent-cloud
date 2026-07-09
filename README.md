@@ -86,7 +86,7 @@ DATABASE_URL=postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_age
 MESSAGE_QUEUE_URL=amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
 ```
 
-当前 Agent Runtime 还没有消费 RabbitMQ；这个配置是为后续异步任务和事件驱动开发预留。
+当前 Agent Runtime 已支持在配置 `MESSAGE_QUEUE_URL` 后向 RabbitMQ 发布领域事件，但还没有启用生产消费者。未配置队列时，现有接口照常运行。
 
 ## 自动部署
 
@@ -147,9 +147,12 @@ curl http://localhost/health
 ```json
 {
   "llmEnabled": true,
-  "databaseEnabled": true
+  "databaseEnabled": true,
+  "messageQueueEnabled": false
 }
 ```
+
+`messageQueueEnabled` 为 `true` 代表 Agent Runtime 已配置 RabbitMQ 发布入口；它不代表已经有消费者在处理事件。
 
 也可以通过公网 IP 访问前端:
 

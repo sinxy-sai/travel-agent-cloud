@@ -100,6 +100,7 @@ export interface HealthResponse {
   env: string;
   llmEnabled: boolean;
   databaseEnabled: boolean;
+  messageQueueEnabled: boolean;
 }
 
 export interface UserProfile {

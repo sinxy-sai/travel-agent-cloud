@@ -6,7 +6,8 @@ USER_ID="smoke-test-user"
 
 echo "Checking health: ${BASE_URL}/health"
 HEALTH_HEADERS="$(mktemp)"
-curl -fsS -D "${HEALTH_HEADERS}" "${BASE_URL}/health"
+HEALTH_JSON="$(curl -fsS -D "${HEALTH_HEADERS}" "${BASE_URL}/health")"
+echo "${HEALTH_JSON}"
 if ! grep -qi '^x-request-id:' "${HEALTH_HEADERS}"; then
   echo "Health API did not return X-Request-ID" >&2
   rm -f "${HEALTH_HEADERS}"
@@ -18,6 +19,11 @@ if ! grep -qi '^x-process-time-ms:' "${HEALTH_HEADERS}"; then
   exit 1
 fi
 rm -f "${HEALTH_HEADERS}"
+HAS_MESSAGE_QUEUE_FIELD="$(printf '%s' "${HEALTH_JSON}" | python3 -c 'import json, sys; print("yes" if "messageQueueEnabled" in json.load(sys.stdin) else "no")')"
+if [ "${HAS_MESSAGE_QUEUE_FIELD}" != "yes" ]; then
+  echo "Health API did not return messageQueueEnabled" >&2
+  exit 1
+fi
 echo
 
 echo "Checking user profile API"

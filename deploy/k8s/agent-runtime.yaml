@@ -28,6 +28,8 @@ spec:
               value: "*"
             - name: LOG_LEVEL
               value: INFO
+            - name: RPC_TIMEOUT_SECONDS
+              value: "5"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -75,6 +77,12 @@ spec:
                 secretKeyRef:
                   name: agent-runtime-secrets
                   key: LLM_TIMEOUT_SECONDS
+                  optional: true
+            - name: MESSAGE_QUEUE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: MESSAGE_QUEUE_URL
                   optional: true
           readinessProbe:
             httpGet:

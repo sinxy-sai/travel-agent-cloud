@@ -799,6 +799,7 @@ function RuntimeStatus({
         <StatusRow label="Agent Runtime" active={runtimeOnline} muted={loading} />
         <StatusRow label="LLM" active={Boolean(health?.llmEnabled)} muted={!runtimeOnline || loading} />
         <StatusRow label="PostgreSQL" active={Boolean(health?.databaseEnabled)} muted={!runtimeOnline || loading} />
+        <StatusRow label="RabbitMQ" active={Boolean(health?.messageQueueEnabled)} muted={!runtimeOnline || loading} />
       </div>
     </section>
   );

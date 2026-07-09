@@ -53,8 +53,11 @@ Use dot-separated event names:
 
 ```text
 trip.plan.created
+trip.plan.updated
 trip.plan.deleted
 trip.plan.export.requested
+agent.conversation.updated
+agent.conversation.deleted
 agent.conversation.summarize.requested
 user.profile.updated
 ```
@@ -92,5 +95,6 @@ Event payloads use camelCase fields:
 
 - Docker Compose includes RabbitMQ for local development.
 - K3s has an optional RabbitMQ addon manifest in `deploy/k8s/addons/rabbitmq.yaml`.
-- Agent Runtime exposes `MESSAGE_QUEUE_URL` and `RPC_TIMEOUT_SECONDS` settings as configuration placeholders.
+- Agent Runtime exposes `MESSAGE_QUEUE_URL` and `RPC_TIMEOUT_SECONDS` settings.
+- Agent Runtime publishes domain events to the `travel.events` topic exchange when `MESSAGE_QUEUE_URL` is configured.
 - No production queue consumer is active yet.

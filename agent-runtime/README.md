@@ -37,6 +37,17 @@ RPC_TIMEOUT_SECONDS=5
 
 `MESSAGE_QUEUE_URL` is reserved for later RabbitMQ producers/consumers. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for future runtime-to-service calls.
 
+When `MESSAGE_QUEUE_URL` is configured, the runtime publishes small domain events to the durable RabbitMQ topic exchange `travel.events`. Queue failures are logged but do not fail the user request.
+
+Current events:
+
+- `trip.plan.created`
+- `trip.plan.updated`
+- `trip.plan.deleted`
+- `user.profile.updated`
+- `agent.conversation.updated`
+- `agent.conversation.deleted`
+
 ## Observability
 
 Every HTTP response includes:

@@ -10,6 +10,7 @@ from app.conversations import (
     TripPlanNotFoundError,
 )
 from app.db import maybe_create_session_factory
+from app.events import create_event_publisher
 from app.exporter import saved_trip_plan_to_markdown
 from app.llm import LLMClient
 from app.observability import RequestLoggingMiddleware, configure_logging
@@ -29,6 +30,7 @@ from app.schemas import (
     TripPlanUpdateRequest,
     UserProfile,
     UserProfileUpdateRequest,
+    to_camel,
 )
 from app.settings import get_settings
 from app.users import get_user_id
@@ -38,6 +40,7 @@ configure_logging(settings)
 session_factory = maybe_create_session_factory(settings)
 conversation_store = DatabaseConversationStore(session_factory) if session_factory else ConversationStore()
 profile_store = DatabaseUserProfileStore(session_factory) if session_factory else UserProfileStore()
+event_publisher = create_event_publisher(settings)
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
@@ -59,6 +62,7 @@ def health() -> dict[str, str | bool]:
         "env": settings.app_env,
         "llmEnabled": LLMClient(settings).enabled,
         "databaseEnabled": session_factory is not None,
+        "messageQueueEnabled": event_publisher.enabled,
     }
 
 
@@ -83,6 +87,16 @@ def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_i
     saved_trip_plan = conversation_store.save_trip_plan(user_id, conversation, request, response)
     response.saved_trip_plan_id = saved_trip_plan.id
     response.conversation_id = conversation.id
+    event_publisher.publish(
+        "trip.plan.created",
+        user_id,
+        {
+            "tripPlanId": saved_trip_plan.id,
+            "conversationId": conversation.id,
+            "destination": request.destination,
+            "days": request.days,
+        },
+    )
     return response
 
 
@@ -101,7 +115,13 @@ def get_profile(user_id: str = Depends(get_user_id)) -> UserProfile:
 
 @app.patch("/api/v1/me/profile", response_model=UserProfile)
 def update_profile(request: UserProfileUpdateRequest, user_id: str = Depends(get_user_id)) -> UserProfile:
-    return profile_store.update(user_id, request)
+    profile = profile_store.update(user_id, request)
+    event_publisher.publish(
+        "user.profile.updated",
+        user_id,
+        {"updatedFields": _updated_fields(request.model_fields_set)},
+    )
+    return profile
 
 
 @app.get("/api/v1/conversations", response_model=ConversationListResponse)
@@ -129,9 +149,15 @@ def update_conversation(
     user_id: str = Depends(get_user_id),
 ) -> Conversation:
     try:
-        return conversation_store.update_title(user_id, conversation_id, request.title)
+        conversation = conversation_store.update_title(user_id, conversation_id, request.title)
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
+    event_publisher.publish(
+        "agent.conversation.updated",
+        user_id,
+        {"conversationId": conversation_id, "updatedFields": ["title"]},
+    )
+    return conversation
 
 
 @app.delete("/api/v1/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -140,6 +166,7 @@ def delete_conversation(conversation_id: str, user_id: str = Depends(get_user_id
         conversation_store.delete(user_id, conversation_id)
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
+    event_publisher.publish("agent.conversation.deleted", user_id, {"conversationId": conversation_id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -175,9 +202,15 @@ def update_trip_plan(
     user_id: str = Depends(get_user_id),
 ) -> SavedTripPlan:
     try:
-        return conversation_store.update_trip_plan_favorite(user_id, trip_plan_id, request.favorite)
+        trip_plan = conversation_store.update_trip_plan_favorite(user_id, trip_plan_id, request.favorite)
     except TripPlanNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+    event_publisher.publish(
+        "trip.plan.updated",
+        user_id,
+        {"tripPlanId": trip_plan_id, "updatedFields": ["favorite"], "favorite": trip_plan.favorite},
+    )
+    return trip_plan
 
 
 @app.delete("/api/v1/trip-plans/{trip_plan_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -186,6 +219,7 @@ def delete_trip_plan(trip_plan_id: str, user_id: str = Depends(get_user_id)) -> 
         conversation_store.delete_trip_plan(user_id, trip_plan_id)
     except TripPlanNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+    event_publisher.publish("trip.plan.deleted", user_id, {"tripPlanId": trip_plan_id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -208,3 +242,7 @@ def _download_filename(title: str) -> str:
     safe_title = "".join(character if character.isalnum() else "-" for character in title.lower())
     safe_title = "-".join(part for part in safe_title.split("-") if part)
     return f"{safe_title or 'trip-plan'}.md"
+
+
+def _updated_fields(fields: set[str]) -> list[str]:
+    return sorted(to_camel(field) for field in fields)

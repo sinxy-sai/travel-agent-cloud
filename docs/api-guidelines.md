@@ -146,7 +146,11 @@ RabbitMQ 用于异步事件和后台任务，不替代同步 API。
 
 ```text
 trip.plan.created
+trip.plan.updated
+trip.plan.deleted
 trip.plan.export.requested
+agent.conversation.updated
+agent.conversation.deleted
 agent.conversation.summarize.requested
 user.profile.updated
 ```

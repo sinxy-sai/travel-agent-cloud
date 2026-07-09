@@ -55,7 +55,11 @@ RabbitMQ is the default message queue for the project.
 Initial event and job candidates:
 
 - `trip.plan.created`: created after a trip plan is saved.
+- `trip.plan.updated`: created after a trip plan metadata update, such as favorite changes.
+- `trip.plan.deleted`: created after a saved trip plan is deleted.
 - `trip.plan.export.requested`: queued when exporting large files or generating attachments.
+- `agent.conversation.updated`: created after conversation metadata changes.
+- `agent.conversation.deleted`: created after a conversation is deleted.
 - `agent.conversation.summarize.requested`: queued to summarize long conversations.
 - `user.profile.updated`: emitted when user preferences change.
 
