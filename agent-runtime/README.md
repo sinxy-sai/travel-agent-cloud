@@ -92,6 +92,14 @@ Get a conversation:
 curl http://localhost:8000/api/v1/conversations/{conversationId}
 ```
 
+Rename a conversation:
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/conversations/{conversationId} \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Chengdu planning thread"}'
+```
+
 Delete a conversation:
 
 ```bash

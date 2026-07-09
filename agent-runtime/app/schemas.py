@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def to_camel(value: str) -> str:
@@ -94,6 +94,18 @@ class Conversation(APIModel):
     created_at: datetime
     updated_at: datetime
     messages: list[ChatMessage]
+
+
+class ConversationUpdateRequest(APIModel):
+    title: str = Field(min_length=1, max_length=120)
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        title = value.strip()
+        if not title:
+            raise ValueError("Title is required")
+        return title
 
 
 class ChatResponse(APIModel):

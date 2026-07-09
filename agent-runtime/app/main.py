@@ -19,6 +19,7 @@ from app.schemas import (
     ChatResponse,
     Conversation,
     ConversationListResponse,
+    ConversationUpdateRequest,
     MessageRole,
     SavedTripPlan,
     TripPlanListResponse,
@@ -103,6 +104,18 @@ def list_conversations(
 def get_conversation(conversation_id: str, user_id: str = Depends(get_user_id)) -> Conversation:
     try:
         return conversation_store.get(user_id, conversation_id)
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
+
+
+@app.patch("/api/v1/conversations/{conversation_id}", response_model=Conversation)
+def update_conversation(
+    conversation_id: str,
+    request: ConversationUpdateRequest,
+    user_id: str = Depends(get_user_id),
+) -> Conversation:
+    try:
+        return conversation_store.update_title(user_id, conversation_id, request.title)
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
 

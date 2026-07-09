@@ -75,6 +75,26 @@ if [ "${SEARCH_HAS_CREATED_CONVERSATION}" != "yes" ]; then
   exit 1
 fi
 
+echo "Checking conversation rename API"
+RENAMED_CONVERSATION_JSON="$(curl -fsS -X PATCH "${BASE_URL}/api/v1/conversations/${CHAT_CONVERSATION_ID}" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${USER_ID}" \
+  -d '{"title":"Chengdu planning thread"}')"
+echo "${RENAMED_CONVERSATION_JSON}"
+RENAMED_CONVERSATION_TITLE="$(printf '%s' "${RENAMED_CONVERSATION_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("title", ""))')"
+if [ "${RENAMED_CONVERSATION_TITLE}" != "Chengdu planning thread" ]; then
+  echo "Conversation rename API did not persist title" >&2
+  exit 1
+fi
+RENAMED_SEARCH_CONVERSATIONS_JSON="$(curl -fsS "${BASE_URL}/api/v1/conversations?page=1&pageSize=20&query=planning" \
+  -H "X-User-Id: ${USER_ID}")"
+RENAMED_SEARCH_HAS_CREATED_CONVERSATION="$(printf '%s' "${RENAMED_SEARCH_CONVERSATIONS_JSON}" | CHAT_CONVERSATION_ID="${CHAT_CONVERSATION_ID}" python3 -c 'import json, os, sys; data = json.load(sys.stdin).get("data", []); conversation_id = os.environ["CHAT_CONVERSATION_ID"]; print("yes" if any(item.get("id") == conversation_id for item in data) else "no")')"
+if [ "${RENAMED_SEARCH_HAS_CREATED_CONVERSATION}" != "yes" ]; then
+  echo "Conversation query filter did not return the renamed conversation" >&2
+  exit 1
+fi
+echo
+
 echo "Checking trip plan history API"
 TRIP_PLANS_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20" \
   -H "X-User-Id: ${USER_ID}")"

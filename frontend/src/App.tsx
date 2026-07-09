@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Empty, Input, InputNumber, Pagination, Popconfirm, Segmented, Select, Spin } from 'antd';
+import { Button, Empty, Input, InputNumber, Modal, Pagination, Popconfirm, Segmented, Select, Spin } from 'antd';
 import {
   DeleteOutlined,
   DownloadOutlined,
+  EditOutlined,
   HistoryOutlined,
   PlusOutlined,
   SendOutlined,
@@ -21,6 +22,7 @@ import {
   listConversations,
   listTripPlans,
   sendChatMessage,
+  updateConversationTitle,
   updateTripPlanFavorite,
   type ChatMessage,
   type Conversation,
@@ -67,6 +69,8 @@ export default function App() {
   const [conversationSearch, setConversationSearch] = useState('');
   const [conversationPage, setConversationPage] = useState(1);
   const [tripPlanPage, setTripPlanPage] = useState(1);
+  const [renameConversation, setRenameConversation] = useState<Conversation | null>(null);
+  const [renameConversationTitle, setRenameConversationTitle] = useState('');
 
   const conversationsQuery = useQuery({
     queryKey: ['conversations', conversationPage, conversationSearch],
@@ -150,6 +154,17 @@ export default function App() {
         setConversationId(undefined);
         setChatMessages([]);
       }
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
+
+  const updateConversationTitleMutation = useMutation({
+    mutationFn: ({ targetConversationId, title }: { targetConversationId: string; title: string }) =>
+      updateConversationTitle(targetConversationId, title),
+    onSuccess: () => {
+      setRenameConversation(null);
+      setRenameConversationTitle('');
+      setConversationPage(1);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
   });
@@ -248,6 +263,23 @@ export default function App() {
     setChatSuggestions(defaultChatSuggestions);
   };
 
+  const openRenameConversation = (conversation: Conversation) => {
+    setRenameConversation(conversation);
+    setRenameConversationTitle(conversation.title);
+  };
+
+  const submitRenameConversation = () => {
+    const title = renameConversationTitle.trim();
+    if (!renameConversation || !title) {
+      return;
+    }
+
+    updateConversationTitleMutation.mutate({
+      targetConversationId: renameConversation.id,
+      title,
+    });
+  };
+
   const toggleTripPlanFavorite = (tripPlanId: string, favorite: boolean) => {
     updateTripPlanFavoriteMutation.mutate({ tripPlanId, favorite });
   };
@@ -326,7 +358,8 @@ export default function App() {
               loading={
                 conversationsQuery.isLoading ||
                 loadConversationMutation.isPending ||
-                deleteConversationMutation.isPending
+                deleteConversationMutation.isPending ||
+                updateConversationTitleMutation.isPending
               }
               controls={
                 <Input.Search
@@ -362,6 +395,7 @@ export default function App() {
                   conversation={conversation}
                   active={conversation.id === conversationId}
                   onClick={() => loadConversationMutation.mutate(conversation.id)}
+                  onRename={() => openRenameConversation(conversation)}
                   onDelete={() => deleteConversationMutation.mutate(conversation.id)}
                 />
               ))}
@@ -586,6 +620,27 @@ export default function App() {
           </div>
         </aside>
       </section>
+      <Modal
+        title="Rename conversation"
+        open={Boolean(renameConversation)}
+        okText="Save"
+        onOk={submitRenameConversation}
+        confirmLoading={updateConversationTitleMutation.isPending}
+        okButtonProps={{ disabled: !renameConversationTitle.trim() }}
+        onCancel={() => {
+          setRenameConversation(null);
+          setRenameConversationTitle('');
+        }}
+      >
+        <Input
+          autoFocus
+          maxLength={120}
+          value={renameConversationTitle}
+          onChange={(event) => setRenameConversationTitle(event.target.value)}
+          onPressEnter={submitRenameConversation}
+          placeholder="Conversation title"
+        />
+      </Modal>
     </main>
   );
 }
@@ -715,11 +770,13 @@ function ConversationHistoryItem({
   conversation,
   active,
   onClick,
+  onRename,
   onDelete,
 }: {
   conversation: Conversation;
   active: boolean;
   onClick: () => void;
+  onRename: () => void;
   onDelete: () => void;
 }) {
   const lastMessage = conversation.messages[conversation.messages.length - 1]?.content ?? 'No messages yet';
@@ -738,6 +795,7 @@ function ConversationHistoryItem({
         <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{lastMessage}</p>
         <p className="mt-1 text-xs text-slate-400">{formatDateTime(conversation.updatedAt)}</p>
       </button>
+      <Button type="text" size="small" icon={<EditOutlined />} aria-label="Rename conversation" onClick={onRename} />
       <Popconfirm title="Delete conversation?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={onDelete}>
         <Button danger type="text" size="small" icon={<DeleteOutlined />} aria-label="Delete conversation" />
       </Popconfirm>

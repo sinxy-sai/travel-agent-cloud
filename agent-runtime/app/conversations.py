@@ -68,6 +68,16 @@ class ConversationStore:
             if owner_id == user_id and trip_plan.conversation_id == conversation_id:
                 trip_plan.conversation_id = None
 
+    def update_title(self, user_id: str, conversation_id: str, title: str) -> Conversation:
+        item = self._conversations.get(conversation_id)
+        if item is None or item[0] != user_id:
+            raise ConversationNotFoundError(conversation_id)
+
+        conversation = item[1]
+        conversation.title = title.strip()
+        conversation.updated_at = _now()
+        return conversation
+
     def list(self, user_id: str, page: int, page_size: int, query: str = "") -> ConversationListResponse:
         normalized_query = query.strip().lower()
         conversations = sorted(
@@ -216,6 +226,17 @@ class DatabaseConversationStore:
                     ConversationRecord.user_id == user_id,
                 )
             )
+
+    def update_title(self, user_id: str, conversation_id: str, title: str) -> Conversation:
+        with session_scope(self._session_factory) as session:
+            record = _get_conversation_record(session, user_id, conversation_id)
+            if record is None:
+                raise ConversationNotFoundError(conversation_id)
+
+            record.title = title.strip()
+            record.updated_at = _now()
+            session.flush()
+            return _to_conversation(record)
 
     def list(self, user_id: str, page: int, page_size: int, query: str = "") -> ConversationListResponse:
         with session_scope(self._session_factory) as session:

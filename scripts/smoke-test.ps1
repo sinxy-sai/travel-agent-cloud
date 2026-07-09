@@ -57,6 +57,19 @@ if (-not ($searchConversations.data | Where-Object { $_.id -eq $chatResponse.con
   throw "Conversation query filter did not return the created Chengdu conversation"
 }
 
+Write-Host "Checking conversation rename API"
+$renameBody = @{
+  title = "Chengdu planning thread"
+} | ConvertTo-Json
+$renamedConversation = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations/$($chatResponse.conversationId)" -Method Patch -ContentType "application/json" -Headers $headers -Body $renameBody
+if ($renamedConversation.title -ne "Chengdu planning thread") {
+  throw "Conversation rename API did not persist title"
+}
+$renamedSearchConversations = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations?page=1&pageSize=20&query=planning" -Headers $headers
+if (-not ($renamedSearchConversations.data | Where-Object { $_.id -eq $chatResponse.conversationId })) {
+  throw "Conversation query filter did not return the renamed conversation"
+}
+
 Write-Host "Checking trip plan history API"
 $tripPlans = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans?page=1&pageSize=20" -Headers $headers
 

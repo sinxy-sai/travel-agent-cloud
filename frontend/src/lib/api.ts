@@ -151,6 +151,11 @@ export async function deleteConversation(conversationId: string): Promise<void> 
   await api.delete(`/api/v1/conversations/${conversationId}`);
 }
 
+export async function updateConversationTitle(conversationId: string, title: string): Promise<Conversation> {
+  const response = await api.patch<Conversation>(`/api/v1/conversations/${conversationId}`, { title });
+  return response.data;
+}
+
 export async function listTripPlans(
   page = 1,
   pageSize = 20,
