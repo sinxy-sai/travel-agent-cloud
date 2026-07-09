@@ -1,6 +1,6 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Empty, Input, InputNumber, Popconfirm, Segmented, Select, Spin } from 'antd';
+import { Button, Empty, Input, InputNumber, Pagination, Popconfirm, Segmented, Select, Spin } from 'antd';
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -45,6 +45,8 @@ const defaultChatSuggestions = [
   'Make this plan more budget friendly',
 ];
 
+const historyPageSize = 8;
+
 export default function App() {
   const queryClient = useQueryClient();
   const [destination, setDestination] = useState('Chengdu');
@@ -60,16 +62,18 @@ export default function App() {
   const [tripPlanFilter, setTripPlanFilter] = useState<'ALL' | 'FAVORITES'>('ALL');
   const [tripPlanSearchInput, setTripPlanSearchInput] = useState('');
   const [tripPlanSearch, setTripPlanSearch] = useState('');
+  const [conversationPage, setConversationPage] = useState(1);
+  const [tripPlanPage, setTripPlanPage] = useState(1);
 
   const conversationsQuery = useQuery({
-    queryKey: ['conversations'],
-    queryFn: () => listConversations(1, 8),
+    queryKey: ['conversations', conversationPage],
+    queryFn: () => listConversations(conversationPage, historyPageSize),
   });
 
   const tripPlansQuery = useQuery({
-    queryKey: ['trip-plans', tripPlanFilter, tripPlanSearch],
+    queryKey: ['trip-plans', tripPlanPage, tripPlanFilter, tripPlanSearch],
     queryFn: () =>
-      listTripPlans(1, 8, {
+      listTripPlans(tripPlanPage, historyPageSize, {
         favoriteOnly: tripPlanFilter === 'FAVORITES',
         query: tripPlanSearch || undefined,
       }),
@@ -88,6 +92,8 @@ export default function App() {
       setPlan(response);
       setSelectedTripPlanId(response.savedTripPlanId);
       setConversationId(response.conversationId);
+      setConversationPage(1);
+      setTripPlanPage(1);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     },
@@ -99,6 +105,7 @@ export default function App() {
       setConversationId(response.conversationId);
       setChatMessages((messages) => [...messages, response.message]);
       setChatSuggestions(response.suggestions);
+      setConversationPage(1);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
   });
@@ -180,6 +187,20 @@ export default function App() {
     () => `${days} days in ${destination}, ${budget} budget, focused on ${interests.join(', ')}`,
     [budget, days, destination, interests],
   );
+
+  useEffect(() => {
+    const totalPages = conversationsQuery.data?.totalPages ?? 0;
+    if (totalPages > 0 && conversationPage > totalPages) {
+      setConversationPage(totalPages);
+    }
+  }, [conversationPage, conversationsQuery.data?.totalPages]);
+
+  useEffect(() => {
+    const totalPages = tripPlansQuery.data?.totalPages ?? 0;
+    if (totalPages > 0 && tripPlanPage > totalPages) {
+      setTripPlanPage(totalPages);
+    }
+  }, [tripPlanPage, tripPlansQuery.data?.totalPages]);
 
   const sendMessage = () => {
     submitChatMessage(chatInput);
@@ -291,6 +312,14 @@ export default function App() {
                 loadConversationMutation.isPending ||
                 deleteConversationMutation.isPending
               }
+              footer={
+                <HistoryPagination
+                  page={conversationPage}
+                  totalItems={conversationsQuery.data?.totalItems ?? 0}
+                  pageSize={historyPageSize}
+                  onChange={setConversationPage}
+                />
+              }
             >
               {conversationsQuery.data?.data.map((conversation) => (
                 <ConversationHistoryItem
@@ -323,7 +352,10 @@ export default function App() {
                       { label: 'All', value: 'ALL' },
                       { label: 'Favorites', value: 'FAVORITES' },
                     ]}
-                    onChange={(value) => setTripPlanFilter(value as 'ALL' | 'FAVORITES')}
+                    onChange={(value) => {
+                      setTripPlanFilter(value as 'ALL' | 'FAVORITES');
+                      setTripPlanPage(1);
+                    }}
                   />
                   <Input.Search
                     allowClear
@@ -334,11 +366,23 @@ export default function App() {
                       setTripPlanSearchInput(event.target.value);
                       if (!event.target.value) {
                         setTripPlanSearch('');
+                        setTripPlanPage(1);
                       }
                     }}
-                    onSearch={(value) => setTripPlanSearch(value.trim())}
+                    onSearch={(value) => {
+                      setTripPlanSearch(value.trim());
+                      setTripPlanPage(1);
+                    }}
                   />
                 </div>
+              }
+              footer={
+                <HistoryPagination
+                  page={tripPlanPage}
+                  totalItems={tripPlansQuery.data?.totalItems ?? 0}
+                  pageSize={historyPageSize}
+                  onChange={setTripPlanPage}
+                />
               }
             >
               {tripPlansQuery.data?.data.map((savedTripPlan) => (
@@ -563,6 +607,7 @@ function HistorySection({
   loading,
   hasItems,
   controls,
+  footer,
   children,
 }: {
   title: string;
@@ -570,6 +615,7 @@ function HistorySection({
   loading: boolean;
   hasItems?: boolean;
   controls?: ReactNode;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   const hasVisibleItems = hasItems ?? (Array.isArray(children) ? children.length > 0 : Boolean(children));
@@ -590,7 +636,36 @@ function HistorySection({
           </div>
         )}
       </div>
+      {footer && <div className="mt-3">{footer}</div>}
     </section>
+  );
+}
+
+function HistoryPagination({
+  page,
+  totalItems,
+  pageSize,
+  onChange,
+}: {
+  page: number;
+  totalItems: number;
+  pageSize: number;
+  onChange: (page: number) => void;
+}) {
+  if (totalItems <= pageSize) {
+    return null;
+  }
+
+  return (
+    <Pagination
+      simple
+      size="small"
+      current={page}
+      pageSize={pageSize}
+      total={totalItems}
+      onChange={onChange}
+      className="text-right"
+    />
   );
 }
 
