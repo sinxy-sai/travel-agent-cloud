@@ -9,10 +9,16 @@ curl -fsS "${BASE_URL}/health"
 echo
 
 echo "Checking chat API"
-curl -fsS -X POST "${BASE_URL}/api/v1/chat" \
+CHAT_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/chat" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: ${USER_ID}" \
-  -d '{"message":"I want a relaxed 3-day Chengdu food trip.","mode":"TRIP_PLANNING"}'
+  -d '{"message":"I want a relaxed 3-day Chengdu food trip.","mode":"TRIP_PLANNING"}')"
+echo "${CHAT_JSON}"
+HAS_SUGGESTIONS="$(printf '%s' "${CHAT_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("suggestions") else "no")')"
+if [ "${HAS_SUGGESTIONS}" != "yes" ]; then
+  echo "Chat API did not return suggestions" >&2
+  exit 1
+fi
 echo
 
 echo "Checking trip plan API"

@@ -15,7 +15,10 @@ $chatBody = @{
   message = "I want a relaxed 3-day Chengdu food trip."
   mode = "TRIP_PLANNING"
 } | ConvertTo-Json
-Invoke-RestMethod -Uri "$BaseUrl/api/v1/chat" -Method Post -ContentType "application/json" -Headers $headers -Body $chatBody
+$chatResponse = Invoke-RestMethod -Uri "$BaseUrl/api/v1/chat" -Method Post -ContentType "application/json" -Headers $headers -Body $chatBody
+if (-not $chatResponse.suggestions -or $chatResponse.suggestions.Count -eq 0) {
+  throw "Chat API did not return suggestions"
+}
 
 Write-Host "Checking trip plan API"
 $tripBody = @{

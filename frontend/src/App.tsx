@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Empty, Input, InputNumber, Popconfirm, Select, Spin } from 'antd';
-import { DeleteOutlined, DownloadOutlined, HistoryOutlined, SendOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownloadOutlined, HistoryOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons';
 import {
   createTripPlan,
   deleteConversation,
@@ -28,6 +28,12 @@ const interestOptions = [
   'slow travel',
 ];
 
+const defaultChatSuggestions = [
+  'Generate a structured itinerary',
+  'Add weather and transit constraints',
+  'Make this plan more budget friendly',
+];
+
 export default function App() {
   const queryClient = useQueryClient();
   const [destination, setDestination] = useState('Chengdu');
@@ -39,6 +45,7 @@ export default function App() {
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatSuggestions, setChatSuggestions] = useState<string[]>(defaultChatSuggestions);
 
   const conversationsQuery = useQuery({
     queryKey: ['conversations'],
@@ -65,6 +72,7 @@ export default function App() {
     onSuccess: (response) => {
       setConversationId(response.conversationId);
       setChatMessages((messages) => [...messages, response.message]);
+      setChatSuggestions(response.suggestions);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
   });
@@ -75,6 +83,7 @@ export default function App() {
       setConversationId(conversation.id);
       setChatMessages(conversation.messages);
       setChatInput('');
+      setChatSuggestions(defaultChatSuggestions);
     },
   });
 
@@ -139,7 +148,11 @@ export default function App() {
   );
 
   const sendMessage = () => {
-    const message = chatInput.trim();
+    submitChatMessage(chatInput);
+  };
+
+  const submitChatMessage = (rawMessage: string) => {
+    const message = rawMessage.trim();
     if (!message || chatMutation.isPending) {
       return;
     }
@@ -159,6 +172,13 @@ export default function App() {
       conversationId,
       mode: 'TRIP_PLANNING',
     });
+  };
+
+  const startNewChat = () => {
+    setConversationId(undefined);
+    setChatMessages([]);
+    setChatInput('');
+    setChatSuggestions(defaultChatSuggestions);
   };
 
   return (
@@ -334,7 +354,12 @@ export default function App() {
         <aside className="flex min-h-[560px] flex-col rounded-lg bg-ink p-5 text-white shadow-panel">
           <div className="mb-4">
             <p className="text-sm font-medium uppercase tracking-wide text-mist/70">Agent chat</p>
-            <h2 className="mt-2 text-2xl font-semibold">Planning thread</h2>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <h2 className="text-2xl font-semibold">Planning thread</h2>
+              <Button icon={<PlusOutlined />} onClick={startNewChat}>
+                New chat
+              </Button>
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
@@ -357,6 +382,19 @@ export default function App() {
                 Agent runtime is unavailable.
               </div>
             )}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {chatSuggestions.map((suggestion) => (
+              <Button
+                key={suggestion}
+                size="small"
+                onClick={() => submitChatMessage(suggestion)}
+                disabled={chatMutation.isPending}
+              >
+                {suggestion}
+              </Button>
+            ))}
           </div>
 
           <div className="mt-4 space-y-3">
