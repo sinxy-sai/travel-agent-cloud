@@ -45,3 +45,37 @@ Then add `DATABASE_URL` to `agent-runtime-secrets`. The normal deploy command wi
 ```bash
 kubectl apply -k deploy/k8s
 ```
+
+## Optional RabbitMQ Addon
+
+RabbitMQ is the selected message queue, but it is not part of the default Kustomize deployment yet. This avoids slowing down or breaking the normal VPS deploy before queue consumers are implemented.
+
+Create credentials first:
+
+```bash
+kubectl create secret generic rabbitmq-secrets \
+  -n travel-agent-cloud \
+  --from-literal=RABBITMQ_DEFAULT_USER='travel_agent' \
+  --from-literal=RABBITMQ_DEFAULT_PASS='change-me-to-a-strong-password' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Apply the addon when needed:
+
+```bash
+kubectl apply -f deploy/k8s/addons/rabbitmq.yaml
+```
+
+If the Agent Runtime needs to publish queue events, recreate `agent-runtime-secrets` with the existing database and LLM keys plus `MESSAGE_QUEUE_URL`. Do not apply a single-key Secret over the existing one, because that can remove the existing keys.
+
+```bash
+kubectl create secret generic agent-runtime-secrets \
+  -n travel-agent-cloud \
+  --from-literal=DATABASE_URL='postgresql://travel_agent:postgres-password@postgres:5432/travel_agent_cloud' \
+  --from-literal=LLM_PROVIDER='openai_compatible' \
+  --from-literal=LLM_API_KEY='your-llm-api-key' \
+  --from-literal=LLM_BASE_URL='https://api.deepseek.com' \
+  --from-literal=LLM_MODEL='deepseek-v4-flash' \
+  --from-literal=MESSAGE_QUEUE_URL='amqp://travel_agent:change-me-to-a-strong-password@rabbitmq:5672/' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```

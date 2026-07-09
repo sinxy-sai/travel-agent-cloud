@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     app_env: str = "local"
     allowed_origins: str = "http://localhost:5173"
     database_url: str = ""
+    message_queue_url: str = ""
+    rpc_timeout_seconds: float = 5.0
     llm_provider: str = "mock"
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"

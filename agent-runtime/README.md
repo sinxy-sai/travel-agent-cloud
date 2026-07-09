@@ -28,6 +28,15 @@ LLM_MODEL=your-model-name
 
 If the model is not configured or the provider call fails, the service falls back to deterministic mock responses so local development and deployment checks still work.
 
+Optional integration placeholders:
+
+```bash
+MESSAGE_QUEUE_URL=amqp://user:password@rabbitmq:5672/
+RPC_TIMEOUT_SECONDS=5
+```
+
+`MESSAGE_QUEUE_URL` is reserved for later RabbitMQ producers/consumers. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for future runtime-to-service calls.
+
 ## Observability
 
 Every HTTP response includes:

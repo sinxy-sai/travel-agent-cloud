@@ -1,27 +1,30 @@
 # Travel Agent Cloud
 
-基于 React + FastAPI + PostgreSQL + K3s 的多用户并发 AI 旅游助手项目，目标是在 VPS 上通过 Docker、K3s 和 GitHub Actions 完成全栈部署。
+基于 React、FastAPI、Spring Cloud、PostgreSQL 和 K3s 的多用户并发 AI 旅游助手项目。目标是在 VPS 上通过 Docker、K3s 和 GitHub Actions 完成全栈自动部署。
 
 ## 项目目标
 
-本项目面向旅游规划场景，提供多轮对话、行程生成、旅游知识检索、地图天气工具调用、行程保存与导出等能力。当前阶段先实现可运行的前端工作台和 Agent Runtime，后续再逐步接入 Java 微服务、用户体系、RAG 知识库和更完整的 Agent 工具链。
+本项目面向旅游规划场景，提供多轮对话、行程生成、行程保存、收藏、搜索、导出、用户旅行偏好等能力。当前阶段先实现可运行的前端工作台和 Python Agent Runtime，后续逐步接入 Java 微服务、微信登录、RAG 知识库、消息队列和更完整的 Agent 工具链。
 
 ## 技术栈
 
 - Frontend: React, Vite, TypeScript, Tailwind CSS, Ant Design, TanStack Query, Zustand
 - Agent Runtime: Python, FastAPI, OpenAI-compatible LLM API
 - Backend Services: Java 17, Spring Boot, Spring Cloud, Spring Cloud Gateway
+- RPC / Service Calls: Spring Cloud OpenFeign for Java service-to-service calls; REST between Gateway and Agent Runtime; gRPC reserved for future low-latency streaming needs
+- Message Queue: RabbitMQ for domain events and async jobs
 - Data: PostgreSQL, Redis, MinIO, pgvector
-- Deployment: Docker, K3s, Kubernetes Ingress
+- Deployment: Docker, Docker Compose, K3s, Kubernetes Ingress
 - CI/CD: GitHub Actions, Docker Hub, GHCR
 - Observability: Prometheus, Grafana, Loki, OpenTelemetry
 
 ## 当前模块
 
 - `frontend`: React + Vite 旅游助手前端工作台
-- `agent-runtime`: FastAPI Agent 服务，提供行程规划和对话接口
+- `agent-runtime`: FastAPI Agent 服务，提供行程规划、聊天、用户偏好和历史记录接口
 - `services`: 后续 Spring Cloud 微服务预留目录
 - `deploy`: K3s/Kubernetes 部署清单
+- `docs`: 架构、API 和服务通信规范
 - `scripts`: 服务器初始化和 smoke test 脚本
 
 ## 本地开发
@@ -58,7 +61,7 @@ http://localhost:5173
 
 ## Docker Compose 本地测试
 
-Docker Compose 会同时启动 PostgreSQL、Agent Runtime 和前端:
+Docker Compose 会启动 PostgreSQL、RabbitMQ、Agent Runtime 和前端:
 
 ```bash
 docker compose up --build
@@ -70,13 +73,20 @@ docker compose up --build
 http://localhost:5173
 ```
 
+RabbitMQ 管理后台:
+
+```text
+http://localhost:15672
+```
+
 Compose 环境会给 `agent-runtime` 注入:
 
 ```text
 DATABASE_URL=postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
+MESSAGE_QUEUE_URL=amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
 ```
 
-后端会自动创建当前需要的 `conversations`、`messages`、`trip_plans` 表。
+当前 Agent Runtime 还没有消费 RabbitMQ；这个配置是为后续异步任务和事件驱动开发预留。
 
 ## 自动部署
 
@@ -90,8 +100,9 @@ DATABASE_URL=postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_age
 
 - `CI` 成功后触发 `Build Images Docker Hub`
 - Docker Hub 镜像构建成功后触发 `Deploy K3s`
-- `Deploy K3s` 会执行 `kubectl apply -k deploy/k8s`
+- `Deploy K3s` 执行 `kubectl apply -k deploy/k8s`
 - PostgreSQL 已加入默认 Kustomize 部署
+- RabbitMQ 是可选 K3s addon，默认不随自动部署启动
 - GHCR 镜像构建 workflow 保留，但 K3s 默认部署 Docker Hub 镜像
 
 GitHub repository secrets:
@@ -106,7 +117,7 @@ VPS_SSH_KEY
 
 ## VPS 前置 Secret
 
-如果希望 push 后自动部署并连接 PostgreSQL，需要先在 VPS 创建 `postgres-secrets` 和 `agent-runtime-secrets`。
+如果希望 push 后自动部署并连接 PostgreSQL 和 DeepSeek，需要先在 VPS 创建 `postgres-secrets` 和 `agent-runtime-secrets`。
 
 创建 PostgreSQL Secret:
 
