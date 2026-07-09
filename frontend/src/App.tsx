@@ -61,7 +61,7 @@ export default function App() {
     mutationFn: createTripPlan,
     onSuccess: (response) => {
       setPlan(response);
-      setSelectedTripPlanId(undefined);
+      setSelectedTripPlanId(response.savedTripPlanId);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     },

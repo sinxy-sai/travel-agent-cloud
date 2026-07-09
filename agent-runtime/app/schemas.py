@@ -33,6 +33,7 @@ class TripPlanResponse(APIModel):
     summary: str
     days: list[TripDay]
     tips: list[str]
+    saved_trip_plan_id: str | None = None
 
 
 class SavedTripPlan(APIModel):

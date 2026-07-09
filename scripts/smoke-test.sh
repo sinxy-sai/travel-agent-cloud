@@ -22,10 +22,16 @@ fi
 echo
 
 echo "Checking trip plan API"
-curl -fsS -X POST "${BASE_URL}/api/v1/trip-plan" \
+CREATED_TRIP_PLAN_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/trip-plan" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: ${USER_ID}" \
-  -d '{"destination":"Chengdu","days":3,"budget":"moderate","interests":"local food, city walk"}'
+  -d '{"destination":"Chengdu","days":3,"budget":"moderate","interests":"local food, city walk"}')"
+echo "${CREATED_TRIP_PLAN_JSON}"
+CREATED_TRIP_PLAN_ID="$(printf '%s' "${CREATED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("savedTripPlanId", ""))')"
+if [ -z "${CREATED_TRIP_PLAN_ID}" ]; then
+  echo "Trip plan API did not return savedTripPlanId" >&2
+  exit 1
+fi
 echo
 
 echo "Checking conversation list API"
@@ -46,9 +52,15 @@ TRIP_PLANS_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20" 
 echo "${TRIP_PLANS_JSON}"
 echo
 
-TRIP_PLAN_ID="$(printf '%s' "${TRIP_PLANS_JSON}" | python3 -c 'import json, sys; data = json.load(sys.stdin).get("data", []); print(data[0]["id"] if data else "")')"
-if [ -z "${TRIP_PLAN_ID}" ]; then
+HAS_TRIP_PLANS="$(printf '%s' "${TRIP_PLANS_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("data") else "no")')"
+if [ "${HAS_TRIP_PLANS}" != "yes" ]; then
   echo "Trip plan history did not return a saved plan" >&2
+  exit 1
+fi
+
+TRIP_PLAN_ID="${CREATED_TRIP_PLAN_ID}"
+if [ -z "${TRIP_PLAN_ID}" ]; then
+  echo "Trip plan API did not return savedTripPlanId" >&2
   exit 1
 fi
 

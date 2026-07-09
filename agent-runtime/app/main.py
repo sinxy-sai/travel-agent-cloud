@@ -68,7 +68,8 @@ def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_i
         f"Plan {request.days} days in {request.destination}, budget={request.budget}, interests={request.interests}",
     )
     conversation_store.append_message(conversation, MessageRole.ASSISTANT, response.summary)
-    conversation_store.save_trip_plan(user_id, conversation, request, response)
+    saved_trip_plan = conversation_store.save_trip_plan(user_id, conversation, request, response)
+    response.saved_trip_plan_id = saved_trip_plan.id
     return response
 
 

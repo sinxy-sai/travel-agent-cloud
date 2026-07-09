@@ -27,7 +27,10 @@ $tripBody = @{
   budget = "moderate"
   interests = "local food, city walk"
 } | ConvertTo-Json
-Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plan" -Method Post -ContentType "application/json" -Headers $headers -Body $tripBody
+$createdTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plan" -Method Post -ContentType "application/json" -Headers $headers -Body $tripBody
+if (-not $createdTripPlan.savedTripPlanId) {
+  throw "Trip plan API did not return savedTripPlanId"
+}
 
 Write-Host "Checking conversation list API"
 $conversations = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations?page=1&pageSize=20" -Headers $headers
@@ -44,13 +47,13 @@ if (-not $tripPlans.data -or $tripPlans.data.Count -eq 0) {
 }
 
 Write-Host "Checking trip plan export API"
-$markdown = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($tripPlans.data[0].id)/export" -Headers $headers
+$markdown = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/export" -Headers $headers
 if (-not ($markdown -like "# *")) {
   throw "Trip plan export did not return markdown"
 }
 
 Write-Host "Checking trip plan delete API"
-$tripPlanId = $tripPlans.data[0].id
+$tripPlanId = $createdTripPlan.savedTripPlanId
 Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$tripPlanId" -Method Delete -Headers $headers
 try {
   Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$tripPlanId" -Headers $headers

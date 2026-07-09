@@ -20,6 +20,7 @@ export interface TripPlanResponse {
   summary: string;
   days: TripDay[];
   tips: string[];
+  savedTripPlanId?: string;
 }
 
 export interface SavedTripPlan {

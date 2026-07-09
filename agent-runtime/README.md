@@ -54,6 +54,8 @@ curl -X POST http://localhost:8000/api/v1/trip-plan \
   -d '{"destination":"Chengdu","days":3,"budget":"moderate","interests":"local food, city walk"}'
 ```
 
+The response includes `savedTripPlanId`, which can be used immediately with the saved trip plan APIs.
+
 Send a chat message:
 
 ```bash
