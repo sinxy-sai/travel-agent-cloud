@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from math import ceil
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import session_scope
@@ -57,6 +57,16 @@ class ConversationStore:
         if item is None or item[0] != user_id:
             raise ConversationNotFoundError(conversation_id)
         return item[1]
+
+    def delete(self, user_id: str, conversation_id: str) -> None:
+        item = self._conversations.get(conversation_id)
+        if item is None or item[0] != user_id:
+            raise ConversationNotFoundError(conversation_id)
+
+        del self._conversations[conversation_id]
+        for owner_id, trip_plan in self._trip_plans.values():
+            if owner_id == user_id and trip_plan.conversation_id == conversation_id:
+                trip_plan.conversation_id = None
 
     def list(self, user_id: str, page: int, page_size: int) -> ConversationListResponse:
         conversations = sorted(
@@ -130,6 +140,12 @@ class ConversationStore:
             raise TripPlanNotFoundError(trip_plan_id)
         return item[1]
 
+    def delete_trip_plan(self, user_id: str, trip_plan_id: str) -> None:
+        item = self._trip_plans.get(trip_plan_id)
+        if item is None or item[0] != user_id:
+            raise TripPlanNotFoundError(trip_plan_id)
+        del self._trip_plans[trip_plan_id]
+
 
 class DatabaseConversationStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
@@ -154,6 +170,26 @@ class DatabaseConversationStore:
             if record is None:
                 raise ConversationNotFoundError(conversation_id)
             return _to_conversation(record)
+
+    def delete(self, user_id: str, conversation_id: str) -> None:
+        with session_scope(self._session_factory) as session:
+            record = _get_conversation_record(session, user_id, conversation_id)
+            if record is None:
+                raise ConversationNotFoundError(conversation_id)
+            session.execute(
+                update(TripPlanRecord)
+                .where(TripPlanRecord.conversation_id == conversation_id, TripPlanRecord.user_id == user_id)
+                .values(conversation_id=None)
+            )
+            session.execute(
+                delete(MessageRecord).where(MessageRecord.conversation_id == conversation_id)
+            )
+            session.execute(
+                delete(ConversationRecord).where(
+                    ConversationRecord.id == conversation_id,
+                    ConversationRecord.user_id == user_id,
+                )
+            )
 
     def list(self, user_id: str, page: int, page_size: int) -> ConversationListResponse:
         with session_scope(self._session_factory) as session:
@@ -251,6 +287,14 @@ class DatabaseConversationStore:
             if record is None:
                 raise TripPlanNotFoundError(trip_plan_id)
             return _to_trip_plan(record)
+
+    def delete_trip_plan(self, user_id: str, trip_plan_id: str) -> None:
+        with session_scope(self._session_factory) as session:
+            result = session.execute(
+                delete(TripPlanRecord).where(TripPlanRecord.id == trip_plan_id, TripPlanRecord.user_id == user_id)
+            )
+            if result.rowcount == 0:
+                raise TripPlanNotFoundError(trip_plan_id)
 
 
 def _get_conversation_record(

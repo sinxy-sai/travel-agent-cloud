@@ -74,6 +74,12 @@ Get a conversation:
 curl http://localhost:8000/api/v1/conversations/{conversationId}
 ```
 
+Delete a conversation:
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/conversations/{conversationId}
+```
+
 List saved trip plans:
 
 ```bash
@@ -84,6 +90,12 @@ Get a saved trip plan:
 
 ```bash
 curl http://localhost:8000/api/v1/trip-plans/{tripPlanId}
+```
+
+Delete a saved trip plan:
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/trip-plans/{tripPlanId}
 ```
 
 Export a saved trip plan as Markdown:

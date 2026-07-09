@@ -23,9 +23,16 @@ curl -fsS -X POST "${BASE_URL}/api/v1/trip-plan" \
 echo
 
 echo "Checking conversation list API"
-curl -fsS "${BASE_URL}/api/v1/conversations?page=1&pageSize=20" \
-  -H "X-User-Id: ${USER_ID}"
+CONVERSATIONS_JSON="$(curl -fsS "${BASE_URL}/api/v1/conversations?page=1&pageSize=20" \
+  -H "X-User-Id: ${USER_ID}")"
+echo "${CONVERSATIONS_JSON}"
 echo
+
+CONVERSATION_ID="$(printf '%s' "${CONVERSATIONS_JSON}" | python3 -c 'import json, sys; data = json.load(sys.stdin).get("data", []); print(data[0]["id"] if data else "")')"
+if [ -z "${CONVERSATION_ID}" ]; then
+  echo "Conversation history did not return a saved conversation" >&2
+  exit 1
+fi
 
 echo "Checking trip plan history API"
 TRIP_PLANS_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20" \
@@ -50,6 +57,24 @@ case "${MARKDOWN}" in
     exit 1
     ;;
 esac
+echo
+
+echo "Checking trip plan delete API"
+curl -fsS -X DELETE "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}" \
+  -H "X-User-Id: ${USER_ID}"
+if [ "$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}" -H "X-User-Id: ${USER_ID}")" != "404" ]; then
+  echo "Deleted trip plan was still readable" >&2
+  exit 1
+fi
+echo
+
+echo "Checking conversation delete API"
+curl -fsS -X DELETE "${BASE_URL}/api/v1/conversations/${CONVERSATION_ID}" \
+  -H "X-User-Id: ${USER_ID}"
+if [ "$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/conversations/${CONVERSATION_ID}" -H "X-User-Id: ${USER_ID}")" != "404" ]; then
+  echo "Deleted conversation was still readable" >&2
+  exit 1
+fi
 echo
 
 echo "Smoke test passed"

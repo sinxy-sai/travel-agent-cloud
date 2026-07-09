@@ -27,7 +27,11 @@ $tripBody = @{
 Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plan" -Method Post -ContentType "application/json" -Headers $headers -Body $tripBody
 
 Write-Host "Checking conversation list API"
-Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations?page=1&pageSize=20" -Headers $headers
+$conversations = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations?page=1&pageSize=20" -Headers $headers
+
+if (-not $conversations.data -or $conversations.data.Count -eq 0) {
+  throw "Conversation history did not return a saved conversation"
+}
 
 Write-Host "Checking trip plan history API"
 $tripPlans = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans?page=1&pageSize=20" -Headers $headers
@@ -40,6 +44,30 @@ Write-Host "Checking trip plan export API"
 $markdown = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($tripPlans.data[0].id)/export" -Headers $headers
 if (-not ($markdown -like "# *")) {
   throw "Trip plan export did not return markdown"
+}
+
+Write-Host "Checking trip plan delete API"
+$tripPlanId = $tripPlans.data[0].id
+Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$tripPlanId" -Method Delete -Headers $headers
+try {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$tripPlanId" -Headers $headers
+  throw "Deleted trip plan was still readable"
+} catch {
+  if ($_.Exception.Response.StatusCode.value__ -ne 404) {
+    throw
+  }
+}
+
+Write-Host "Checking conversation delete API"
+$conversationId = $conversations.data[0].id
+Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations/$conversationId" -Method Delete -Headers $headers
+try {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations/$conversationId" -Headers $headers
+  throw "Deleted conversation was still readable"
+} catch {
+  if ($_.Exception.Response.StatusCode.value__ -ne 404) {
+    throw
+  }
 }
 
 Write-Host "Smoke test passed"

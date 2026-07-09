@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
@@ -97,6 +97,15 @@ def get_conversation(conversation_id: str, user_id: str = Depends(get_user_id)) 
         raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
 
 
+@app.delete("/api/v1/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_conversation(conversation_id: str, user_id: str = Depends(get_user_id)) -> Response:
+    try:
+        conversation_store.delete(user_id, conversation_id)
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @app.get("/api/v1/trip-plans", response_model=TripPlanListResponse)
 def list_trip_plans(
     user_id: str = Depends(get_user_id),
@@ -112,6 +121,15 @@ def get_trip_plan(trip_plan_id: str, user_id: str = Depends(get_user_id)) -> Sav
         return conversation_store.get_trip_plan(user_id, trip_plan_id)
     except TripPlanNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+
+
+@app.delete("/api/v1/trip-plans/{trip_plan_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_trip_plan(trip_plan_id: str, user_id: str = Depends(get_user_id)) -> Response:
+    try:
+        conversation_store.delete_trip_plan(user_id, trip_plan_id)
+    except TripPlanNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get("/api/v1/trip-plans/{trip_plan_id}/export", response_class=PlainTextResponse)

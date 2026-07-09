@@ -117,6 +117,10 @@ export async function getConversation(conversationId: string): Promise<Conversat
   return response.data;
 }
 
+export async function deleteConversation(conversationId: string): Promise<void> {
+  await api.delete(`/api/v1/conversations/${conversationId}`);
+}
+
 export async function listTripPlans(page = 1, pageSize = 20): Promise<TripPlanListResponse> {
   const response = await api.get<TripPlanListResponse>('/api/v1/trip-plans', {
     params: { page, pageSize },
@@ -127,6 +131,10 @@ export async function listTripPlans(page = 1, pageSize = 20): Promise<TripPlanLi
 export async function getTripPlan(tripPlanId: string): Promise<SavedTripPlan> {
   const response = await api.get<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}`);
   return response.data;
+}
+
+export async function deleteTripPlan(tripPlanId: string): Promise<void> {
+  await api.delete(`/api/v1/trip-plans/${tripPlanId}`);
 }
 
 export async function exportTripPlanMarkdown(tripPlanId: string): Promise<string> {

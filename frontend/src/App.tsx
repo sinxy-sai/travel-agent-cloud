@@ -1,9 +1,11 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Empty, Input, InputNumber, Select, Spin } from 'antd';
-import { DownloadOutlined, HistoryOutlined, SendOutlined } from '@ant-design/icons';
+import { Button, Empty, Input, InputNumber, Popconfirm, Select, Spin } from 'antd';
+import { DeleteOutlined, DownloadOutlined, HistoryOutlined, SendOutlined } from '@ant-design/icons';
 import {
   createTripPlan,
+  deleteConversation,
+  deleteTripPlan,
   exportTripPlanMarkdown,
   getConversation,
   getTripPlan,
@@ -88,6 +90,28 @@ export default function App() {
       if (savedTripPlan.conversationId) {
         setConversationId(savedTripPlan.conversationId);
       }
+    },
+  });
+
+  const deleteConversationMutation = useMutation({
+    mutationFn: deleteConversation,
+    onSuccess: (_response, deletedConversationId) => {
+      if (deletedConversationId === conversationId) {
+        setConversationId(undefined);
+        setChatMessages([]);
+      }
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
+
+  const deleteTripPlanMutation = useMutation({
+    mutationFn: deleteTripPlan,
+    onSuccess: (_response, deletedTripPlanId) => {
+      if (deletedTripPlanId === selectedTripPlanId) {
+        setSelectedTripPlanId(undefined);
+        setPlan(null);
+      }
+      queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     },
   });
 
@@ -204,7 +228,11 @@ export default function App() {
             <HistorySection
               title="Recent conversations"
               emptyText="No saved threads yet"
-              loading={conversationsQuery.isLoading || loadConversationMutation.isPending}
+              loading={
+                conversationsQuery.isLoading ||
+                loadConversationMutation.isPending ||
+                deleteConversationMutation.isPending
+              }
             >
               {conversationsQuery.data?.data.map((conversation) => (
                 <ConversationHistoryItem
@@ -212,6 +240,7 @@ export default function App() {
                   conversation={conversation}
                   active={conversation.id === conversationId}
                   onClick={() => loadConversationMutation.mutate(conversation.id)}
+                  onDelete={() => deleteConversationMutation.mutate(conversation.id)}
                 />
               ))}
             </HistorySection>
@@ -219,7 +248,7 @@ export default function App() {
             <HistorySection
               title="Saved itineraries"
               emptyText="No saved plans yet"
-              loading={tripPlansQuery.isLoading || loadTripPlanMutation.isPending}
+              loading={tripPlansQuery.isLoading || loadTripPlanMutation.isPending || deleteTripPlanMutation.isPending}
             >
               {tripPlansQuery.data?.data.map((savedTripPlan) => (
                 <TripPlanHistoryItem
@@ -227,6 +256,7 @@ export default function App() {
                   tripPlan={savedTripPlan}
                   active={savedTripPlan.id === selectedTripPlanId}
                   onClick={() => loadTripPlanMutation.mutate(savedTripPlan.id)}
+                  onDelete={() => deleteTripPlanMutation.mutate(savedTripPlan.id)}
                 />
               ))}
             </HistorySection>
@@ -404,28 +434,33 @@ function ConversationHistoryItem({
   conversation,
   active,
   onClick,
+  onDelete,
 }: {
   conversation: Conversation;
   active: boolean;
   onClick: () => void;
+  onDelete: () => void;
 }) {
   const lastMessage = conversation.messages[conversation.messages.length - 1]?.content ?? 'No messages yet';
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full rounded-md border px-3 py-2 text-left transition ${
+    <div
+      className={`flex w-full items-start gap-2 rounded-md border px-3 py-2 transition ${
         active ? 'border-trail bg-mist' : 'border-slate-200 bg-white hover:border-trail/60 hover:bg-slate-50'
       }`}
     >
-      <div className="flex items-center gap-2 text-sm font-medium text-ink">
-        <HistoryOutlined className="text-trail" />
-        <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
-      </div>
-      <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{lastMessage}</p>
-      <p className="mt-1 text-xs text-slate-400">{formatDateTime(conversation.updatedAt)}</p>
-    </button>
+      <button type="button" onClick={onClick} className="min-w-0 flex-1 text-left">
+        <div className="flex items-center gap-2 text-sm font-medium text-ink">
+          <HistoryOutlined className="text-trail" />
+          <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
+        </div>
+        <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{lastMessage}</p>
+        <p className="mt-1 text-xs text-slate-400">{formatDateTime(conversation.updatedAt)}</p>
+      </button>
+      <Popconfirm title="Delete conversation?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={onDelete}>
+        <Button danger type="text" size="small" icon={<DeleteOutlined />} aria-label="Delete conversation" />
+      </Popconfirm>
+    </div>
   );
 }
 
@@ -433,25 +468,30 @@ function TripPlanHistoryItem({
   tripPlan,
   active,
   onClick,
+  onDelete,
 }: {
   tripPlan: SavedTripPlan;
   active: boolean;
   onClick: () => void;
+  onDelete: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full rounded-md border px-3 py-2 text-left transition ${
+    <div
+      className={`flex w-full items-start gap-2 rounded-md border px-3 py-2 transition ${
         active ? 'border-coral bg-coral/5' : 'border-slate-200 bg-white hover:border-coral/60 hover:bg-slate-50'
       }`}
     >
-      <p className="truncate text-sm font-medium text-ink">{tripPlan.title}</p>
-      <p className="mt-1 text-xs text-slate-500">
-        {tripPlan.destination} / {tripPlan.days} days / {tripPlan.budget}
-      </p>
-      <p className="mt-1 text-xs text-slate-400">{formatDateTime(tripPlan.createdAt)}</p>
-    </button>
+      <button type="button" onClick={onClick} className="min-w-0 flex-1 text-left">
+        <p className="truncate text-sm font-medium text-ink">{tripPlan.title}</p>
+        <p className="mt-1 text-xs text-slate-500">
+          {tripPlan.destination} / {tripPlan.days} days / {tripPlan.budget}
+        </p>
+        <p className="mt-1 text-xs text-slate-400">{formatDateTime(tripPlan.createdAt)}</p>
+      </button>
+      <Popconfirm title="Delete itinerary?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={onDelete}>
+        <Button danger type="text" size="small" icon={<DeleteOutlined />} aria-label="Delete itinerary" />
+      </Popconfirm>
+    </div>
   );
 }
 
