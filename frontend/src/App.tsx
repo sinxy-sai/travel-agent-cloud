@@ -8,12 +8,14 @@ import {
   deleteTripPlan,
   exportTripPlanMarkdown,
   getConversation,
+  getHealth,
   getTripPlan,
   listConversations,
   listTripPlans,
   sendChatMessage,
   type ChatMessage,
   type Conversation,
+  type HealthResponse,
   type SavedTripPlan,
   type TripPlanResponse,
 } from './lib/api';
@@ -55,6 +57,13 @@ export default function App() {
   const tripPlansQuery = useQuery({
     queryKey: ['trip-plans'],
     queryFn: () => listTripPlans(1, 8),
+  });
+
+  const healthQuery = useQuery({
+    queryKey: ['health'],
+    queryFn: getHealth,
+    refetchInterval: 30000,
+    retry: 1,
   });
 
   const tripPlanMutation = useMutation({
@@ -189,6 +198,8 @@ export default function App() {
             <p className="text-sm font-medium uppercase tracking-wide text-trail">Travel Agent Cloud</p>
             <h1 className="mt-2 text-3xl font-semibold text-ink">Trip planner workspace</h1>
           </div>
+
+          <RuntimeStatus health={healthQuery.data} loading={healthQuery.isLoading} error={healthQuery.isError} />
 
           <div className="space-y-4">
             <label className="block">
@@ -432,6 +443,50 @@ function PlanBlock({ title, value }: { title: string; value: string }) {
     <div className="rounded-md bg-mist p-3">
       <p className="text-sm font-medium text-trail">{title}</p>
       <p className="mt-1 text-sm leading-6 text-slate-700">{value}</p>
+    </div>
+  );
+}
+
+function RuntimeStatus({
+  health,
+  loading,
+  error,
+}: {
+  health?: HealthResponse;
+  loading: boolean;
+  error: boolean;
+}) {
+  const runtimeOnline = Boolean(health && health.status === 'ok' && !error);
+
+  return (
+    <section className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-ink">Runtime status</h2>
+          <p className="mt-1 text-xs text-slate-500">{health?.env ?? (loading ? 'checking' : 'unavailable')}</p>
+        </div>
+        {loading && <Spin size="small" />}
+      </div>
+      <div className="grid gap-2">
+        <StatusRow label="Agent Runtime" active={runtimeOnline} muted={loading} />
+        <StatusRow label="LLM" active={Boolean(health?.llmEnabled)} muted={!runtimeOnline || loading} />
+        <StatusRow label="PostgreSQL" active={Boolean(health?.databaseEnabled)} muted={!runtimeOnline || loading} />
+      </div>
+    </section>
+  );
+}
+
+function StatusRow({ label, active, muted }: { label: string; active: boolean; muted: boolean }) {
+  const colorClass = active ? 'bg-emerald-500' : muted ? 'bg-slate-300' : 'bg-red-500';
+  const text = active ? 'online' : muted ? 'unknown' : 'offline';
+
+  return (
+    <div className="flex items-center justify-between rounded-md bg-white px-2 py-2 text-xs">
+      <span className="font-medium text-slate-700">{label}</span>
+      <span className="flex items-center gap-2 text-slate-500">
+        <span className={`h-2 w-2 rounded-full ${colorClass}`} />
+        {text}
+      </span>
     </div>
   );
 }

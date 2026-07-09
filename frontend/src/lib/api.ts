@@ -82,6 +82,14 @@ export interface ConversationListResponse {
   totalPages: number;
 }
 
+export interface HealthResponse {
+  status: string;
+  service: string;
+  env: string;
+  llmEnabled: boolean;
+  databaseEnabled: boolean;
+}
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_AGENT_API_BASE_URL ?? '',
   timeout: 30000,
@@ -94,6 +102,11 @@ api.interceptors.request.use((config) => {
 
 export async function createTripPlan(request: TripPlanRequest): Promise<TripPlanResponse> {
   const response = await api.post<TripPlanResponse>('/api/v1/trip-plan', request);
+  return response.data;
+}
+
+export async function getHealth(): Promise<HealthResponse> {
+  const response = await api.get<HealthResponse>('/health');
   return response.data;
 }
 
