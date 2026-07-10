@@ -105,6 +105,7 @@ When database storage is enabled, the service creates the current tables on star
 - `conversation_summary_jobs`
 - `trip_plans`
 - `users`
+- `user_profiles`
 
 Conversation APIs are scoped by the signed-in user when a valid session cookie or Bearer token is present. Without a valid session, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
 
@@ -160,6 +161,15 @@ curl http://localhost:8000/api/v1/me/export \
   -b cookies.txt
 ```
 
+Delete the current account and owned app data:
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/auth/me \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{"currentPassword":"ChangeMe123!","confirmation":"DELETE"}'
+```
+
 Sign out:
 
 ```bash
@@ -168,7 +178,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout \
 ```
 
 Authenticated requests are scoped by the signed-in user's httpOnly cookie. If no valid login cookie or Bearer token is present, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
-Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL and RabbitMQ are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes or session tokens.
+Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL and RabbitMQ are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes or session tokens. Account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, and saved trip plans.
 
 Create a structured trip plan:
 

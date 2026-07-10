@@ -147,6 +147,19 @@ class AuthPasswordChangeRequest(APIModel):
         return value
 
 
+class AuthAccountDeleteRequest(APIModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    confirmation: str = Field(min_length=6, max_length=32)
+
+    @field_validator("confirmation")
+    @classmethod
+    def validate_confirmation(cls, value: str) -> str:
+        confirmation = value.strip().upper()
+        if confirmation != "DELETE":
+            raise ValueError("Confirmation must be DELETE")
+        return confirmation
+
+
 class AuthUserUpdateRequest(APIModel):
     display_name: str = Field(default="", max_length=80)
 

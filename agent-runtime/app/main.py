@@ -29,6 +29,7 @@ from app.observability import RequestLoggingMiddleware, configure_logging
 from app.planner import build_mock_trip_plan
 from app.profiles import DatabaseUserProfileStore, UserProfileStore
 from app.schemas import (
+    AuthAccountDeleteRequest,
     AuthLoginRequest,
     AuthPasswordChangeRequest,
     AuthRegisterRequest,
@@ -171,6 +172,28 @@ def change_password(request: Request, payload: AuthPasswordChangeRequest) -> Res
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@app.delete("/api/v1/auth/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_current_auth_user(request: Request, payload: AuthAccountDeleteRequest, response: Response) -> Response:
+    user = _get_current_auth_user(request)
+    _check_auth_rate_limit(request, "delete-account", user.id)
+    try:
+        user_store.delete_user(user.id, payload.current_password)
+    except InvalidCredentialsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "INVALID_CREDENTIALS", "message": "Current password is incorrect"},
+        ) from exc
+    except UserNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
+        ) from exc
+
+    response.status_code = status.HTTP_204_NO_CONTENT
+    _delete_auth_cookie(response)
+    return response
+
+
 @app.get("/api/v1/me/export", response_model=UserDataExport)
 def export_current_user_data(request: Request) -> UserDataExport:
     user = _get_current_auth_user(request)
@@ -195,12 +218,7 @@ def export_current_user_data(request: Request) -> UserDataExport:
 @app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(response: Response) -> Response:
     response.status_code = status.HTTP_204_NO_CONTENT
-    response.delete_cookie(
-        AUTH_COOKIE_NAME,
-        path="/",
-        samesite="lax",
-        secure=settings.auth_cookie_secure,
-    )
+    _delete_auth_cookie(response)
     return response
 
 
@@ -477,6 +495,15 @@ def _set_auth_cookie(response: Response, token: str) -> None:
         secure=settings.auth_cookie_secure,
         samesite="lax",
         path="/",
+    )
+
+
+def _delete_auth_cookie(response: Response) -> None:
+    response.delete_cookie(
+        AUTH_COOKIE_NAME,
+        path="/",
+        samesite="lax",
+        secure=settings.auth_cookie_secure,
     )
 
 

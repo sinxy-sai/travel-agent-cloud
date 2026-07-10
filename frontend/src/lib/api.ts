@@ -168,6 +168,11 @@ export interface AuthPasswordChangeRequest {
   newPassword: string;
 }
 
+export interface AuthAccountDeleteRequest {
+  currentPassword: string;
+  confirmation: string;
+}
+
 export interface AuthUserUpdateRequest {
   displayName: string;
 }
@@ -218,6 +223,10 @@ export async function logoutUser(): Promise<void> {
 
 export async function changePassword(request: AuthPasswordChangeRequest): Promise<void> {
   await api.patch('/api/v1/auth/password', request);
+}
+
+export async function deleteCurrentAuthUser(request: AuthAccountDeleteRequest): Promise<void> {
+  await api.delete('/api/v1/auth/me', { data: request });
 }
 
 export async function getCurrentAuthUser(): Promise<AuthUser | null> {

@@ -7,12 +7,20 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import session_scope
-from app.models import UserRecord
+from app.models import (
+    ConversationRecord,
+    ConversationSummaryJobRecord,
+    ConversationSummaryRecord,
+    MessageRecord,
+    TripPlanRecord,
+    UserProfileRecord,
+    UserRecord,
+)
 from app.schemas import AuthUser
 from app.settings import Settings
 
@@ -92,6 +100,17 @@ class UserStore:
             raise InvalidCredentialsError()
         self._password_hashes_by_email[user.email] = (user_id, hash_password(new_password))
 
+    def delete_user(self, user_id: str, current_password: str) -> None:
+        user = self.get_user(user_id)
+        item = self._password_hashes_by_email.get(user.email)
+        if item is None:
+            raise UserNotFoundError(user_id)
+        _, password_hash = item
+        if not verify_password(current_password, password_hash):
+            raise InvalidCredentialsError()
+        del self._password_hashes_by_email[user.email]
+        del self._users_by_id[user_id]
+
 
 class DatabaseUserStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
@@ -146,6 +165,26 @@ class DatabaseUserStore:
                 raise InvalidCredentialsError()
             record.password_hash = hash_password(new_password)
             record.updated_at = _now()
+
+    def delete_user(self, user_id: str, current_password: str) -> None:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
+            if record is None:
+                raise UserNotFoundError(user_id)
+            if not verify_password(current_password, record.password_hash):
+                raise InvalidCredentialsError()
+
+            conversation_ids = list(
+                session.scalars(select(ConversationRecord.id).where(ConversationRecord.user_id == user_id))
+            )
+            session.execute(delete(TripPlanRecord).where(TripPlanRecord.user_id == user_id))
+            session.execute(delete(ConversationSummaryJobRecord).where(ConversationSummaryJobRecord.user_id == user_id))
+            session.execute(delete(ConversationSummaryRecord).where(ConversationSummaryRecord.user_id == user_id))
+            if conversation_ids:
+                session.execute(delete(MessageRecord).where(MessageRecord.conversation_id.in_(conversation_ids)))
+            session.execute(delete(ConversationRecord).where(ConversationRecord.user_id == user_id))
+            session.execute(delete(UserProfileRecord).where(UserProfileRecord.user_id == user_id))
+            session.delete(record)
 
 
 def hash_password(password: str) -> str:

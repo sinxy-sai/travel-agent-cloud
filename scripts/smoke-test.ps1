@@ -89,6 +89,27 @@ $changedLoginSession = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/login" -Meth
 if ($changedLoginSession.user.email -ne $authEmail) {
   throw "Auth login did not accept the changed password"
 }
+$deleteAccountBody = @{
+  currentPassword = $changedPassword
+  confirmation = "DELETE"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -Method Delete -ContentType "application/json" -WebSession $authSession -Body $deleteAccountBody
+try {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -WebSession $authSession
+  throw "Auth me API accepted a deleted account session"
+} catch {
+  if ($_.Exception.Response.StatusCode.value__ -ne 401) {
+    throw
+  }
+}
+try {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/login" -Method Post -ContentType "application/json" -WebSession $authSession -Body $newPasswordLoginBody
+  throw "Auth login accepted a deleted account"
+} catch {
+  if ($_.Exception.Response.StatusCode.value__ -ne 401) {
+    throw
+  }
+}
 
 Write-Host "Checking user profile API"
 $profileBody = @{

@@ -16,6 +16,7 @@ import {
   createTripPlan,
   createConversationSummary,
   createConversationSummaryJob,
+  deleteCurrentAuthUser,
   deleteConversation,
   deleteTripPlan,
   exportCurrentUserData,
@@ -116,6 +117,9 @@ export default function App() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [passwordChangeSucceeded, setPasswordChangeSucceeded] = useState(false);
+  const [deleteAccountModalOpen, setDeleteAccountModalOpen] = useState(false);
+  const [deleteAccountPassword, setDeleteAccountPassword] = useState('');
+  const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState('');
 
   const authUserQuery = useQuery({
     queryKey: ['auth-user'],
@@ -198,6 +202,19 @@ export default function App() {
     mutationFn: exportCurrentUserData,
     onSuccess: (data) => {
       downloadJsonFile(data, `travel-agent-data-${new Date().toISOString().slice(0, 10)}.json`);
+    },
+  });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: deleteCurrentAuthUser,
+    onSuccess: () => {
+      setDeleteAccountModalOpen(false);
+      resetDeleteAccountForm();
+      clearWorkspace();
+      queryClient.setQueryData(['auth-user'], null);
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     },
   });
 
@@ -517,6 +534,12 @@ export default function App() {
     changePasswordMutation.reset();
   }
 
+  function resetDeleteAccountForm() {
+    setDeleteAccountPassword('');
+    setDeleteAccountConfirmation('');
+    deleteAccountMutation.reset();
+  }
+
   function submitAuth() {
     const email = authEmail.trim();
     if (!email || !authPassword || loginMutation.isPending || registerMutation.isPending) {
@@ -550,6 +573,16 @@ export default function App() {
     changePasswordMutation.mutate({
       currentPassword,
       newPassword,
+    });
+  }
+
+  function submitDeleteAccount() {
+    if (!deleteAccountPassword || deleteAccountConfirmation.trim().toUpperCase() !== 'DELETE') {
+      return;
+    }
+    deleteAccountMutation.mutate({
+      currentPassword: deleteAccountPassword,
+      confirmation: deleteAccountConfirmation,
     });
   }
 
@@ -668,7 +701,8 @@ export default function App() {
               logoutMutation.isPending ||
               changePasswordMutation.isPending ||
               updateAuthUserMutation.isPending ||
-              exportUserDataMutation.isPending
+              exportUserDataMutation.isPending ||
+              deleteAccountMutation.isPending
             }
             onLogin={() => openAuthModal('LOGIN')}
             onRegister={() => openAuthModal('REGISTER')}
@@ -682,6 +716,10 @@ export default function App() {
               setPasswordModalOpen(true);
             }}
             onExportData={() => exportUserDataMutation.mutate()}
+            onDeleteAccount={() => {
+              resetDeleteAccountForm();
+              setDeleteAccountModalOpen(true);
+            }}
             onLogout={() => logoutMutation.mutate()}
           />
           <TravelerProfile
@@ -1236,6 +1274,55 @@ export default function App() {
         </div>
       </Modal>
       <Modal
+        title="Delete account"
+        open={deleteAccountModalOpen}
+        okText="Delete account"
+        okButtonProps={{
+          danger: true,
+          disabled: !deleteAccountPassword || deleteAccountConfirmation.trim().toUpperCase() !== 'DELETE',
+        }}
+        confirmLoading={deleteAccountMutation.isPending}
+        onOk={submitDeleteAccount}
+        onCancel={() => {
+          setDeleteAccountModalOpen(false);
+          resetDeleteAccountForm();
+        }}
+      >
+        <div className="space-y-3">
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            This permanently deletes your account, traveler profile, conversations, summaries, and saved trip plans.
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Current password</span>
+            <Input.Password
+              value={deleteAccountPassword}
+              onChange={(event) => {
+                setDeleteAccountPassword(event.target.value);
+                deleteAccountMutation.reset();
+              }}
+              placeholder="Current password"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Type DELETE to confirm</span>
+            <Input
+              value={deleteAccountConfirmation}
+              onChange={(event) => {
+                setDeleteAccountConfirmation(event.target.value);
+                deleteAccountMutation.reset();
+              }}
+              onPressEnter={submitDeleteAccount}
+              placeholder="DELETE"
+            />
+          </label>
+          {deleteAccountMutation.isError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              Could not delete account. Check the current password and confirmation.
+            </div>
+          )}
+        </div>
+      </Modal>
+      <Modal
         title="Rename conversation"
         open={Boolean(renameConversation)}
         okText="Save"
@@ -1370,6 +1457,7 @@ function AccountStatus({
   onEditAccount,
   onChangePassword,
   onExportData,
+  onDeleteAccount,
   onLogout,
 }: {
   user?: AuthUser | null;
@@ -1379,6 +1467,7 @@ function AccountStatus({
   onEditAccount: () => void;
   onChangePassword: () => void;
   onExportData: () => void;
+  onDeleteAccount: () => void;
   onLogout: () => void;
 }) {
   return (
@@ -1402,6 +1491,9 @@ function AccountStatus({
           </Button>
           <Button size="small" onClick={onExportData}>
             Export data
+          </Button>
+          <Button size="small" danger icon={<DeleteOutlined />} onClick={onDeleteAccount}>
+            Delete account
           </Button>
           <Button size="small" className="w-full" loading={loading} onClick={onLogout}>
             Sign out
