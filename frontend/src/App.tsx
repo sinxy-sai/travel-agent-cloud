@@ -14,6 +14,7 @@ import {
 import {
   createTripPlan,
   createConversationSummary,
+  createConversationSummaryJob,
   deleteConversation,
   deleteTripPlan,
   exportTripPlanMarkdown,
@@ -69,6 +70,7 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatSuggestions, setChatSuggestions] = useState<string[]>(defaultChatSuggestions);
   const [conversationSummary, setConversationSummary] = useState<ConversationSummary | null>(null);
+  const [conversationSummaryJobQueued, setConversationSummaryJobQueued] = useState(false);
   const [tripPlanFilter, setTripPlanFilter] = useState<'ALL' | 'FAVORITES'>('ALL');
   const [tripPlanSearchInput, setTripPlanSearchInput] = useState('');
   const [tripPlanSearch, setTripPlanSearch] = useState('');
@@ -141,7 +143,12 @@ export default function App() {
 
   const loadConversationSummaryMutation = useMutation({
     mutationFn: getConversationSummary,
-    onSuccess: setConversationSummary,
+    onSuccess: (summary) => {
+      setConversationSummary(summary);
+      if (summary) {
+        setConversationSummaryJobQueued(false);
+      }
+    },
   });
 
   const loadConversationMutation = useMutation({
@@ -150,6 +157,7 @@ export default function App() {
       setConversationId(conversation.id);
       setChatMessages(conversation.messages);
       setConversationSummary(null);
+      setConversationSummaryJobQueued(false);
       setChatInput('');
       setChatSuggestions(defaultChatSuggestions);
       loadConversationSummaryMutation.mutate(conversation.id);
@@ -196,7 +204,20 @@ export default function App() {
 
   const createConversationSummaryMutation = useMutation({
     mutationFn: createConversationSummary,
-    onSuccess: setConversationSummary,
+    onSuccess: (summary) => {
+      setConversationSummary(summary);
+      setConversationSummaryJobQueued(false);
+    },
+  });
+
+  const createConversationSummaryJobMutation = useMutation({
+    mutationFn: createConversationSummaryJob,
+    onSuccess: (job) => {
+      setConversationSummaryJobQueued(true);
+      window.setTimeout(() => {
+        loadConversationSummaryMutation.mutate(job.conversationId);
+      }, 1500);
+    },
   });
 
   const updateUserProfileMutation = useMutation({
@@ -288,6 +309,7 @@ export default function App() {
       },
     ]);
     setConversationSummary(null);
+    setConversationSummaryJobQueued(false);
     setChatInput('');
     chatMutation.mutate({
       message,
@@ -300,6 +322,7 @@ export default function App() {
     setConversationId(undefined);
     setChatMessages([]);
     setConversationSummary(null);
+    setConversationSummaryJobQueued(false);
     setChatInput('');
     setChatSuggestions(defaultChatSuggestions);
   };
@@ -637,6 +660,15 @@ export default function App() {
                 >
                   Summarize
                 </Button>
+                {healthQuery.data?.messageQueueEnabled && (
+                  <Button
+                    onClick={() => conversationId && createConversationSummaryJobMutation.mutate(conversationId)}
+                    loading={createConversationSummaryJobMutation.isPending}
+                    disabled={!conversationId || chatMessages.length === 0}
+                  >
+                    Queue summary
+                  </Button>
+                )}
                 <Button icon={<PlusOutlined />} onClick={startNewChat}>
                   New chat
                 </Button>
@@ -647,6 +679,12 @@ export default function App() {
           {loadConversationSummaryMutation.isPending && (
             <div className="mb-4 rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-mist/75">
               Loading saved summary...
+            </div>
+          )}
+
+          {conversationSummaryJobQueued && !conversationSummary && (
+            <div className="mb-4 rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-mist/75">
+              Summary job queued.
             </div>
           )}
 

@@ -145,6 +145,27 @@ if [ "${LOADED_SUMMARY_ID}" != "${SUMMARY_ID}" ]; then
 fi
 echo
 
+echo "Checking conversation async summary job API"
+MESSAGE_QUEUE_ENABLED="$(printf '%s' "${HEALTH_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("messageQueueEnabled") else "no")')"
+if [ "${MESSAGE_QUEUE_ENABLED}" = "yes" ]; then
+  SUMMARY_JOB_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/conversations/${CHAT_CONVERSATION_ID}/summary-jobs" \
+    -H "X-User-Id: ${USER_ID}")"
+  echo "${SUMMARY_JOB_JSON}"
+  SUMMARY_JOB_STATUS="$(printf '%s' "${SUMMARY_JOB_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("status", ""))')"
+  if [ "${SUMMARY_JOB_STATUS}" != "QUEUED" ]; then
+    echo "Conversation summary job API did not return QUEUED status" >&2
+    exit 1
+  fi
+else
+  SUMMARY_JOB_STATUS_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST "${BASE_URL}/api/v1/conversations/${CHAT_CONVERSATION_ID}/summary-jobs" \
+    -H "X-User-Id: ${USER_ID}")"
+  if [ "${SUMMARY_JOB_STATUS_CODE}" != "503" ]; then
+    echo "Conversation summary job API accepted a job without RabbitMQ" >&2
+    exit 1
+  fi
+fi
+echo
+
 echo "Checking trip plan history API"
 TRIP_PLANS_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20" \
   -H "X-User-Id: ${USER_ID}")"

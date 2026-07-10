@@ -91,6 +91,12 @@ export interface ConversationSummary {
   updatedAt: string;
 }
 
+export interface ConversationSummaryJob {
+  conversationId: string;
+  status: 'QUEUED';
+  eventType: string;
+}
+
 export interface ConversationListResponse {
   data: Conversation[];
   page: number;
@@ -196,6 +202,11 @@ export async function updateConversationTitle(conversationId: string, title: str
 
 export async function createConversationSummary(conversationId: string): Promise<ConversationSummary> {
   const response = await api.post<ConversationSummary>(`/api/v1/conversations/${conversationId}/summary`);
+  return response.data;
+}
+
+export async function createConversationSummaryJob(conversationId: string): Promise<ConversationSummaryJob> {
+  const response = await api.post<ConversationSummaryJob>(`/api/v1/conversations/${conversationId}/summary-jobs`);
   return response.data;
 }
 

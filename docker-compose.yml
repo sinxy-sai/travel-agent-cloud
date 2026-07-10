@@ -39,6 +39,23 @@ services:
       - postgres
       - rabbitmq
 
+  agent-runtime-worker:
+    build:
+      context: ./agent-runtime
+    container_name: travel-agent-runtime-worker
+    command: ["python", "-m", "app.worker_main"]
+    profiles:
+      - worker
+    environment:
+      APP_ENV: local
+      DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
+      MESSAGE_QUEUE_URL: amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
+      RPC_TIMEOUT_SECONDS: 5
+      LOG_LEVEL: INFO
+    depends_on:
+      - postgres
+      - rabbitmq
+
   frontend:
     build:
       context: ./frontend

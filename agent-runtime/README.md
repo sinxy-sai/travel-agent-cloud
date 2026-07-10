@@ -35,7 +35,7 @@ MESSAGE_QUEUE_URL=amqp://user:password@rabbitmq:5672/
 RPC_TIMEOUT_SECONDS=5
 ```
 
-`MESSAGE_QUEUE_URL` is reserved for later RabbitMQ producers/consumers. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for future runtime-to-service calls.
+`MESSAGE_QUEUE_URL` enables RabbitMQ event publishing. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for queue and future runtime-to-service calls.
 
 When `MESSAGE_QUEUE_URL` is configured, the runtime publishes small domain events to the durable RabbitMQ topic exchange `travel.events`. Queue failures are logged but do not fail the user request.
 
@@ -47,7 +47,18 @@ Current events:
 - `user.profile.updated`
 - `agent.conversation.updated`
 - `agent.conversation.deleted`
+- `agent.conversation.summarize.requested`
 - `agent.conversation.summary.created`
+
+Conversation summaries are generated through `app.workers.conversation_summarizer.ConversationSummarizerWorker`. The current HTTP API calls this worker synchronously.
+
+RabbitMQ consumer support is available through `python -m app.worker_main`, but it is not started by the normal API process. The consumer listens to `agent.conversation.summarize.requested`, skips `manual_api` events that the HTTP API already handled, and processes asynchronous requests from future producers. Failed or invalid messages are rejected into the consumer dead-letter queue.
+
+Run the worker locally only when both RabbitMQ and PostgreSQL are configured:
+
+```bash
+python -m app.worker_main
+```
 
 ## Observability
 
@@ -70,6 +81,7 @@ When database storage is enabled, the service creates the current tables on star
 
 - `conversations`
 - `messages`
+- `conversation_summaries`
 - `trip_plans`
 
 Conversation APIs are scoped by `X-User-Id`. This is an anonymous-user boundary for the current milestone, not a replacement for real authentication.
@@ -142,6 +154,14 @@ Generate or refresh a conversation summary:
 ```bash
 curl -X POST http://localhost:8000/api/v1/conversations/{conversationId}/summary
 ```
+
+Queue an asynchronous conversation summary job:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/conversations/{conversationId}/summary-jobs
+```
+
+This endpoint returns `202 Accepted` only when `MESSAGE_QUEUE_URL` is configured and the event was published to RabbitMQ. Without RabbitMQ, use the synchronous `/summary` endpoint.
 
 Get the latest conversation summary:
 

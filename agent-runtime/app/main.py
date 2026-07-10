@@ -10,7 +10,7 @@ from app.conversations import (
     TripPlanNotFoundError,
 )
 from app.db import maybe_create_session_factory
-from app.events import create_event_publisher
+from app.events import CONVERSATION_SUMMARY_REQUESTED_EVENT, create_event_publisher
 from app.exporter import saved_trip_plan_to_markdown
 from app.llm import LLMClient
 from app.observability import RequestLoggingMiddleware, configure_logging
@@ -22,6 +22,8 @@ from app.schemas import (
     Conversation,
     ConversationListResponse,
     ConversationSummary,
+    ConversationSummaryJob,
+    ConversationSummaryJobStatus,
     ConversationUpdateRequest,
     MessageRole,
     SavedTripPlan,
@@ -38,9 +40,9 @@ from app.summaries import (
     ConversationSummaryNotFoundError,
     ConversationSummaryStore,
     DatabaseConversationSummaryStore,
-    build_conversation_summary,
 )
 from app.users import get_user_id
+from app.workers.conversation_summarizer import ConversationSummarizerWorker, SummarizeConversationCommand
 
 settings = get_settings()
 configure_logging(settings)
@@ -49,6 +51,7 @@ conversation_store = DatabaseConversationStore(session_factory) if session_facto
 profile_store = DatabaseUserProfileStore(session_factory) if session_factory else UserProfileStore()
 summary_store = DatabaseConversationSummaryStore(session_factory) if session_factory else ConversationSummaryStore()
 event_publisher = create_event_publisher(settings)
+conversation_summarizer = ConversationSummarizerWorker(conversation_store, summary_store, event_publisher)
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
@@ -182,26 +185,54 @@ def get_conversation_summary(conversation_id: str, user_id: str = Depends(get_us
 @app.post("/api/v1/conversations/{conversation_id}/summary", response_model=ConversationSummary)
 def create_conversation_summary(conversation_id: str, user_id: str = Depends(get_user_id)) -> ConversationSummary:
     try:
-        conversation = conversation_store.get(user_id, conversation_id)
-        summary = summary_store.save(
-            user_id=user_id,
-            conversation_id=conversation_id,
-            summary=build_conversation_summary(conversation.messages),
-            message_count=len(conversation.messages),
+        return conversation_summarizer.handle(
+            SummarizeConversationCommand(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                requested_by="manual_api",
+            )
         )
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
 
-    event_publisher.publish(
-        "agent.conversation.summary.created",
+
+@app.post(
+    "/api/v1/conversations/{conversation_id}/summary-jobs",
+    response_model=ConversationSummaryJob,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def create_conversation_summary_job(conversation_id: str, user_id: str = Depends(get_user_id)) -> ConversationSummaryJob:
+    try:
+        conversation = conversation_store.get(user_id, conversation_id)
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
+
+    if not event_publisher.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "MESSAGE_QUEUE_DISABLED", "message": "Message queue is not configured"},
+        )
+
+    published = event_publisher.publish_required(
+        CONVERSATION_SUMMARY_REQUESTED_EVENT,
         user_id,
         {
             "conversationId": conversation_id,
-            "summaryId": summary.id,
-            "messageCount": summary.message_count,
+            "requestedBy": "async_api",
+            "messageCount": len(conversation.messages),
         },
     )
-    return summary
+    if not published:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "MESSAGE_QUEUE_PUBLISH_FAILED", "message": "Summary job could not be queued"},
+        )
+
+    return ConversationSummaryJob(
+        conversation_id=conversation_id,
+        status=ConversationSummaryJobStatus.QUEUED,
+        event_type=CONVERSATION_SUMMARY_REQUESTED_EVENT,
+    )
 
 
 @app.delete("/api/v1/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

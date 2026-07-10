@@ -19,6 +19,7 @@ GET    /api/v1/conversations/{conversationId}
 PATCH  /api/v1/conversations/{conversationId}
 GET    /api/v1/conversations/{conversationId}/summary
 POST   /api/v1/conversations/{conversationId}/summary
+POST   /api/v1/conversations/{conversationId}/summary-jobs
 DELETE /api/v1/conversations/{conversationId}
 GET    /api/v1/trip-plans
 GET    /api/v1/trip-plans/{tripPlanId}
@@ -62,9 +63,25 @@ Initial event and job candidates:
 - `trip.plan.export.requested`: queued when exporting large files or generating attachments.
 - `agent.conversation.updated`: created after conversation metadata changes.
 - `agent.conversation.deleted`: created after a conversation is deleted.
-- `agent.conversation.summary.created`: created after a conversation summary is generated or refreshed.
-- `agent.conversation.summarize.requested`: queued to summarize long conversations.
+- `agent.conversation.summarize.requested`: emitted when a summary job is requested.
+- `agent.conversation.summary.created`: emitted after a conversation summary is generated or refreshed.
 - `user.profile.updated`: emitted when user preferences change.
+
+Current summarization flow:
+
+```text
+POST /api/v1/conversations/{conversationId}/summary
+  -> ConversationSummarizerWorker
+  -> PostgreSQL conversation_summaries
+  -> RabbitMQ events when MESSAGE_QUEUE_URL is configured
+
+POST /api/v1/conversations/{conversationId}/summary-jobs
+  -> RabbitMQ agent.conversation.summarize.requested
+  -> agent-runtime-worker
+  -> ConversationSummarizerWorker
+```
+
+No standalone RabbitMQ consumer is enabled yet. The worker is intentionally reusable so a future consumer can call the same code path without duplicating business logic.
 
 Queue rules:
 

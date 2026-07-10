@@ -104,6 +104,23 @@ if ($loadedSummary.id -ne $summary.id) {
   throw "Conversation summary API did not load the latest persisted summary"
 }
 
+Write-Host "Checking conversation async summary job API"
+if ($health.messageQueueEnabled) {
+  $summaryJob = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations/$($chatResponse.conversationId)/summary-jobs" -Method Post -Headers $headers
+  if ($summaryJob.status -ne "QUEUED") {
+    throw "Conversation summary job API did not return QUEUED status"
+  }
+} else {
+  try {
+    Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations/$($chatResponse.conversationId)/summary-jobs" -Method Post -Headers $headers
+    throw "Conversation summary job API accepted a job without RabbitMQ"
+  } catch {
+    if ($_.Exception.Response.StatusCode.value__ -ne 503) {
+      throw
+    }
+  }
+}
+
 Write-Host "Checking trip plan history API"
 $tripPlans = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans?page=1&pageSize=20" -Headers $headers
 

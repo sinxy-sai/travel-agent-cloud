@@ -46,9 +46,9 @@ Then add `DATABASE_URL` to `agent-runtime-secrets`. The normal deploy command wi
 kubectl apply -k deploy/k8s
 ```
 
-## Optional RabbitMQ Addon
+## Optional RabbitMQ And Worker Addons
 
-RabbitMQ is the selected message queue, but it is not part of the default Kustomize deployment yet. This avoids slowing down or breaking the normal VPS deploy before queue consumers are implemented.
+RabbitMQ is the selected message queue, but it is not part of the default Kustomize deployment. The conversation summarizer worker is also an optional addon. This keeps the normal VPS deploy small and lets the API run even when the queue is not enabled.
 
 Create credentials first:
 
@@ -79,3 +79,24 @@ kubectl create secret generic agent-runtime-secrets \
   --from-literal=MESSAGE_QUEUE_URL='amqp://travel_agent:change-me-to-a-strong-password@rabbitmq:5672/' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
+
+Restart the API deployment so it picks up `MESSAGE_QUEUE_URL`:
+
+```bash
+kubectl rollout restart deployment/agent-runtime -n travel-agent-cloud
+```
+
+Then start the optional worker:
+
+```bash
+kubectl apply -f deploy/k8s/addons/agent-runtime-worker.yaml
+kubectl get pods -n travel-agent-cloud -l app=agent-runtime-worker
+```
+
+The worker uses the same Agent Runtime image and runs:
+
+```bash
+python -m app.worker_main
+```
+
+It consumes `agent.conversation.summarize.requested` events from RabbitMQ. Manual API summary requests are skipped by the worker because the HTTP request already generated the summary synchronously.

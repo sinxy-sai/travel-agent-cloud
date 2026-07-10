@@ -160,6 +160,16 @@ class ConversationSummary(APIModel):
     updated_at: datetime
 
 
+class ConversationSummaryJobStatus(StrEnum):
+    QUEUED = "QUEUED"
+
+
+class ConversationSummaryJob(APIModel):
+    conversation_id: str
+    status: ConversationSummaryJobStatus
+    event_type: str
+
+
 class ChatResponse(APIModel):
     conversation_id: str
     message: ChatMessage

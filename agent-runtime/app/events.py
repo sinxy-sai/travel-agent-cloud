@@ -8,6 +8,8 @@ from app.settings import Settings
 
 logger = logging.getLogger("travel_agent_runtime.events")
 EVENT_EXCHANGE = "travel.events"
+CONVERSATION_SUMMARY_REQUESTED_EVENT = "agent.conversation.summarize.requested"
+CONVERSATION_SUMMARY_CREATED_EVENT = "agent.conversation.summary.created"
 
 
 class EventPublisher(Protocol):
@@ -16,12 +18,18 @@ class EventPublisher(Protocol):
     def publish(self, event_type: str, user_id: str, data: dict[str, Any]) -> None:
         pass
 
+    def publish_required(self, event_type: str, user_id: str, data: dict[str, Any]) -> bool:
+        pass
+
 
 class NoopEventPublisher:
     enabled = False
 
     def publish(self, event_type: str, user_id: str, data: dict[str, Any]) -> None:
         return None
+
+    def publish_required(self, event_type: str, user_id: str, data: dict[str, Any]) -> bool:
+        return False
 
 
 class RabbitMQEventPublisher:
@@ -32,10 +40,15 @@ class RabbitMQEventPublisher:
         self._timeout_seconds = timeout_seconds
 
     def publish(self, event_type: str, user_id: str, data: dict[str, Any]) -> None:
+        self.publish_required(event_type, user_id, data)
+
+    def publish_required(self, event_type: str, user_id: str, data: dict[str, Any]) -> bool:
         try:
             self._publish(event_type, user_id, data)
+            return True
         except Exception as exc:
             logger.warning("event_publish_failed event_type=%s error=%s", event_type, exc.__class__.__name__)
+            return False
 
     def _publish(self, event_type: str, user_id: str, data: dict[str, Any]) -> None:
         import pika
