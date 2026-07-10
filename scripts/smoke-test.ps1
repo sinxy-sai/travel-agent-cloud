@@ -8,12 +8,15 @@ $headers = @{
 }
 
 Write-Host "Checking health: $BaseUrl/health"
-$healthResponse = Invoke-WebRequest -Uri "$BaseUrl/health"
+$healthResponse = Invoke-WebRequest -Uri "$BaseUrl/health" -UseBasicParsing
 if (-not $healthResponse.Headers["X-Request-ID"]) {
   throw "Health API did not return X-Request-ID"
 }
 if (-not $healthResponse.Headers["X-Process-Time-Ms"]) {
   throw "Health API did not return X-Process-Time-Ms"
+}
+if ($healthResponse.Headers["X-Content-Type-Options"] -ne "nosniff") {
+  throw "Health API did not return X-Content-Type-Options"
 }
 $health = $healthResponse.Content | ConvertFrom-Json
 $health

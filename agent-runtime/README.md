@@ -27,10 +27,13 @@ LLM_MODEL=your-model-name
 AUTH_SECRET_KEY=change-me-to-a-random-secret
 AUTH_TOKEN_TTL_SECONDS=604800
 AUTH_COOKIE_SECURE=false
+AUTH_RATE_LIMIT_MAX_ATTEMPTS=20
+AUTH_RATE_LIMIT_WINDOW_SECONDS=900
 ```
 
 If the model is not configured or the provider call fails, the service falls back to deterministic mock responses so local development and deployment checks still work.
 `AUTH_SECRET_KEY` signs login cookies. Use a stable random value in production; changing it logs out existing users.
+Auth register/login endpoints are rate-limited per client and email by `AUTH_RATE_LIMIT_MAX_ATTEMPTS` within `AUTH_RATE_LIMIT_WINDOW_SECONDS`.
 
 When running through Docker Compose, create a local `docker-compose.override.yml` from the project root if you want containers to read this `.env` file:
 

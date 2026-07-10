@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     auth_secret_key: str = "travel-agent-cloud-local-dev-secret"
     auth_token_ttl_seconds: int = 60 * 60 * 24 * 7
     auth_cookie_secure: bool = False
+    auth_rate_limit_max_attempts: int = 20
+    auth_rate_limit_window_seconds: int = 15 * 60
     llm_provider: str = "mock"
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"

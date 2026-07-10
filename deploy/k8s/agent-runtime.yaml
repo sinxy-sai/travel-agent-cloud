@@ -102,6 +102,18 @@ spec:
                   name: agent-runtime-secrets
                   key: AUTH_COOKIE_SECURE
                   optional: true
+            - name: AUTH_RATE_LIMIT_MAX_ATTEMPTS
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_RATE_LIMIT_MAX_ATTEMPTS
+                  optional: true
+            - name: AUTH_RATE_LIMIT_WINDOW_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_RATE_LIMIT_WINDOW_SECONDS
+                  optional: true
           readinessProbe:
             httpGet:
               path: /health

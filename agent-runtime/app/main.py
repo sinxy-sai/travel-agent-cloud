@@ -48,6 +48,7 @@ from app.schemas import (
     UserProfileUpdateRequest,
     to_camel,
 )
+from app.security import FixedWindowRateLimiter, SecurityHeadersMiddleware, client_identifier
 from app.settings import get_settings
 from app.summaries import (
     ConversationSummaryNotFoundError,
@@ -74,9 +75,14 @@ summary_job_store = (
 user_store = DatabaseUserStore(session_factory) if session_factory else UserStore()
 event_publisher = create_event_publisher(settings)
 conversation_summarizer = ConversationSummarizerWorker(conversation_store, summary_store, event_publisher)
+auth_rate_limiter = FixedWindowRateLimiter(
+    settings.auth_rate_limit_max_attempts,
+    settings.auth_rate_limit_window_seconds,
+)
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -100,9 +106,10 @@ def health() -> dict[str, str | bool]:
 
 
 @app.post("/api/v1/auth/register", response_model=AuthSession, status_code=status.HTTP_201_CREATED)
-def register(request: AuthRegisterRequest, response: Response) -> AuthSession:
+def register(request: Request, payload: AuthRegisterRequest, response: Response) -> AuthSession:
+    _check_auth_rate_limit(request, "register", payload.email)
     try:
-        user = user_store.create_user(request.email, request.password, request.display_name)
+        user = user_store.create_user(payload.email, payload.password, payload.display_name)
     except EmailAlreadyRegisteredError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -114,9 +121,10 @@ def register(request: AuthRegisterRequest, response: Response) -> AuthSession:
 
 
 @app.post("/api/v1/auth/login", response_model=AuthSession)
-def login(request: AuthLoginRequest, response: Response) -> AuthSession:
+def login(request: Request, payload: AuthLoginRequest, response: Response) -> AuthSession:
+    _check_auth_rate_limit(request, "login", payload.email)
     try:
-        user = user_store.authenticate(request.email, request.password)
+        user = user_store.authenticate(payload.email, payload.password)
     except InvalidCredentialsError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -440,3 +448,15 @@ def _bearer_token(request: Request) -> str | None:
     if authorization.startswith(prefix):
         return authorization[len(prefix) :].strip()
     return None
+
+
+def _check_auth_rate_limit(request: Request, action: str, email: str) -> None:
+    key = f"{action}:{client_identifier(request)}:{email.strip().lower()}"
+    decision = auth_rate_limiter.check(key)
+    if decision.allowed:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail={"code": "RATE_LIMITED", "message": "Too many authentication attempts"},
+        headers={"Retry-After": str(decision.retry_after_seconds)},
+    )

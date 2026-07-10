@@ -18,6 +18,11 @@ if ! grep -qi '^x-process-time-ms:' "${HEALTH_HEADERS}"; then
   rm -f "${HEALTH_HEADERS}"
   exit 1
 fi
+if ! grep -qi '^x-content-type-options: nosniff' "${HEALTH_HEADERS}"; then
+  echo "Health API did not return X-Content-Type-Options" >&2
+  rm -f "${HEALTH_HEADERS}"
+  exit 1
+fi
 rm -f "${HEALTH_HEADERS}"
 HAS_MESSAGE_QUEUE_FIELD="$(printf '%s' "${HEALTH_JSON}" | python3 -c 'import json, sys; print("yes" if "messageQueueEnabled" in json.load(sys.stdin) else "no")')"
 if [ "${HAS_MESSAGE_QUEUE_FIELD}" != "yes" ]; then

@@ -66,10 +66,13 @@ kubectl create secret generic agent-runtime-secrets \
   --from-literal=AUTH_SECRET_KEY='change-me-to-a-long-random-secret' \
   --from-literal=AUTH_TOKEN_TTL_SECONDS='604800' \
   --from-literal=AUTH_COOKIE_SECURE='false' \
+  --from-literal=AUTH_RATE_LIMIT_MAX_ATTEMPTS='20' \
+  --from-literal=AUTH_RATE_LIMIT_WINDOW_SECONDS='900' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 Use `AUTH_COOKIE_SECURE='true'` only after HTTPS is configured. Plain HTTP browsers will not send Secure cookies.
+The auth rate-limit values control register/login attempts per client and email.
 
 The normal deploy command will create/update PostgreSQL, RabbitMQ, the API, worker, frontend, and ingress together:
 
