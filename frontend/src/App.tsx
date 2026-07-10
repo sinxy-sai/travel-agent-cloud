@@ -1427,17 +1427,9 @@ export default function App() {
         }}
       >
         <div className="space-y-3">
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-ink">Reset token</span>
-            <Input
-              value={passwordResetToken}
-              onChange={(event) => {
-                setPasswordResetToken(event.target.value);
-                confirmPasswordResetMutation.reset();
-              }}
-              placeholder="Token from email link"
-            />
-          </label>
+          <p className="text-sm leading-6 text-slate-600">
+            This reset link has been verified. Set a new password for your account.
+          </p>
           <label className="block">
             <span className="mb-1 block text-sm font-medium text-ink">New password</span>
             <Input.Password
