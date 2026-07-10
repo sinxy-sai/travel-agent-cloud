@@ -18,7 +18,7 @@ spec:
       containers:
         - name: frontend
           image: docker.io/sinxysai/travel-agent-cloud-frontend:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
           readinessProbe:
