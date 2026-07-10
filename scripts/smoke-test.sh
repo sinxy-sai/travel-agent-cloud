@@ -34,6 +34,11 @@ if [ "${HAS_GITHUB_OAUTH_FIELD}" != "yes" ]; then
   echo "Health API did not return githubOAuthEnabled" >&2
   exit 1
 fi
+HAS_REDIS_RATE_LIMIT_FIELD="$(printf '%s' "${HEALTH_JSON}" | python3 -c 'import json, sys; print("yes" if "redisRateLimitEnabled" in json.load(sys.stdin) else "no")')"
+if [ "${HAS_REDIS_RATE_LIMIT_FIELD}" != "yes" ]; then
+  echo "Health API did not return redisRateLimitEnabled" >&2
+  exit 1
+fi
 echo
 
 echo "Preparing anonymous local data"

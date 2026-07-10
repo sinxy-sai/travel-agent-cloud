@@ -121,6 +121,7 @@ export interface HealthResponse {
   llmEnabled: boolean;
   databaseEnabled: boolean;
   messageQueueEnabled: boolean;
+  redisRateLimitEnabled: boolean;
   githubOAuthEnabled: boolean;
 }
 

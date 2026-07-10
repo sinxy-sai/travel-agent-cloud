@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5173"
     database_url: str = ""
     message_queue_url: str = ""
+    redis_url: str = ""
+    redis_key_prefix: str = "travel-agent-cloud"
     rpc_timeout_seconds: float = 5.0
     worker_reconnect_initial_seconds: float = 2.0
     worker_reconnect_max_seconds: float = 30.0

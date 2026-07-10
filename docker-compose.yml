@@ -23,6 +23,15 @@ services:
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
 
+  redis:
+    image: redis:7-alpine
+    container_name: travel-agent-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
   agent-runtime:
     build:
       context: ./agent-runtime
@@ -34,12 +43,15 @@ services:
       ALLOWED_ORIGINS: http://localhost:5173
       DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
       MESSAGE_QUEUE_URL: amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379/0
+      REDIS_KEY_PREFIX: travel-agent-cloud
       RPC_TIMEOUT_SECONDS: 5
       WORKER_RECONNECT_INITIAL_SECONDS: 2
       WORKER_RECONNECT_MAX_SECONDS: 30
     depends_on:
       - postgres
       - rabbitmq
+      - redis
 
   agent-runtime-worker:
     build:
@@ -52,6 +64,8 @@ services:
       APP_ENV: local
       DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
       MESSAGE_QUEUE_URL: amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379/0
+      REDIS_KEY_PREFIX: travel-agent-cloud
       RPC_TIMEOUT_SECONDS: 5
       WORKER_RECONNECT_INITIAL_SECONDS: 2
       WORKER_RECONNECT_MAX_SECONDS: 30
@@ -59,6 +73,7 @@ services:
     depends_on:
       - postgres
       - rabbitmq
+      - redis
 
   frontend:
     build:
@@ -74,3 +89,4 @@ services:
 volumes:
   postgres-data:
   rabbitmq-data:
+  redis-data:

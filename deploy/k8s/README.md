@@ -30,7 +30,7 @@ If your Docker Hub namespace is not `sinxysai`, update the image fields in:
 - `agent-runtime.yaml`
 - `frontend.yaml`
 
-`postgres.yaml`, RabbitMQ, and `agent-runtime-worker` are part of the default kustomization. Create the required Secrets before running automated deployment.
+`postgres.yaml`, RabbitMQ, Redis, and `agent-runtime-worker` are part of the default kustomization. Create the required Secrets before running automated deployment.
 
 Create `postgres-secrets`:
 
@@ -63,6 +63,8 @@ kubectl create secret generic agent-runtime-secrets \
   --from-literal=LLM_BASE_URL='https://api.deepseek.com' \
   --from-literal=LLM_MODEL='deepseek-v4-flash' \
   --from-literal=MESSAGE_QUEUE_URL='amqp://travel_agent:change-me-to-a-strong-password@rabbitmq:5672/' \
+  --from-literal=REDIS_URL='redis://redis:6379/0' \
+  --from-literal=REDIS_KEY_PREFIX='travel-agent-cloud' \
   --from-literal=AUTH_SECRET_KEY='change-me-to-a-long-random-secret' \
   --from-literal=AUTH_TOKEN_TTL_SECONDS='604800' \
   --from-literal=AUTH_COOKIE_SECURE='false' \
@@ -79,6 +81,7 @@ kubectl create secret generic agent-runtime-secrets \
 
 Use `AUTH_COOKIE_SECURE='true'` only after HTTPS is configured. Plain HTTP browsers will not send Secure cookies.
 The auth rate-limit values control register/login attempts per client and email.
+If `REDIS_URL` is present, auth rate limiting is shared through the internal Redis service. If it is omitted, the runtime falls back to in-process rate limiting.
 For GitHub OAuth, create a GitHub OAuth App with callback URL matching `GITHUB_OAUTH_REDIRECT_URI`. On HTTPS domains, use `https://your-domain.example/api/v1/auth/oauth/github/callback` and set `PUBLIC_APP_URL` to the frontend origin.
 
 For real email verification and password reset links, replace the email fields in the full `agent-runtime-secrets` command with SMTP settings. QQ Mail normally uses SSL on port 465 with an SMTP authorization code:
@@ -111,7 +114,7 @@ Gmail normally uses STARTTLS on port 587 with a Google app password:
 
 When updating `agent-runtime-secrets`, include all existing keys you still need or use `kubectl edit secret agent-runtime-secrets -n travel-agent-cloud`; recreating it with only SMTP keys removes database, LLM, auth, and RabbitMQ settings.
 
-The normal deploy command will create/update PostgreSQL, RabbitMQ, the API, worker, frontend, and ingress together:
+The normal deploy command will create/update PostgreSQL, RabbitMQ, Redis, the API, worker, frontend, and ingress together:
 
 ```bash
 kubectl apply -k deploy/k8s

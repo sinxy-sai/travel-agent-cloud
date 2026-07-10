@@ -34,6 +34,14 @@ AUTH_RATE_LIMIT_WINDOW_SECONDS=900
 If the model is not configured or the provider call fails, the service falls back to deterministic mock responses so local development and deployment checks still work.
 `AUTH_SECRET_KEY` signs login cookies. Use a stable random value in production; changing it logs out existing users.
 Auth register/login endpoints are rate-limited per client and email by `AUTH_RATE_LIMIT_MAX_ATTEMPTS` within `AUTH_RATE_LIMIT_WINDOW_SECONDS`.
+Set `REDIS_URL` to make auth rate limiting shared across runtime replicas. If it is empty, the runtime uses the existing in-process limiter:
+
+```bash
+REDIS_URL=redis://localhost:6379/0
+REDIS_KEY_PREFIX=travel-agent-cloud
+```
+
+The health response includes `redisRateLimitEnabled` so deployments can confirm whether Redis-backed limiting is active.
 
 Email verification and password reset use `EMAIL_PROVIDER=mock` by default. Mock mode returns `devToken` and `actionUrl` in API responses for local testing. To send real email, switch to SMTP:
 
@@ -92,12 +100,14 @@ Optional integration placeholders:
 
 ```bash
 MESSAGE_QUEUE_URL=amqp://user:password@rabbitmq:5672/
+REDIS_URL=redis://redis:6379/0
+REDIS_KEY_PREFIX=travel-agent-cloud
 RPC_TIMEOUT_SECONDS=5
 WORKER_RECONNECT_INITIAL_SECONDS=2
 WORKER_RECONNECT_MAX_SECONDS=30
 ```
 
-`MESSAGE_QUEUE_URL` enables RabbitMQ event publishing. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for queue and future runtime-to-service calls.
+`MESSAGE_QUEUE_URL` enables RabbitMQ event publishing. `REDIS_URL` enables distributed auth rate limiting. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for queue and future runtime-to-service calls.
 The worker reconnect settings control exponential backoff when PostgreSQL or RabbitMQ is not ready, or when the queue connection drops.
 
 When `MESSAGE_QUEUE_URL` is configured, the runtime publishes small domain events to the durable RabbitMQ topic exchange `travel.events`. Queue failures are logged but do not fail the user request.

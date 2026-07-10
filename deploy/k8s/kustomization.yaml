@@ -2,6 +2,7 @@ resources:
   - namespace.yaml
   - postgres.yaml
   - addons/rabbitmq.yaml
+  - addons/redis.yaml
   - agent-runtime.yaml
   - addons/agent-runtime-worker.yaml
   - frontend.yaml

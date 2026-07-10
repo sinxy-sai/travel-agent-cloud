@@ -84,6 +84,18 @@ spec:
                   name: agent-runtime-secrets
                   key: MESSAGE_QUEUE_URL
                   optional: true
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: REDIS_URL
+                  optional: true
+            - name: REDIS_KEY_PREFIX
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: REDIS_KEY_PREFIX
+                  optional: true
             - name: AUTH_SECRET_KEY
               valueFrom:
                 secretKeyRef:

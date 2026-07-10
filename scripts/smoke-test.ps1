@@ -26,6 +26,9 @@ if (-not ($health.PSObject.Properties.Name -contains "messageQueueEnabled")) {
 if (-not ($health.PSObject.Properties.Name -contains "githubOAuthEnabled")) {
   throw "Health API did not return githubOAuthEnabled"
 }
+if (-not ($health.PSObject.Properties.Name -contains "redisRateLimitEnabled")) {
+  throw "Health API did not return redisRateLimitEnabled"
+}
 
 Write-Host "Preparing anonymous local data"
 $anonymousUserId = "smoke-anon-$([guid]::NewGuid().ToString('N'))"

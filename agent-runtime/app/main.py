@@ -102,7 +102,7 @@ from app.schemas import (
     UserSecurityEventListResponse,
     to_camel,
 )
-from app.security import FixedWindowRateLimiter, SecurityHeadersMiddleware, client_identifier
+from app.security import SecurityHeadersMiddleware, client_identifier, create_auth_rate_limiter
 from app.security_events import DatabaseUserSecurityEventStore, UserSecurityEventStore
 from app.settings import get_settings
 from app.summaries import (
@@ -139,9 +139,11 @@ event_publisher = create_event_publisher(settings)
 conversation_summarizer = ConversationSummarizerWorker(conversation_store, summary_store, event_publisher)
 user_data_importer = UserDataImporter(session_factory, conversation_store, profile_store, summary_store)
 github_oauth_client = GitHubOAuthClient(settings)
-auth_rate_limiter = FixedWindowRateLimiter(
-    settings.auth_rate_limit_max_attempts,
-    settings.auth_rate_limit_window_seconds,
+auth_rate_limiter = create_auth_rate_limiter(
+    redis_url=settings.redis_url,
+    max_attempts=settings.auth_rate_limit_max_attempts,
+    window_seconds=settings.auth_rate_limit_window_seconds,
+    key_prefix=settings.redis_key_prefix,
 )
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
@@ -166,6 +168,7 @@ def health() -> dict[str, str | bool]:
         "llmEnabled": LLMClient(settings).enabled,
         "databaseEnabled": session_factory is not None,
         "messageQueueEnabled": event_publisher.enabled,
+        "redisRateLimitEnabled": auth_rate_limiter.distributed,
         "githubOAuthEnabled": github_oauth_client.enabled,
     }
 
