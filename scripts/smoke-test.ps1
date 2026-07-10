@@ -94,6 +94,16 @@ if (-not ($renamedSearchConversations.data | Where-Object { $_.id -eq $chatRespo
   throw "Conversation query filter did not return the renamed conversation"
 }
 
+Write-Host "Checking conversation summary API"
+$summary = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations/$($chatResponse.conversationId)/summary" -Method Post -Headers $headers
+if (-not $summary.summary -or $summary.messageCount -lt 1) {
+  throw "Conversation summary API did not return a persisted summary"
+}
+$loadedSummary = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations/$($chatResponse.conversationId)/summary" -Headers $headers
+if ($loadedSummary.id -ne $summary.id) {
+  throw "Conversation summary API did not load the latest persisted summary"
+}
+
 Write-Host "Checking trip plan history API"
 $tripPlans = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans?page=1&pageSize=20" -Headers $headers
 

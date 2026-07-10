@@ -54,6 +54,8 @@ DELETE  删除资源
 GET    /api/v1/conversations
 GET    /api/v1/conversations/{conversationId}
 PATCH  /api/v1/conversations/{conversationId}
+GET    /api/v1/conversations/{conversationId}/summary
+POST   /api/v1/conversations/{conversationId}/summary
 DELETE /api/v1/conversations/{conversationId}
 GET    /api/v1/trip-plans
 PATCH  /api/v1/trip-plans/{tripPlanId}
@@ -151,7 +153,9 @@ trip.plan.deleted
 trip.plan.export.requested
 agent.conversation.updated
 agent.conversation.deleted
+agent.conversation.summary.created
 agent.conversation.summarize.requested
+user.profile.updated
 user.profile.updated
 ```
 
@@ -181,6 +185,8 @@ GET  /api/v1/chat-stream
 GET    /api/v1/conversations
 GET    /api/v1/conversations/{conversationId}
 PATCH  /api/v1/conversations/{conversationId}
+GET    /api/v1/conversations/{conversationId}/summary
+POST   /api/v1/conversations/{conversationId}/summary
 GET    /api/v1/trip-plans
 PATCH  /api/v1/trip-plans/{tripPlanId}
 DELETE /api/v1/trip-plans/{tripPlanId}
@@ -199,6 +205,8 @@ POST   /api/v1/chat
 GET    /api/v1/conversations
 GET    /api/v1/conversations/{conversationId}
 PATCH  /api/v1/conversations/{conversationId}
+GET    /api/v1/conversations/{conversationId}/summary
+POST   /api/v1/conversations/{conversationId}/summary
 DELETE /api/v1/conversations/{conversationId}
 GET    /api/v1/trip-plans
 GET    /api/v1/trip-plans/{tripPlanId}

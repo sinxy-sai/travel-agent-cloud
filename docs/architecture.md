@@ -17,6 +17,8 @@ POST   /api/v1/chat
 GET    /api/v1/conversations
 GET    /api/v1/conversations/{conversationId}
 PATCH  /api/v1/conversations/{conversationId}
+GET    /api/v1/conversations/{conversationId}/summary
+POST   /api/v1/conversations/{conversationId}/summary
 DELETE /api/v1/conversations/{conversationId}
 GET    /api/v1/trip-plans
 GET    /api/v1/trip-plans/{tripPlanId}
@@ -60,6 +62,7 @@ Initial event and job candidates:
 - `trip.plan.export.requested`: queued when exporting large files or generating attachments.
 - `agent.conversation.updated`: created after conversation metadata changes.
 - `agent.conversation.deleted`: created after a conversation is deleted.
+- `agent.conversation.summary.created`: created after a conversation summary is generated or refreshed.
 - `agent.conversation.summarize.requested`: queued to summarize long conversations.
 - `user.profile.updated`: emitted when user preferences change.
 

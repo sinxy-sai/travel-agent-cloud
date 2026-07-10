@@ -151,6 +151,15 @@ class ConversationUpdateRequest(APIModel):
         return title
 
 
+class ConversationSummary(APIModel):
+    id: str
+    conversation_id: str
+    summary: str
+    message_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
 class ChatResponse(APIModel):
     conversation_id: str
     message: ChatMessage

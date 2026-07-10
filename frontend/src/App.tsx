@@ -13,10 +13,12 @@ import {
 } from '@ant-design/icons';
 import {
   createTripPlan,
+  createConversationSummary,
   deleteConversation,
   deleteTripPlan,
   exportTripPlanMarkdown,
   getConversation,
+  getConversationSummary,
   getHealth,
   getTripPlan,
   getUserProfile,
@@ -28,6 +30,7 @@ import {
   updateUserProfile,
   type ChatMessage,
   type Conversation,
+  type ConversationSummary,
   type HealthResponse,
   type SavedTripPlan,
   type TripPlanResponse,
@@ -65,6 +68,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatSuggestions, setChatSuggestions] = useState<string[]>(defaultChatSuggestions);
+  const [conversationSummary, setConversationSummary] = useState<ConversationSummary | null>(null);
   const [tripPlanFilter, setTripPlanFilter] = useState<'ALL' | 'FAVORITES'>('ALL');
   const [tripPlanSearchInput, setTripPlanSearchInput] = useState('');
   const [tripPlanSearch, setTripPlanSearch] = useState('');
@@ -135,13 +139,20 @@ export default function App() {
     },
   });
 
+  const loadConversationSummaryMutation = useMutation({
+    mutationFn: getConversationSummary,
+    onSuccess: setConversationSummary,
+  });
+
   const loadConversationMutation = useMutation({
     mutationFn: getConversation,
     onSuccess: (conversation) => {
       setConversationId(conversation.id);
       setChatMessages(conversation.messages);
+      setConversationSummary(null);
       setChatInput('');
       setChatSuggestions(defaultChatSuggestions);
+      loadConversationSummaryMutation.mutate(conversation.id);
     },
   });
 
@@ -181,6 +192,11 @@ export default function App() {
       setConversationPage(1);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
+  });
+
+  const createConversationSummaryMutation = useMutation({
+    mutationFn: createConversationSummary,
+    onSuccess: setConversationSummary,
   });
 
   const updateUserProfileMutation = useMutation({
@@ -271,6 +287,7 @@ export default function App() {
         createdAt: new Date().toISOString(),
       },
     ]);
+    setConversationSummary(null);
     setChatInput('');
     chatMutation.mutate({
       message,
@@ -282,6 +299,7 @@ export default function App() {
   const startNewChat = () => {
     setConversationId(undefined);
     setChatMessages([]);
+    setConversationSummary(null);
     setChatInput('');
     setChatSuggestions(defaultChatSuggestions);
   };
@@ -611,11 +629,33 @@ export default function App() {
             <p className="text-sm font-medium uppercase tracking-wide text-mist/70">Agent chat</p>
             <div className="mt-2 flex items-center justify-between gap-3">
               <h2 className="text-2xl font-semibold">Planning thread</h2>
-              <Button icon={<PlusOutlined />} onClick={startNewChat}>
-                New chat
-              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  onClick={() => conversationId && createConversationSummaryMutation.mutate(conversationId)}
+                  loading={createConversationSummaryMutation.isPending}
+                  disabled={!conversationId || chatMessages.length === 0}
+                >
+                  Summarize
+                </Button>
+                <Button icon={<PlusOutlined />} onClick={startNewChat}>
+                  New chat
+                </Button>
+              </div>
             </div>
           </div>
+
+          {loadConversationSummaryMutation.isPending && (
+            <div className="mb-4 rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-mist/75">
+              Loading saved summary...
+            </div>
+          )}
+
+          {conversationSummary && (
+            <div className="mb-4 rounded-lg border border-white/15 bg-white/5 p-3 text-sm leading-6 text-mist/85">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-mist/60">Conversation summary</p>
+              <p className="whitespace-pre-line">{conversationSummary.summary}</p>
+            </div>
+          )}
 
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
             {chatMessages.length === 0 && (

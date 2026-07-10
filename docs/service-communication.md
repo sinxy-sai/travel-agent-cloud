@@ -58,6 +58,7 @@ trip.plan.deleted
 trip.plan.export.requested
 agent.conversation.updated
 agent.conversation.deleted
+agent.conversation.summary.created
 agent.conversation.summarize.requested
 user.profile.updated
 ```

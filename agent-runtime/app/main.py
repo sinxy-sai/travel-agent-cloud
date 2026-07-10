@@ -21,6 +21,7 @@ from app.schemas import (
     ChatResponse,
     Conversation,
     ConversationListResponse,
+    ConversationSummary,
     ConversationUpdateRequest,
     MessageRole,
     SavedTripPlan,
@@ -33,6 +34,12 @@ from app.schemas import (
     to_camel,
 )
 from app.settings import get_settings
+from app.summaries import (
+    ConversationSummaryNotFoundError,
+    ConversationSummaryStore,
+    DatabaseConversationSummaryStore,
+    build_conversation_summary,
+)
 from app.users import get_user_id
 
 settings = get_settings()
@@ -40,6 +47,7 @@ configure_logging(settings)
 session_factory = maybe_create_session_factory(settings)
 conversation_store = DatabaseConversationStore(session_factory) if session_factory else ConversationStore()
 profile_store = DatabaseUserProfileStore(session_factory) if session_factory else UserProfileStore()
+summary_store = DatabaseConversationSummaryStore(session_factory) if session_factory else ConversationSummaryStore()
 event_publisher = create_event_publisher(settings)
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
@@ -160,9 +168,46 @@ def update_conversation(
     return conversation
 
 
+@app.get("/api/v1/conversations/{conversation_id}/summary", response_model=ConversationSummary)
+def get_conversation_summary(conversation_id: str, user_id: str = Depends(get_user_id)) -> ConversationSummary:
+    try:
+        conversation_store.get(user_id, conversation_id)
+        return summary_store.get(user_id, conversation_id)
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
+    except ConversationSummaryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "CONVERSATION_SUMMARY_NOT_FOUND", "message": "Conversation summary not found"}) from exc
+
+
+@app.post("/api/v1/conversations/{conversation_id}/summary", response_model=ConversationSummary)
+def create_conversation_summary(conversation_id: str, user_id: str = Depends(get_user_id)) -> ConversationSummary:
+    try:
+        conversation = conversation_store.get(user_id, conversation_id)
+        summary = summary_store.save(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            summary=build_conversation_summary(conversation.messages),
+            message_count=len(conversation.messages),
+        )
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
+
+    event_publisher.publish(
+        "agent.conversation.summary.created",
+        user_id,
+        {
+            "conversationId": conversation_id,
+            "summaryId": summary.id,
+            "messageCount": summary.message_count,
+        },
+    )
+    return summary
+
+
 @app.delete("/api/v1/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_conversation(conversation_id: str, user_id: str = Depends(get_user_id)) -> Response:
     try:
+        summary_store.delete_for_conversation(user_id, conversation_id)
         conversation_store.delete(user_id, conversation_id)
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc

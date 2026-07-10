@@ -47,6 +47,7 @@ Current events:
 - `user.profile.updated`
 - `agent.conversation.updated`
 - `agent.conversation.deleted`
+- `agent.conversation.summary.created`
 
 ## Observability
 
@@ -134,6 +135,18 @@ Rename a conversation:
 curl -X PATCH http://localhost:8000/api/v1/conversations/{conversationId} \
   -H "Content-Type: application/json" \
   -d '{"title":"Chengdu planning thread"}'
+```
+
+Generate or refresh a conversation summary:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/conversations/{conversationId}/summary
+```
+
+Get the latest conversation summary:
+
+```bash
+curl http://localhost:8000/api/v1/conversations/{conversationId}/summary
 ```
 
 Delete a conversation:

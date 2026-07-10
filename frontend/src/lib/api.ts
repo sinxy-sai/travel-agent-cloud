@@ -82,6 +82,15 @@ export interface Conversation {
   messages: ChatMessage[];
 }
 
+export interface ConversationSummary {
+  id: string;
+  conversationId: string;
+  summary: string;
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ConversationListResponse {
   data: Conversation[];
   page: number;
@@ -183,6 +192,23 @@ export async function deleteConversation(conversationId: string): Promise<void> 
 export async function updateConversationTitle(conversationId: string, title: string): Promise<Conversation> {
   const response = await api.patch<Conversation>(`/api/v1/conversations/${conversationId}`, { title });
   return response.data;
+}
+
+export async function createConversationSummary(conversationId: string): Promise<ConversationSummary> {
+  const response = await api.post<ConversationSummary>(`/api/v1/conversations/${conversationId}/summary`);
+  return response.data;
+}
+
+export async function getConversationSummary(conversationId: string): Promise<ConversationSummary | null> {
+  try {
+    const response = await api.get<ConversationSummary>(`/api/v1/conversations/${conversationId}/summary`);
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function listTripPlans(

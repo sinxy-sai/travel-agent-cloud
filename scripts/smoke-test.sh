@@ -126,6 +126,25 @@ if [ "${RENAMED_SEARCH_HAS_CREATED_CONVERSATION}" != "yes" ]; then
 fi
 echo
 
+echo "Checking conversation summary API"
+SUMMARY_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/conversations/${CHAT_CONVERSATION_ID}/summary" \
+  -H "X-User-Id: ${USER_ID}")"
+echo "${SUMMARY_JSON}"
+SUMMARY_ID="$(printf '%s' "${SUMMARY_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("id", ""))')"
+SUMMARY_MESSAGE_COUNT="$(printf '%s' "${SUMMARY_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("messageCount", 0))')"
+if [ -z "${SUMMARY_ID}" ] || [ "${SUMMARY_MESSAGE_COUNT}" -lt 1 ]; then
+  echo "Conversation summary API did not return a persisted summary" >&2
+  exit 1
+fi
+LOADED_SUMMARY_JSON="$(curl -fsS "${BASE_URL}/api/v1/conversations/${CHAT_CONVERSATION_ID}/summary" \
+  -H "X-User-Id: ${USER_ID}")"
+LOADED_SUMMARY_ID="$(printf '%s' "${LOADED_SUMMARY_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("id", ""))')"
+if [ "${LOADED_SUMMARY_ID}" != "${SUMMARY_ID}" ]; then
+  echo "Conversation summary API did not load the latest persisted summary" >&2
+  exit 1
+fi
+echo
+
 echo "Checking trip plan history API"
 TRIP_PLANS_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans?page=1&pageSize=20" \
   -H "X-User-Id: ${USER_ID}")"
