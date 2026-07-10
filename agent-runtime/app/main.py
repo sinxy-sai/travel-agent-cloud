@@ -55,9 +55,11 @@ from app.schemas import (
     UserDataImportResponse,
     UserProfile,
     UserProfileUpdateRequest,
+    UserSecurityEventListResponse,
     to_camel,
 )
 from app.security import FixedWindowRateLimiter, SecurityHeadersMiddleware, client_identifier
+from app.security_events import DatabaseUserSecurityEventStore, UserSecurityEventStore
 from app.settings import get_settings
 from app.summaries import (
     ConversationSummaryNotFoundError,
@@ -82,6 +84,9 @@ summary_job_store = (
     DatabaseConversationSummaryJobStore(session_factory) if session_factory else ConversationSummaryJobStore()
 )
 user_store = DatabaseUserStore(session_factory) if session_factory else UserStore()
+security_event_store = (
+    DatabaseUserSecurityEventStore(session_factory) if session_factory else UserSecurityEventStore()
+)
 event_publisher = create_event_publisher(settings)
 conversation_summarizer = ConversationSummarizerWorker(conversation_store, summary_store, event_publisher)
 user_data_importer = UserDataImporter(session_factory, conversation_store, profile_store, summary_store)
@@ -127,6 +132,7 @@ def register(request: Request, payload: AuthRegisterRequest, response: Response)
         ) from exc
     token = create_access_token(settings, user.id)
     _set_auth_cookie(response, token)
+    _record_security_event(request, user.id, "auth.registered")
     return AuthSession(user=user)
 
 
@@ -142,6 +148,7 @@ def login(request: Request, payload: AuthLoginRequest, response: Response) -> Au
         ) from exc
     token = create_access_token(settings, user.id)
     _set_auth_cookie(response, token)
+    _record_security_event(request, user.id, "auth.logged_in")
     return AuthSession(user=user)
 
 
@@ -173,6 +180,7 @@ def change_password(request: Request, payload: AuthPasswordChangeRequest) -> Res
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "INVALID_CREDENTIALS", "message": "Current password is incorrect"},
         ) from exc
+    _record_security_event(request, user.id, "auth.password_changed")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -193,6 +201,7 @@ def delete_current_auth_user(request: Request, payload: AuthAccountDeleteRequest
             detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
         ) from exc
 
+    security_event_store.delete_for_user(user.id)
     response.status_code = status.HTTP_204_NO_CONTENT
     _delete_auth_cookie(response)
     return response
@@ -224,6 +233,17 @@ def import_current_user_data(request: Request, payload: UserDataImportRequest) -
     user = _get_current_auth_user(request)
     _check_auth_rate_limit(request, "import-data", user.id)
     result = user_data_importer.import_user_data(user.id, payload)
+    _record_security_event(
+        request,
+        user.id,
+        "user.data_imported",
+        {
+            "conversationsImported": result.conversations_imported,
+            "conversationSummariesImported": result.conversation_summaries_imported,
+            "tripPlansImported": result.trip_plans_imported,
+            "skippedItems": result.skipped_items,
+        },
+    )
     event_publisher.publish(
         "user.data.imported",
         user.id,
@@ -237,8 +257,23 @@ def import_current_user_data(request: Request, payload: UserDataImportRequest) -
     return result
 
 
+@app.get("/api/v1/auth/security-events", response_model=UserSecurityEventListResponse)
+def list_current_user_security_events(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=50, alias="pageSize"),
+) -> UserSecurityEventListResponse:
+    user = _get_current_auth_user(request)
+    return security_event_store.list(user.id, page, page_size)
+
+
 @app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(response: Response) -> Response:
+def logout(request: Request, response: Response) -> Response:
+    try:
+        user = _get_current_auth_user(request)
+        _record_security_event(request, user.id, "auth.logged_out")
+    except HTTPException:
+        pass
     response.status_code = status.HTTP_204_NO_CONTENT
     _delete_auth_cookie(response)
     return response
@@ -564,6 +599,20 @@ def _check_auth_rate_limit(request: Request, action: str, email: str) -> None:
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         detail={"code": "RATE_LIMITED", "message": "Too many authentication attempts"},
         headers={"Retry-After": str(decision.retry_after_seconds)},
+    )
+
+
+def _record_security_event(
+    request: Request,
+    user_id: str,
+    event_type: str,
+    details: dict | None = None,
+) -> None:
+    security_event_store.record(
+        user_id,
+        event_type,
+        client_identifier=client_identifier(request),
+        details=details,
     )
 
 

@@ -107,6 +107,7 @@ When database storage is enabled, the service creates the current tables on star
 - `trip_plans`
 - `users`
 - `user_profiles`
+- `user_security_events`
 
 Conversation APIs are scoped by the signed-in user when a valid session cookie or Bearer token is present. Without a valid session, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
 
@@ -155,6 +156,13 @@ curl -X PATCH http://localhost:8000/api/v1/auth/password \
   -d '{"currentPassword":"ChangeMe123!","newPassword":"NewChangeMe123!"}'
 ```
 
+List recent account security activity:
+
+```bash
+curl "http://localhost:8000/api/v1/auth/security-events?page=1&pageSize=10" \
+  -b cookies.txt
+```
+
 Export signed-in user data:
 
 ```bash
@@ -188,7 +196,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout \
 ```
 
 Authenticated requests are scoped by the signed-in user's httpOnly cookie. If no valid login cookie or Bearer token is present, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
-Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL and RabbitMQ are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes or session tokens. User data import accepts that export format, ignores exported account identity fields, and restores data into the currently signed-in account. Account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, and saved trip plans.
+Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL and RabbitMQ are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes or session tokens. User data import accepts that export format, ignores exported account identity fields, and restores data into the currently signed-in account. Account security activity records successful account events and stores only a hashed client identifier plus non-sensitive details. Account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, security events, and saved trip plans.
 
 Create a structured trip plan:
 

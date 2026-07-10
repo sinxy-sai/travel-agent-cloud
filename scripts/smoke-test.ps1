@@ -41,6 +41,10 @@ $currentAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -WebSession 
 if ($currentAuthUser.email -ne $authEmail) {
   throw "Auth me API did not return the cookie-authenticated user"
 }
+$securityEvents = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/security-events?page=1&pageSize=5" -WebSession $authSession
+if (-not $securityEvents.data -or $securityEvents.data.Count -eq 0) {
+  throw "Security events API did not return recent account activity"
+}
 $accountUpdateBody = @{
   displayName = "Updated Smoke Account"
 } | ConvertTo-Json

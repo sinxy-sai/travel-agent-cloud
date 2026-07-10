@@ -55,6 +55,18 @@ class UserRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class UserSecurityEventRecord(Base):
+    __tablename__ = "user_security_events"
+    __table_args__ = (Index("ix_user_security_events_user_created", "user_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String(80), index=True)
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    client_id_hash: Mapped[str] = mapped_column(String(64), default="")
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class ConversationSummaryRecord(Base):
     __tablename__ = "conversation_summaries"
     __table_args__ = (Index("ix_conversation_summaries_user_updated", "user_id", "updated_at"),)

@@ -55,6 +55,14 @@ if [ "${CURRENT_AUTH_EMAIL}" != "${AUTH_EMAIL}" ]; then
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
+SECURITY_EVENTS_JSON="$(curl -fsS "${BASE_URL}/api/v1/auth/security-events?page=1&pageSize=5" \
+  -b "${AUTH_COOKIE_JAR}")"
+SECURITY_EVENTS_COUNT="$(printf '%s' "${SECURITY_EVENTS_JSON}" | python3 -c 'import json, sys; print(len(json.load(sys.stdin).get("data", [])))')"
+if [ "${SECURITY_EVENTS_COUNT}" = "0" ]; then
+  echo "Security events API did not return recent account activity" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
 UPDATED_AUTH_USER_JSON="$(curl -fsS -X PATCH "${BASE_URL}/api/v1/auth/me" \
   -H "Content-Type: application/json" \
   -b "${AUTH_COOKIE_JAR}" \

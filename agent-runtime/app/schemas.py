@@ -180,6 +180,21 @@ class AuthSession(APIModel):
     user: AuthUser
 
 
+class UserSecurityEvent(APIModel):
+    id: str
+    event_type: str
+    details: dict = Field(default_factory=dict)
+    created_at: datetime
+
+
+class UserSecurityEventListResponse(APIModel):
+    data: list[UserSecurityEvent]
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+
+
 class MessageRole(StrEnum):
     USER = "USER"
     ASSISTANT = "ASSISTANT"

@@ -30,6 +30,7 @@ import {
   getTripPlan,
   getUserProfile,
   importCurrentUserData,
+  listUserSecurityEvents,
   loginUser,
   listConversations,
   listTripPlans,
@@ -49,6 +50,7 @@ import {
   type SavedTripPlan,
   type TripPlanResponse,
   type UserProfile,
+  type UserSecurityEvent,
 } from './lib/api';
 
 const interestOptions = [
@@ -160,6 +162,12 @@ export default function App() {
     queryFn: getUserProfile,
   });
 
+  const securityEventsQuery = useQuery({
+    queryKey: ['security-events'],
+    queryFn: () => listUserSecurityEvents(1, 5),
+    enabled: Boolean(authUserQuery.data),
+  });
+
   const registerMutation = useMutation({
     mutationFn: registerUser,
     onSuccess: (session) => {
@@ -183,6 +191,7 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ['user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
     },
   });
 
@@ -191,6 +200,7 @@ export default function App() {
     onSuccess: () => {
       resetPasswordForm();
       setPasswordChangeSucceeded(true);
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
     },
   });
 
@@ -217,6 +227,7 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ['user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
     },
     onError: () => {
       setImportDataError('Could not import this data file.');
@@ -233,6 +244,7 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ['user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
     },
   });
 
@@ -527,6 +539,7 @@ export default function App() {
     queryClient.invalidateQueries({ queryKey: ['user-profile'] });
     queryClient.invalidateQueries({ queryKey: ['conversations'] });
     queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+    queryClient.invalidateQueries({ queryKey: ['security-events'] });
   }
 
   function openAuthModal(mode: 'LOGIN' | 'REGISTER') {
@@ -732,8 +745,10 @@ export default function App() {
           <RuntimeStatus health={healthQuery.data} loading={healthQuery.isLoading} error={healthQuery.isError} />
           <AccountStatus
             user={authUserQuery.data}
+            securityEvents={securityEventsQuery.data?.data ?? []}
             loading={
               authUserQuery.isLoading ||
+              securityEventsQuery.isLoading ||
               logoutMutation.isPending ||
               changePasswordMutation.isPending ||
               updateAuthUserMutation.isPending ||
@@ -1503,6 +1518,7 @@ function RuntimeStatus({
 
 function AccountStatus({
   user,
+  securityEvents,
   loading,
   onLogin,
   onRegister,
@@ -1515,6 +1531,7 @@ function AccountStatus({
   onLogout,
 }: {
   user?: AuthUser | null;
+  securityEvents: UserSecurityEvent[];
   loading: boolean;
   onLogin: () => void;
   onRegister: () => void;
@@ -1554,6 +1571,19 @@ function AccountStatus({
           {importDataError && (
             <div className="rounded-md border border-red-200 bg-red-50 px-2 py-2 text-xs text-red-700">
               {importDataError}
+            </div>
+          )}
+          {securityEvents.length > 0 && (
+            <div className="rounded-md bg-slate-50 px-2 py-2">
+              <p className="mb-2 text-xs font-medium text-slate-500">Recent security activity</p>
+              <div className="space-y-1">
+                {securityEvents.map((event) => (
+                  <div key={event.id} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="min-w-0 truncate text-slate-700">{formatSecurityEventType(event.eventType)}</span>
+                    <span className="shrink-0 text-slate-400">{formatDateTime(event.createdAt)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           <Button size="small" danger icon={<DeleteOutlined />} onClick={onDeleteAccount}>
@@ -1815,6 +1845,17 @@ function formatDateTime(value: string): string {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
+}
+
+function formatSecurityEventType(value: string): string {
+  const labels: Record<string, string> = {
+    'auth.registered': 'Account created',
+    'auth.logged_in': 'Signed in',
+    'auth.logged_out': 'Signed out',
+    'auth.password_changed': 'Password changed',
+    'user.data_imported': 'Data imported',
+  };
+  return labels[value] ?? value.replace(/[._-]/g, ' ');
 }
 
 function formatSummaryJobStatus(status?: ConversationSummaryJob['status']): string {

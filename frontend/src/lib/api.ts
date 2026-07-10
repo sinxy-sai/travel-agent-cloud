@@ -152,6 +152,21 @@ export interface AuthSession {
   user: AuthUser;
 }
 
+export interface UserSecurityEvent {
+  id: string;
+  eventType: string;
+  details: Record<string, string | number | boolean>;
+  createdAt: string;
+}
+
+export interface UserSecurityEventListResponse {
+  data: UserSecurityEvent[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+}
+
 export interface AuthRegisterRequest {
   email: string;
   password: string;
@@ -248,6 +263,13 @@ export async function getCurrentAuthUser(): Promise<AuthUser | null> {
     }
     throw error;
   }
+}
+
+export async function listUserSecurityEvents(page = 1, pageSize = 5): Promise<UserSecurityEventListResponse> {
+  const response = await api.get<UserSecurityEventListResponse>('/api/v1/auth/security-events', {
+    params: { page, pageSize },
+  });
+  return response.data;
 }
 
 export async function updateCurrentAuthUser(request: AuthUserUpdateRequest): Promise<AuthUser> {

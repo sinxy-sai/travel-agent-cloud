@@ -20,6 +20,7 @@ from app.models import (
     TripPlanRecord,
     UserProfileRecord,
     UserRecord,
+    UserSecurityEventRecord,
 )
 from app.schemas import AuthUser
 from app.settings import Settings
@@ -180,6 +181,7 @@ class DatabaseUserStore:
             session.execute(delete(TripPlanRecord).where(TripPlanRecord.user_id == user_id))
             session.execute(delete(ConversationSummaryJobRecord).where(ConversationSummaryJobRecord.user_id == user_id))
             session.execute(delete(ConversationSummaryRecord).where(ConversationSummaryRecord.user_id == user_id))
+            session.execute(delete(UserSecurityEventRecord).where(UserSecurityEventRecord.user_id == user_id))
             if conversation_ids:
                 session.execute(delete(MessageRecord).where(MessageRecord.conversation_id.in_(conversation_ids)))
             session.execute(delete(ConversationRecord).where(ConversationRecord.user_id == user_id))
