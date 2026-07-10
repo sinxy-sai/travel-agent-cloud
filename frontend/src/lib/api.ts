@@ -328,6 +328,11 @@ export async function importCurrentUserData(request: UserDataExport): Promise<Us
   return response.data;
 }
 
+export async function importAnonymousUserData(): Promise<UserDataImportResponse> {
+  const response = await api.post<UserDataImportResponse>('/api/v1/me/anonymous-data/import');
+  return response.data;
+}
+
 export async function sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
   const response = await api.post<ChatResponse>('/api/v1/chat', {
     message: request.message,

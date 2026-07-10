@@ -31,6 +31,7 @@ import {
   getLatestConversationSummaryJob,
   getTripPlan,
   getUserProfile,
+  importAnonymousUserData,
   importCurrentUserData,
   listUserSecurityEvents,
   loginUser,
@@ -138,6 +139,7 @@ export default function App() {
   const [deleteAccountPassword, setDeleteAccountPassword] = useState('');
   const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState('');
   const [importDataError, setImportDataError] = useState('');
+  const [anonymousImportMessage, setAnonymousImportMessage] = useState('');
 
   const authUserQuery = useQuery({
     queryKey: ['auth-user'],
@@ -199,6 +201,7 @@ export default function App() {
     onSuccess: () => {
       clearWorkspace();
       resetPasswordForm();
+      setAnonymousImportMessage('');
       queryClient.setQueryData(['auth-user'], null);
       queryClient.invalidateQueries({ queryKey: ['user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -295,12 +298,30 @@ export default function App() {
     },
   });
 
+  const importAnonymousUserDataMutation = useMutation({
+    mutationFn: importAnonymousUserData,
+    onSuccess: (result) => {
+      setAnonymousImportMessage(
+        `Imported ${result.conversationsImported} conversations and ${result.tripPlansImported} trip plans from this browser.`,
+      );
+      clearWorkspace();
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
+    },
+    onError: () => {
+      setAnonymousImportMessage('Could not import local anonymous data.');
+    },
+  });
+
   const deleteAccountMutation = useMutation({
     mutationFn: deleteCurrentAuthUser,
     onSuccess: () => {
       setDeleteAccountModalOpen(false);
       resetDeleteAccountForm();
       clearWorkspace();
+      setAnonymousImportMessage('');
       queryClient.setQueryData(['auth-user'], null);
       queryClient.invalidateQueries({ queryKey: ['user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -613,6 +634,7 @@ export default function App() {
   function applyAuthenticatedSession(user: AuthUser) {
     setAuthModalOpen(false);
     resetAuthForm();
+    setAnonymousImportMessage('');
     clearWorkspace();
     queryClient.setQueryData(['auth-user'], user);
     queryClient.invalidateQueries({ queryKey: ['user-profile'] });
@@ -865,6 +887,7 @@ export default function App() {
               updateAuthUserMutation.isPending ||
               exportUserDataMutation.isPending ||
               importUserDataMutation.isPending ||
+              importAnonymousUserDataMutation.isPending ||
               requestEmailVerificationMutation.isPending ||
               deleteAccountMutation.isPending
             }
@@ -886,7 +909,12 @@ export default function App() {
               setImportDataError('');
               importDataInputRef.current?.click();
             }}
+            onImportAnonymousData={() => {
+              setAnonymousImportMessage('');
+              importAnonymousUserDataMutation.mutate();
+            }}
             importDataError={importDataError}
+            anonymousImportMessage={anonymousImportMessage}
             onDeleteAccount={() => {
               resetDeleteAccountForm();
               setDeleteAccountModalOpen(true);
@@ -1760,7 +1788,9 @@ function AccountStatus({
   onChangePassword,
   onExportData,
   onImportData,
+  onImportAnonymousData,
   importDataError,
+  anonymousImportMessage,
   onDeleteAccount,
   onLogout,
 }: {
@@ -1775,7 +1805,9 @@ function AccountStatus({
   onChangePassword: () => void;
   onExportData: () => void;
   onImportData: () => void;
+  onImportAnonymousData: () => void;
   importDataError: string;
+  anonymousImportMessage: string;
   onDeleteAccount: () => void;
   onLogout: () => void;
 }) {
@@ -1821,9 +1853,17 @@ function AccountStatus({
           <Button size="small" icon={<UploadOutlined />} onClick={onImportData}>
             Import data
           </Button>
+          <Button size="small" onClick={onImportAnonymousData}>
+            Import local data
+          </Button>
           {importDataError && (
             <div className="rounded-md border border-red-200 bg-red-50 px-2 py-2 text-xs text-red-700">
               {importDataError}
+            </div>
+          )}
+          {anonymousImportMessage && (
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-600">
+              {anonymousImportMessage}
             </div>
           )}
           {securityEvents.length > 0 && (
@@ -2106,7 +2146,12 @@ function formatSecurityEventType(value: string): string {
     'auth.logged_in': 'Signed in',
     'auth.logged_out': 'Signed out',
     'auth.password_changed': 'Password changed',
+    'auth.email_verification_requested': 'Verification email sent',
+    'auth.email_verified': 'Email verified',
+    'auth.password_reset_requested': 'Password reset requested',
+    'auth.password_reset_completed': 'Password reset completed',
     'user.data_imported': 'Data imported',
+    'user.anonymous_data_imported': 'Local data imported',
   };
   return labels[value] ?? value.replace(/[._-]/g, ' ');
 }

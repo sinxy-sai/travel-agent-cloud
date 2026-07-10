@@ -31,6 +31,28 @@ if [ "${HAS_MESSAGE_QUEUE_FIELD}" != "yes" ]; then
 fi
 echo
 
+echo "Preparing anonymous local data"
+ANONYMOUS_USER_ID="smoke-anon-$(date +%s)-$$"
+ANONYMOUS_CHAT_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/chat" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${ANONYMOUS_USER_ID}" \
+  -d '{"message":"Plan a relaxed 2-day Hangzhou tea and lake trip.","mode":"TRIP_PLANNING"}')"
+ANONYMOUS_CONVERSATION_ID="$(printf '%s' "${ANONYMOUS_CHAT_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("conversationId", ""))')"
+if [ -z "${ANONYMOUS_CONVERSATION_ID}" ]; then
+  echo "Anonymous chat API did not return conversationId" >&2
+  exit 1
+fi
+ANONYMOUS_TRIP_PLAN_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/trip-plan" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${ANONYMOUS_USER_ID}" \
+  -d "{\"destination\":\"Hangzhou\",\"days\":2,\"budget\":\"moderate\",\"interests\":\"tea, lake\",\"conversationId\":\"${ANONYMOUS_CONVERSATION_ID}\"}")"
+ANONYMOUS_TRIP_PLAN_ID="$(printf '%s' "${ANONYMOUS_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("savedTripPlanId", ""))')"
+if [ -z "${ANONYMOUS_TRIP_PLAN_ID}" ]; then
+  echo "Anonymous trip plan API did not return savedTripPlanId" >&2
+  exit 1
+fi
+echo
+
 echo "Checking auth API"
 AUTH_COOKIE_JAR="$(mktemp)"
 AUTH_EMAIL="smoke-$(date +%s)-$$@example.com"
@@ -118,6 +140,25 @@ IMPORTED_USER_DATA_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/me/import" \
 PROFILE_IMPORTED="$(printf '%s' "${IMPORTED_USER_DATA_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("profileImported") else "no")')"
 if [ "${PROFILE_IMPORTED}" != "yes" ]; then
   echo "User data import API did not import the profile" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+ANONYMOUS_IMPORT_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/me/anonymous-data/import" \
+  -H "X-User-Id: ${ANONYMOUS_USER_ID}" \
+  -b "${AUTH_COOKIE_JAR}")"
+ANONYMOUS_IMPORT_CONVERSATIONS="$(printf '%s' "${ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("conversationsImported", 0))')"
+ANONYMOUS_IMPORT_TRIP_PLANS="$(printf '%s' "${ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("tripPlansImported", 0))')"
+if [ "${ANONYMOUS_IMPORT_CONVERSATIONS}" -lt 1 ] || [ "${ANONYMOUS_IMPORT_TRIP_PLANS}" -lt 1 ]; then
+  echo "Anonymous data import API did not import local conversations and trip plans" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+EXPORTED_AFTER_ANONYMOUS_IMPORT_JSON="$(curl -fsS "${BASE_URL}/api/v1/me/export" \
+  -b "${AUTH_COOKIE_JAR}")"
+HAS_IMPORTED_ANONYMOUS_CONVERSATION="$(printf '%s' "${EXPORTED_AFTER_ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin).get("conversations", []); print("yes" if any("Hangzhou" in item.get("title", "") or any("Hangzhou" in msg.get("content", "") for msg in item.get("messages", [])) for item in data) else "no")')"
+HAS_IMPORTED_ANONYMOUS_TRIP_PLAN="$(printf '%s' "${EXPORTED_AFTER_ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin).get("tripPlans", []); print("yes" if any(item.get("destination") == "Hangzhou" for item in data) else "no")')"
+if [ "${HAS_IMPORTED_ANONYMOUS_CONVERSATION}" != "yes" ] || [ "${HAS_IMPORTED_ANONYMOUS_TRIP_PLAN}" != "yes" ]; then
+  echo "User data export did not include imported anonymous data" >&2
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi

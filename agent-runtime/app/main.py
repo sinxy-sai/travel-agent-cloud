@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -83,7 +84,7 @@ from app.summary_jobs import (
     ConversationSummaryJobStore,
     DatabaseConversationSummaryJobStore,
 )
-from app.users import get_user_id
+from app.users import DEFAULT_USER_ID, USER_ID_PATTERN, get_user_id
 from app.workers.conversation_summarizer import ConversationSummarizerWorker, SummarizeConversationCommand
 
 settings = get_settings()
@@ -288,22 +289,7 @@ def delete_current_auth_user(request: Request, payload: AuthAccountDeleteRequest
 @app.get("/api/v1/me/export", response_model=UserDataExport)
 def export_current_user_data(request: Request) -> UserDataExport:
     user = _get_current_auth_user(request)
-    conversations = _list_all_conversations(user.id)
-    summaries = []
-    for conversation in conversations:
-        try:
-            summaries.append(summary_store.get(user.id, conversation.id))
-        except ConversationSummaryNotFoundError:
-            continue
-
-    return UserDataExport(
-        exported_at=datetime.now(UTC),
-        user=user,
-        profile=profile_store.get(user.id),
-        conversations=conversations,
-        conversation_summaries=summaries,
-        trip_plans=_list_all_trip_plans(user.id),
-    )
+    return _export_user_data(user.id, user)
 
 
 @app.post("/api/v1/me/import", response_model=UserDataImportResponse)
@@ -324,6 +310,43 @@ def import_current_user_data(request: Request, payload: UserDataImportRequest) -
     )
     event_publisher.publish(
         "user.data.imported",
+        user.id,
+        {
+            "conversationsImported": result.conversations_imported,
+            "conversationSummariesImported": result.conversation_summaries_imported,
+            "tripPlansImported": result.trip_plans_imported,
+            "skippedItems": result.skipped_items,
+        },
+    )
+    return result
+
+
+@app.post("/api/v1/me/anonymous-data/import", response_model=UserDataImportResponse)
+def import_current_anonymous_data(request: Request) -> UserDataImportResponse:
+    user = _get_current_auth_user(request)
+    anonymous_user_id = _anonymous_user_id_from_header(request)
+    if anonymous_user_id == user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_ANONYMOUS_USER", "message": "Anonymous user id must be different from account id"},
+        )
+
+    payload = _clone_user_data_for_import(anonymous_user_id, user)
+    result = user_data_importer.import_user_data(user.id, payload)
+    _record_security_event(
+        request,
+        user.id,
+        "user.anonymous_data_imported",
+        {
+            "sourceUserId": _redact_user_id(anonymous_user_id),
+            "conversationsImported": result.conversations_imported,
+            "conversationSummariesImported": result.conversation_summaries_imported,
+            "tripPlansImported": result.trip_plans_imported,
+            "skippedItems": result.skipped_items,
+        },
+    )
+    event_publisher.publish(
+        "user.anonymous_data.imported",
         user.id,
         {
             "conversationsImported": result.conversations_imported,
@@ -706,6 +729,117 @@ def _record_security_event(
         client_identifier=client_identifier(request),
         details=details,
     )
+
+
+def _anonymous_user_id_from_header(request: Request) -> str:
+    x_user_id = request.headers.get("X-User-Id", "").strip()
+    if not x_user_id or x_user_id == DEFAULT_USER_ID or not USER_ID_PATTERN.fullmatch(x_user_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_ANONYMOUS_USER", "message": "Valid X-User-Id header is required"},
+        )
+    return x_user_id
+
+
+def _export_user_data(user_id: str, user: AuthUser) -> UserDataExport:
+    conversations = _list_all_conversations(user_id)
+    summaries = []
+    for conversation in conversations:
+        try:
+            summaries.append(summary_store.get(user_id, conversation.id))
+        except ConversationSummaryNotFoundError:
+            continue
+
+    return UserDataExport(
+        exported_at=datetime.now(UTC),
+        user=user,
+        profile=profile_store.get(user_id),
+        conversations=conversations,
+        conversation_summaries=summaries,
+        trip_plans=_list_all_trip_plans(user_id),
+    )
+
+
+def _clone_user_data_for_import(source_user_id: str, target_user: AuthUser) -> UserDataImportRequest:
+    source_user = AuthUser(
+        id=source_user_id,
+        email=f"{source_user_id}@anonymous.local",
+        display_name="Anonymous traveler",
+        created_at=datetime.now(UTC),
+    )
+    exported = _export_user_data(source_user_id, source_user)
+    conversation_id_map: dict[str, str] = {}
+
+    cloned_conversations = []
+    for conversation in exported.conversations:
+        new_conversation_id = str(uuid4())
+        conversation_id_map[conversation.id] = new_conversation_id
+        cloned_conversations.append(
+            conversation.model_copy(
+                update={
+                    "id": new_conversation_id,
+                    "messages": [message.model_copy(update={"id": str(uuid4())}) for message in conversation.messages],
+                }
+            )
+        )
+
+    cloned_summaries = [
+        summary.model_copy(
+            update={
+                "id": str(uuid4()),
+                "conversation_id": conversation_id_map[summary.conversation_id],
+            }
+        )
+        for summary in exported.conversation_summaries
+        if summary.conversation_id in conversation_id_map
+    ]
+    cloned_trip_plans = []
+    for trip_plan in exported.trip_plans:
+        new_trip_plan_id = str(uuid4())
+        new_conversation_id = conversation_id_map.get(trip_plan.conversation_id or "")
+        cloned_trip_plans.append(
+            trip_plan.model_copy(
+                update={
+                    "id": new_trip_plan_id,
+                    "conversation_id": new_conversation_id,
+                    "plan": trip_plan.plan.model_copy(
+                        update={
+                            "saved_trip_plan_id": new_trip_plan_id,
+                            "conversation_id": new_conversation_id,
+                        }
+                    ),
+                }
+            )
+        )
+
+    target_profile = profile_store.get(target_user.id)
+    source_profile = exported.profile
+    profile = source_profile if _profile_has_values(source_profile) and not _profile_has_values(target_profile) else target_profile
+
+    return UserDataImportRequest(
+        exported_at=datetime.now(UTC),
+        user=target_user,
+        profile=profile,
+        conversations=cloned_conversations,
+        conversation_summaries=cloned_summaries,
+        trip_plans=cloned_trip_plans,
+    )
+
+
+def _profile_has_values(profile: UserProfile) -> bool:
+    return bool(
+        profile.display_name
+        or profile.home_city
+        or profile.preferred_budget
+        or profile.travel_style
+        or profile.interests
+    )
+
+
+def _redact_user_id(user_id: str) -> str:
+    if len(user_id) <= 12:
+        return user_id
+    return f"{user_id[:8]}...{user_id[-4:]}"
 
 
 def _list_all_conversations(user_id: str) -> list[Conversation]:

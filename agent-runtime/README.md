@@ -142,7 +142,7 @@ When database storage is enabled, the service creates the current tables on star
 - `user_profiles`
 - `user_security_events`
 
-Conversation APIs are scoped by the signed-in user when a valid session cookie or Bearer token is present. Without a valid session, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
+Conversation, profile, summary, and trip plan APIs are scoped by the signed-in user when a valid session cookie or Bearer token is present. Without a valid session, the runtime keeps the existing anonymous `X-User-Id` fallback for local development. If both are present, the signed-in account always wins.
 
 ## API
 
@@ -243,6 +243,14 @@ curl -X POST http://localhost:8000/api/v1/me/import \
   --data-binary @travel-agent-data.json
 ```
 
+Import the current browser's anonymous data into the signed-in account. The source anonymous id is read from `X-User-Id`; conversations and trip plans are copied with new ids so the anonymous records remain untouched:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/me/anonymous-data/import \
+  -H "X-User-Id: anon:local-browser-id" \
+  -b cookies.txt
+```
+
 Delete the current account and owned app data:
 
 ```bash
@@ -260,7 +268,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout \
 ```
 
 Authenticated requests are scoped by the signed-in user's httpOnly cookie. If no valid login cookie or Bearer token is present, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
-Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL, RabbitMQ, and SMTP are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes, session tokens, or email action tokens. User data import accepts that export format, ignores exported account identity fields, and restores data into the currently signed-in account. Account security activity records successful account events and stores only a hashed client identifier plus non-sensitive details. Password reset completion writes `auth.password_reset_completed`. Account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, security events, and saved trip plans.
+Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL, RabbitMQ, and SMTP are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes, session tokens, or email action tokens. User data import accepts that export format, ignores exported account identity fields, and restores data into the currently signed-in account. Anonymous data import copies the current browser's anonymous workspace into the signed-in account and records `user.anonymous_data_imported`. Account security activity records successful account events and stores only a hashed client identifier plus non-sensitive details. Password reset completion writes `auth.password_reset_completed`. Account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, security events, and saved trip plans.
 
 Create a structured trip plan:
 

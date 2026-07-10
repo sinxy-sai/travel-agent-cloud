@@ -24,6 +24,31 @@ if (-not ($health.PSObject.Properties.Name -contains "messageQueueEnabled")) {
   throw "Health API did not return messageQueueEnabled"
 }
 
+Write-Host "Preparing anonymous local data"
+$anonymousUserId = "smoke-anon-$([guid]::NewGuid().ToString('N'))"
+$anonymousHeaders = @{
+  "X-User-Id" = $anonymousUserId
+}
+$anonymousChatBody = @{
+  message = "Plan a relaxed 2-day Hangzhou tea and lake trip."
+  mode = "TRIP_PLANNING"
+} | ConvertTo-Json
+$anonymousChatResponse = Invoke-RestMethod -Uri "$BaseUrl/api/v1/chat" -Method Post -ContentType "application/json" -Headers $anonymousHeaders -Body $anonymousChatBody
+if (-not $anonymousChatResponse.conversationId) {
+  throw "Anonymous chat API did not return conversationId"
+}
+$anonymousTripBody = @{
+  destination = "Hangzhou"
+  days = 2
+  budget = "moderate"
+  interests = "tea, lake"
+  conversationId = $anonymousChatResponse.conversationId
+} | ConvertTo-Json
+$anonymousTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plan" -Method Post -ContentType "application/json" -Headers $anonymousHeaders -Body $anonymousTripBody
+if (-not $anonymousTripPlan.savedTripPlanId) {
+  throw "Anonymous trip plan API did not return savedTripPlanId"
+}
+
 Write-Host "Checking auth API"
 $authSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 $authEmail = "smoke-$([guid]::NewGuid().ToString('N'))@example.com"
@@ -80,6 +105,17 @@ if (-not ($exportedUserData.PSObject.Properties.Name -contains "conversations"))
 $importedUserData = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/import" -Method Post -ContentType "application/json" -WebSession $authSession -Body ($exportedUserData | ConvertTo-Json -Depth 40)
 if (-not $importedUserData.profileImported) {
   throw "User data import API did not import the profile"
+}
+$anonymousImportResult = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/anonymous-data/import" -Method Post -WebSession $authSession -Headers $anonymousHeaders
+if ($anonymousImportResult.conversationsImported -lt 1 -or $anonymousImportResult.tripPlansImported -lt 1) {
+  throw "Anonymous data import API did not import local conversations and trip plans"
+}
+$exportedAfterAnonymousImport = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/export" -WebSession $authSession
+if (-not ($exportedAfterAnonymousImport.conversations | Where-Object { $_.title -like "*Hangzhou*" -or ($_.messages | Where-Object { $_.content -like "*Hangzhou*" }) })) {
+  throw "User data export did not include imported anonymous conversation"
+}
+if (-not ($exportedAfterAnonymousImport.tripPlans | Where-Object { $_.destination -eq "Hangzhou" })) {
+  throw "User data export did not include imported anonymous trip plan"
 }
 $resetPassword = "SmokeTest789!"
 $resetResponse = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/password-reset/request" -Method Post -ContentType "application/json" -Body (@{
