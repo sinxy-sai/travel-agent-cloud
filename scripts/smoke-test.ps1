@@ -68,9 +68,15 @@ if ($registeredSession.user.email -ne $authEmail) {
 if ($registeredSession.user.emailVerified) {
   throw "Newly registered accounts should start with emailVerified=false"
 }
+if (-not $registeredSession.user.passwordConfigured) {
+  throw "Password registration should return passwordConfigured=true"
+}
 $currentAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -WebSession $authSession
 if ($currentAuthUser.email -ne $authEmail) {
   throw "Auth me API did not return the cookie-authenticated user"
+}
+if (-not $currentAuthUser.passwordConfigured) {
+  throw "Auth me API should return passwordConfigured=true for password accounts"
 }
 try {
   Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/export" -WebSession $authSession
@@ -187,6 +193,9 @@ $newPasswordLoginBody = @{
 $changedLoginSession = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/login" -Method Post -ContentType "application/json" -WebSession $authSession -Body $newPasswordLoginBody
 if ($changedLoginSession.user.email -ne $authEmail) {
   throw "Auth login did not accept the changed password"
+}
+if (-not $changedLoginSession.user.passwordConfigured) {
+  throw "Auth login should return passwordConfigured=true after password reset/change"
 }
 $deleteAccountBody = @{
   currentPassword = $changedPassword

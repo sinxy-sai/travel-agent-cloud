@@ -207,6 +207,7 @@ class AuthUser(APIModel):
     email: str
     display_name: str = ""
     email_verified: bool = False
+    password_configured: bool = True
     created_at: datetime
 
 

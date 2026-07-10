@@ -77,7 +77,7 @@ GITHUB_OAUTH_REDIRECT_URI=http://localhost:8000/api/v1/auth/oauth/github/callbac
 OAUTH_HTTP_TIMEOUT_SECONDS=10
 ```
 
-GitHub OAuth uses a signed `state` value plus an httpOnly state cookie. The runtime requests `read:user user:email` and only creates or links accounts when GitHub returns a verified primary email. OAuth-created accounts can use password reset to add a local password later.
+GitHub OAuth uses a signed `state` value plus an httpOnly state cookie. The runtime requests `read:user user:email` and only creates or links accounts when GitHub returns a verified primary email. The app never receives or stores the GitHub account password. OAuth-created accounts start without a project password; users can use the password setup/reset email flow to add one before password-protected actions such as deleting the account or unlinking the only OAuth identity.
 
 When running through Docker Compose, create a local `docker-compose.override.yml` from the project root if you want containers to read this `.env` file:
 

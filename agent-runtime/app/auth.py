@@ -31,6 +31,7 @@ AUTH_COOKIE_NAME = "travel_agent_session"
 JWT_ALGORITHM = "HS256"
 PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 210_000
+UNUSABLE_PASSWORD_HASH_PREFIX = "oauth_unset$"
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -86,6 +87,7 @@ class UserStore:
             email=normalized_email,
             display_name=display_name.strip(),
             email_verified=True,
+            password_configured=False,
             created_at=now,
         )
         self._users_by_id[user.id] = user
@@ -131,6 +133,7 @@ class UserStore:
         if not verify_password(current_password, password_hash):
             raise InvalidCredentialsError()
         self._password_hashes_by_email[user.email] = (user_id, hash_password(new_password))
+        self._users_by_id[user_id] = user.model_copy(update={"password_configured": True})
 
     def reset_password(self, user_id: str, new_password: str) -> None:
         user = self.get_user(user_id)
@@ -138,6 +141,7 @@ class UserStore:
         if item is None:
             raise UserNotFoundError(user_id)
         self._password_hashes_by_email[user.email] = (user_id, hash_password(new_password))
+        self._users_by_id[user_id] = user.model_copy(update={"password_configured": True})
 
     def mark_email_verified(self, user_id: str) -> AuthUser:
         user = self.get_user(user_id)
@@ -295,7 +299,11 @@ def hash_password(password: str) -> str:
 
 
 def unusable_password_hash() -> str:
-    return f"oauth_unset${secrets.token_urlsafe(32)}"
+    return f"{UNUSABLE_PASSWORD_HASH_PREFIX}{secrets.token_urlsafe(32)}"
+
+
+def is_password_configured(password_hash: str) -> bool:
+    return not password_hash.startswith(UNUSABLE_PASSWORD_HASH_PREFIX)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
@@ -371,6 +379,7 @@ def _to_auth_user(record: UserRecord) -> AuthUser:
         email=record.email,
         display_name=record.display_name,
         email_verified=record.email_verified,
+        password_configured=is_password_configured(record.password_hash),
         created_at=record.created_at,
     )
 

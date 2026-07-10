@@ -147,6 +147,7 @@ export interface AuthUser {
   email: string;
   displayName: string;
   emailVerified: boolean;
+  passwordConfigured: boolean;
   createdAt: string;
 }
 

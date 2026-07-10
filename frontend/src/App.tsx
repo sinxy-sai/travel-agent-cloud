@@ -135,6 +135,7 @@ export default function App() {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [passwordChangeSucceeded, setPasswordChangeSucceeded] = useState(false);
   const [passwordResetRequestModalOpen, setPasswordResetRequestModalOpen] = useState(false);
+  const [passwordResetIntent, setPasswordResetIntent] = useState<'RESET' | 'SET'>('RESET');
   const [passwordResetEmail, setPasswordResetEmail] = useState('');
   const [passwordResetRequested, setPasswordResetRequested] = useState(false);
   const [passwordResetConfirmModalOpen, setPasswordResetConfirmModalOpen] = useState(false);
@@ -290,11 +291,19 @@ export default function App() {
   const confirmPasswordResetMutation = useMutation({
     mutationFn: confirmPasswordReset,
     onSuccess: () => {
+      const wasSignedIn = Boolean(authUserQuery.data);
+      const intent = passwordResetIntent;
       resetPasswordResetForm();
       setPasswordResetConfirmModalOpen(false);
-      setAuthMode('LOGIN');
-      setAuthModalOpen(true);
-      setAuthActionMessage('Password reset. Sign in with the new password.');
+      if (wasSignedIn || intent === 'SET') {
+        setAuthActionMessage('Project password set. You can now use password-protected account actions.');
+      } else {
+        setAuthMode('LOGIN');
+        setAuthModalOpen(true);
+        setAuthActionMessage('Password reset. Sign in with the new password.');
+      }
+      queryClient.invalidateQueries({ queryKey: ['auth-user'] });
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
     },
   });
 
@@ -752,6 +761,7 @@ export default function App() {
   }
 
   function resetPasswordResetForm() {
+    setPasswordResetIntent('RESET');
     setPasswordResetEmail('');
     setPasswordResetRequested(false);
     setPasswordResetToken('');
@@ -801,6 +811,14 @@ export default function App() {
       currentPassword,
       newPassword,
     });
+  }
+
+  function openSetPasswordFlow() {
+    resetPasswordResetForm();
+    setPasswordResetIntent('SET');
+    setPasswordResetEmail(authUserQuery.data?.email ?? '');
+    setPasswordResetRequestModalOpen(true);
+    setAuthActionMessage('Request a password setup link for this account email.');
   }
 
   function submitPasswordResetRequest() {
@@ -997,6 +1015,7 @@ export default function App() {
               resetPasswordForm();
               setPasswordModalOpen(true);
             }}
+            onSetPassword={openSetPasswordFlow}
             onExportData={() => exportUserDataMutation.mutate()}
             onImportData={() => {
               setImportDataError('');
@@ -1506,6 +1525,7 @@ export default function App() {
               type="link"
               className="px-0"
               onClick={() => {
+                setPasswordResetIntent('RESET');
                 setPasswordResetEmail(authEmail.trim());
                 setPasswordResetRequested(false);
                 requestPasswordResetMutation.reset();
@@ -1529,9 +1549,9 @@ export default function App() {
         </div>
       </Modal>
       <Modal
-        title="Reset password"
+        title={passwordResetIntent === 'SET' ? 'Set project password' : 'Reset password'}
         open={passwordResetRequestModalOpen}
-        okText="Send reset link"
+        okText={passwordResetIntent === 'SET' ? 'Send setup link' : 'Send reset link'}
         onOk={submitPasswordResetRequest}
         confirmLoading={requestPasswordResetMutation.isPending}
         okButtonProps={{ disabled: !passwordResetEmail.trim() }}
@@ -1542,7 +1562,9 @@ export default function App() {
       >
         <div className="space-y-3">
           <p className="text-sm leading-6 text-slate-600">
-            Enter your account email. If it exists, a password reset link will be sent.
+            {passwordResetIntent === 'SET'
+              ? 'A setup link will be sent to this account email. Use it to add a project password to this GitHub account.'
+              : 'Enter your account email. If it exists, a password reset link will be sent.'}
           </p>
           <label className="block">
             <span className="mb-1 block text-sm font-medium text-ink">Email</span>
@@ -1559,7 +1581,9 @@ export default function App() {
           </label>
           {passwordResetRequested && (
             <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              If the email exists, a reset link has been sent.
+              {passwordResetIntent === 'SET'
+                ? 'If the email exists, a setup link has been sent.'
+                : 'If the email exists, a reset link has been sent.'}
             </div>
           )}
           {requestPasswordResetMutation.isError && (
@@ -1570,9 +1594,9 @@ export default function App() {
         </div>
       </Modal>
       <Modal
-        title="Set new password"
+        title={passwordResetIntent === 'SET' ? 'Set project password' : 'Set new password'}
         open={passwordResetConfirmModalOpen}
-        okText="Update password"
+        okText={passwordResetIntent === 'SET' ? 'Set password' : 'Update password'}
         onOk={submitPasswordResetConfirm}
         confirmLoading={confirmPasswordResetMutation.isPending}
         okButtonProps={{
@@ -1588,7 +1612,9 @@ export default function App() {
       >
         <div className="space-y-3">
           <p className="text-sm leading-6 text-slate-600">
-            This reset link has been verified. Set a new password for your account.
+            {passwordResetIntent === 'SET'
+              ? 'This link has been verified. Set a project password for password-protected account actions.'
+              : 'This reset link has been verified. Set a new password for your account.'}
           </p>
           <label className="block">
             <span className="mb-1 block text-sm font-medium text-ink">New password</span>
@@ -1922,6 +1948,7 @@ function AccountStatus({
   onRequestEmailVerification,
   onEditAccount,
   onChangePassword,
+  onSetPassword,
   onExportData,
   onImportData,
   onImportAnonymousData,
@@ -1944,6 +1971,7 @@ function AccountStatus({
   onRequestEmailVerification: () => void;
   onEditAccount: () => void;
   onChangePassword: () => void;
+  onSetPassword: () => void;
   onExportData: () => void;
   onImportData: () => void;
   onImportAnonymousData: () => void;
@@ -1955,6 +1983,7 @@ function AccountStatus({
 }) {
   const accountDataManagementDisabled = Boolean(user && !user.emailVerified);
   const githubIdentity = authIdentities.find((identity) => identity.provider === 'github');
+  const passwordConfigured = user?.passwordConfigured ?? true;
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 bg-white p-3">
@@ -1989,9 +2018,14 @@ function AccountStatus({
           <Button size="small" onClick={onEditAccount}>
             Edit account
           </Button>
-          <Button size="small" onClick={onChangePassword}>
-            Change password
+          <Button size="small" onClick={passwordConfigured ? onChangePassword : onSetPassword}>
+            {passwordConfigured ? 'Change password' : 'Set password'}
           </Button>
+          {!passwordConfigured && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-700">
+              This GitHub account has no project password yet. Set one before deleting the account or unlinking GitHub.
+            </div>
+          )}
           <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
@@ -2005,7 +2039,7 @@ function AccountStatus({
                 </p>
               </div>
               {githubIdentity ? (
-                <Button size="small" onClick={onUnlinkGithub}>
+                <Button size="small" onClick={onUnlinkGithub} disabled={!passwordConfigured}>
                   Unlink
                 </Button>
               ) : (
@@ -2057,7 +2091,7 @@ function AccountStatus({
               </div>
             </div>
           )}
-          <Button size="small" danger icon={<DeleteOutlined />} onClick={onDeleteAccount}>
+          <Button size="small" danger icon={<DeleteOutlined />} onClick={onDeleteAccount} disabled={!passwordConfigured}>
             Delete account
           </Button>
           <Button size="small" className="w-full" loading={loading} onClick={onLogout}>

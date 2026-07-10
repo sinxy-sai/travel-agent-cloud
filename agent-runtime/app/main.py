@@ -224,6 +224,16 @@ def unlink_current_auth_identity(request: Request, provider: str) -> Response:
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "IDENTITY_NOT_FOUND", "message": "Auth identity not found"},
         )
+    identities = auth_identity_store.list_for_user(user.id)
+    provider_identity = next((identity for identity in identities if identity.provider == provider), None)
+    if provider_identity and not user.password_configured and len(identities) <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PASSWORD_REQUIRED",
+                "message": "Set a project password before unlinking the only sign-in identity",
+            },
+        )
     try:
         auth_identity_store.delete_for_user(user.id, provider)
     except AuthIdentityNotFoundError as exc:

@@ -80,11 +80,23 @@ if [ "${REGISTERED_EMAIL_VERIFIED}" != "no" ]; then
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
+REGISTERED_PASSWORD_CONFIGURED="$(printf '%s' "${REGISTER_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("user", {}).get("passwordConfigured") else "no")')"
+if [ "${REGISTERED_PASSWORD_CONFIGURED}" != "yes" ]; then
+  echo "Password registration should return passwordConfigured=true" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
 CURRENT_AUTH_USER_JSON="$(curl -fsS "${BASE_URL}/api/v1/auth/me" \
   -b "${AUTH_COOKIE_JAR}")"
 CURRENT_AUTH_EMAIL="$(printf '%s' "${CURRENT_AUTH_USER_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("email", ""))')"
 if [ "${CURRENT_AUTH_EMAIL}" != "${AUTH_EMAIL}" ]; then
   echo "Auth me API did not return the cookie-authenticated user" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+CURRENT_AUTH_PASSWORD_CONFIGURED="$(printf '%s' "${CURRENT_AUTH_USER_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("passwordConfigured") else "no")')"
+if [ "${CURRENT_AUTH_PASSWORD_CONFIGURED}" != "yes" ]; then
+  echo "Auth me API should return passwordConfigured=true for password accounts" >&2
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
@@ -243,6 +255,12 @@ CHANGED_LOGIN_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/login" \
 CHANGED_LOGIN_EMAIL="$(printf '%s' "${CHANGED_LOGIN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("user", {}).get("email", ""))')"
 if [ "${CHANGED_LOGIN_EMAIL}" != "${AUTH_EMAIL}" ]; then
   echo "Auth login did not accept the changed password" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+CHANGED_LOGIN_PASSWORD_CONFIGURED="$(printf '%s' "${CHANGED_LOGIN_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("user", {}).get("passwordConfigured") else "no")')"
+if [ "${CHANGED_LOGIN_PASSWORD_CONFIGURED}" != "yes" ]; then
+  echo "Auth login should return passwordConfigured=true after password reset/change" >&2
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
