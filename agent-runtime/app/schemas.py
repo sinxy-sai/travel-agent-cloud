@@ -214,6 +214,21 @@ class AuthSession(APIModel):
     user: AuthUser
 
 
+class AuthIdentity(APIModel):
+    id: str
+    user_id: str
+    provider: str
+    provider_user_id: str
+    email: str = ""
+    display_name: str = ""
+    avatar_url: str = ""
+    created_at: datetime
+
+
+class AuthIdentityListResponse(APIModel):
+    data: list[AuthIdentity]
+
+
 class UserSecurityEvent(APIModel):
     id: str
     event_type: str

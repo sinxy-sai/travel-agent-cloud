@@ -1,13 +1,16 @@
+import hmac
 from datetime import UTC, datetime
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 
 from app.agent import handle_chat
 from app.auth import (
     AUTH_COOKIE_NAME,
+    AuthIdentityConflictError,
     DatabaseUserStore,
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
@@ -15,6 +18,11 @@ from app.auth import (
     UserStore,
     create_access_token,
     verify_access_token,
+)
+from app.auth_identities import (
+    AuthIdentityNotFoundError,
+    AuthIdentityStore,
+    DatabaseAuthIdentityStore,
 )
 from app.auth_tokens import (
     TOKEN_PURPOSE_EMAIL_VERIFICATION,
@@ -36,11 +44,24 @@ from app.exporter import saved_trip_plan_to_markdown
 from app.llm import LLMClient
 from app.mailer import Mailer
 from app.observability import RequestLoggingMiddleware, configure_logging
+from app.oauth import (
+    GITHUB_PROVIDER,
+    OAUTH_STATE_COOKIE_NAME,
+    OAUTH_STATE_TTL_SECONDS,
+    GitHubOAuthClient,
+    OAuthConfigurationError,
+    OAuthProfile,
+    OAuthProviderError,
+    OAuthStateError,
+    create_oauth_state,
+    verify_oauth_state,
+)
 from app.planner import build_mock_trip_plan
 from app.profiles import DatabaseUserProfileStore, UserProfileStore
 from app.schemas import (
     AuthAccountDeleteRequest,
     AuthEmailActionResponse,
+    AuthIdentityListResponse,
     AuthEmailRequest,
     AuthLoginRequest,
     AuthPasswordChangeRequest,
@@ -102,10 +123,12 @@ security_event_store = (
     DatabaseUserSecurityEventStore(session_factory) if session_factory else UserSecurityEventStore()
 )
 auth_token_store = DatabaseAuthTokenStore(session_factory) if session_factory else AuthTokenStore()
+auth_identity_store = DatabaseAuthIdentityStore(session_factory) if session_factory else AuthIdentityStore()
 mailer = Mailer(settings)
 event_publisher = create_event_publisher(settings)
 conversation_summarizer = ConversationSummarizerWorker(conversation_store, summary_store, event_publisher)
 user_data_importer = UserDataImporter(session_factory, conversation_store, profile_store, summary_store)
+github_oauth_client = GitHubOAuthClient(settings)
 auth_rate_limiter = FixedWindowRateLimiter(
     settings.auth_rate_limit_max_attempts,
     settings.auth_rate_limit_window_seconds,
@@ -133,6 +156,7 @@ def health() -> dict[str, str | bool]:
         "llmEnabled": LLMClient(settings).enabled,
         "databaseEnabled": session_factory is not None,
         "messageQueueEnabled": event_publisher.enabled,
+        "githubOAuthEnabled": github_oauth_client.enabled,
     }
 
 
@@ -184,6 +208,78 @@ def update_current_auth_user(request: Request, payload: AuthUserUpdateRequest) -
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
         ) from exc
+
+
+@app.get("/api/v1/auth/identities", response_model=AuthIdentityListResponse)
+def list_current_auth_identities(request: Request) -> AuthIdentityListResponse:
+    user = _get_current_auth_user(request)
+    return AuthIdentityListResponse(data=auth_identity_store.list_for_user(user.id))
+
+
+@app.delete("/api/v1/auth/identities/{provider}", status_code=status.HTTP_204_NO_CONTENT)
+def unlink_current_auth_identity(request: Request, provider: str) -> Response:
+    user = _get_current_auth_user(request)
+    if provider != GITHUB_PROVIDER:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "IDENTITY_NOT_FOUND", "message": "Auth identity not found"},
+        )
+    try:
+        auth_identity_store.delete_for_user(user.id, provider)
+    except AuthIdentityNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "IDENTITY_NOT_FOUND", "message": "Auth identity not found"},
+        ) from exc
+    _record_security_event(request, user.id, "auth.identity_unlinked", {"provider": provider})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/api/v1/auth/oauth/github/start")
+def start_github_oauth() -> RedirectResponse:
+    try:
+        state = create_oauth_state(settings, GITHUB_PROVIDER)
+        redirect = RedirectResponse(github_oauth_client.authorization_url(state), status_code=status.HTTP_302_FOUND)
+    except OAuthConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "OAUTH_PROVIDER_DISABLED", "message": "GitHub OAuth is not configured"},
+        ) from exc
+    _set_oauth_state_cookie(redirect, state)
+    return redirect
+
+
+@app.get("/api/v1/auth/oauth/github/callback")
+def github_oauth_callback(
+    request: Request,
+    code: str = Query(default="", max_length=300),
+    state: str = Query(default="", max_length=1000),
+    error: str = Query(default="", max_length=120),
+) -> RedirectResponse:
+    if error:
+        return _oauth_frontend_redirect("error", error)
+    cookie_state = request.cookies.get(OAUTH_STATE_COOKIE_NAME, "")
+    if not state or not cookie_state or not hmac.compare_digest(state, cookie_state):
+        return _oauth_frontend_redirect("error", "invalid_state")
+    try:
+        verify_oauth_state(settings, state, GITHUB_PROVIDER)
+    except OAuthStateError:
+        return _oauth_frontend_redirect("error", "invalid_state")
+    if not code:
+        return _oauth_frontend_redirect("error", "missing_code")
+
+    try:
+        profile = github_oauth_client.exchange_code(code)
+        user, event_type = _resolve_oauth_user(request, profile)
+    except (OAuthConfigurationError, OAuthProviderError, AuthIdentityConflictError, UserNotFoundError, ValueError):
+        return _oauth_frontend_redirect("error", "github_login_failed")
+
+    token = create_access_token(settings, user.id)
+    redirect = _oauth_frontend_redirect("success")
+    _set_auth_cookie(redirect, token)
+    _delete_oauth_state_cookie(redirect)
+    _record_security_event(request, user.id, event_type, {"provider": GITHUB_PROVIDER})
+    return redirect
 
 
 @app.patch("/api/v1/auth/password", status_code=status.HTTP_204_NO_CONTENT)
@@ -668,6 +764,90 @@ def _updated_fields(fields: set[str]) -> list[str]:
     return sorted(to_camel(field) for field in fields)
 
 
+def _resolve_oauth_user(request: Request, profile: OAuthProfile) -> tuple[AuthUser, str]:
+    current_user = _get_optional_current_auth_user(request)
+    try:
+        identity = auth_identity_store.get_by_provider_user_id(profile.provider, profile.provider_user_id)
+        if current_user and identity.user_id != current_user.id:
+            raise AuthIdentityConflictError(profile.provider)
+        user = user_store.get_user(identity.user_id)
+        auth_identity_store.upsert(
+            user.id,
+            profile.provider,
+            profile.provider_user_id,
+            email=profile.email,
+            display_name=profile.display_name,
+            avatar_url=profile.avatar_url,
+        )
+        return user, "auth.oauth_logged_in"
+    except AuthIdentityNotFoundError:
+        pass
+
+    if current_user:
+        auth_identity_store.upsert(
+            current_user.id,
+            profile.provider,
+            profile.provider_user_id,
+            email=profile.email,
+            display_name=profile.display_name,
+            avatar_url=profile.avatar_url,
+        )
+        return current_user, "auth.identity_linked"
+
+    try:
+        user = user_store.get_user_by_email(profile.email)
+        if not user.email_verified:
+            user = user_store.mark_email_verified(user.id)
+    except UserNotFoundError:
+        try:
+            user = user_store.create_oauth_user(profile.email, profile.display_name)
+        except EmailAlreadyRegisteredError:
+            user = user_store.get_user_by_email(profile.email)
+            if not user.email_verified:
+                user = user_store.mark_email_verified(user.id)
+
+    auth_identity_store.upsert(
+        user.id,
+        profile.provider,
+        profile.provider_user_id,
+        email=profile.email,
+        display_name=profile.display_name,
+        avatar_url=profile.avatar_url,
+    )
+    return user, "auth.oauth_logged_in"
+
+
+def _oauth_frontend_redirect(status_value: str, error: str = "") -> RedirectResponse:
+    params = {"authAction": "oauth-github", "authStatus": status_value}
+    if error:
+        params["authError"] = error
+    return RedirectResponse(
+        f"{settings.public_app_url.rstrip('/')}?{urlencode(params)}",
+        status_code=status.HTTP_302_FOUND,
+    )
+
+
+def _set_oauth_state_cookie(response: Response, state_value: str) -> None:
+    response.set_cookie(
+        OAUTH_STATE_COOKIE_NAME,
+        state_value,
+        max_age=OAUTH_STATE_TTL_SECONDS,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+
+
+def _delete_oauth_state_cookie(response: Response) -> None:
+    response.delete_cookie(
+        OAUTH_STATE_COOKIE_NAME,
+        path="/",
+        samesite="lax",
+        secure=settings.auth_cookie_secure,
+    )
+
+
 def _set_auth_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         AUTH_COOKIE_NAME,
@@ -713,6 +893,13 @@ def _get_current_auth_user(request: Request) -> AuthUser:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
         ) from exc
+
+
+def _get_optional_current_auth_user(request: Request) -> AuthUser | None:
+    try:
+        return _get_current_auth_user(request)
+    except HTTPException:
+        return None
 
 
 def _require_verified_email(user: AuthUser) -> None:

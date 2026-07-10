@@ -23,6 +23,9 @@ $health
 if (-not ($health.PSObject.Properties.Name -contains "messageQueueEnabled")) {
   throw "Health API did not return messageQueueEnabled"
 }
+if (-not ($health.PSObject.Properties.Name -contains "githubOAuthEnabled")) {
+  throw "Health API did not return githubOAuthEnabled"
+}
 
 Write-Host "Preparing anonymous local data"
 $anonymousUserId = "smoke-anon-$([guid]::NewGuid().ToString('N'))"
@@ -97,6 +100,10 @@ if (-not $missingResetResponse.sent) {
 $securityEvents = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/security-events?page=1&pageSize=5" -WebSession $authSession
 if (-not $securityEvents.data -or $securityEvents.data.Count -eq 0) {
   throw "Security events API did not return recent account activity"
+}
+$authIdentities = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/identities" -WebSession $authSession
+if (-not ($authIdentities.PSObject.Properties.Name -contains "data")) {
+  throw "Auth identities API did not return data"
 }
 $accountUpdateBody = @{
   displayName = "Updated Smoke Account"

@@ -29,6 +29,11 @@ if [ "${HAS_MESSAGE_QUEUE_FIELD}" != "yes" ]; then
   echo "Health API did not return messageQueueEnabled" >&2
   exit 1
 fi
+HAS_GITHUB_OAUTH_FIELD="$(printf '%s' "${HEALTH_JSON}" | python3 -c 'import json, sys; print("yes" if "githubOAuthEnabled" in json.load(sys.stdin) else "no")')"
+if [ "${HAS_GITHUB_OAUTH_FIELD}" != "yes" ]; then
+  echo "Health API did not return githubOAuthEnabled" >&2
+  exit 1
+fi
 echo
 
 echo "Preparing anonymous local data"
@@ -120,6 +125,14 @@ SECURITY_EVENTS_JSON="$(curl -fsS "${BASE_URL}/api/v1/auth/security-events?page=
 SECURITY_EVENTS_COUNT="$(printf '%s' "${SECURITY_EVENTS_JSON}" | python3 -c 'import json, sys; print(len(json.load(sys.stdin).get("data", [])))')"
 if [ "${SECURITY_EVENTS_COUNT}" = "0" ]; then
   echo "Security events API did not return recent account activity" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+AUTH_IDENTITIES_JSON="$(curl -fsS "${BASE_URL}/api/v1/auth/identities" \
+  -b "${AUTH_COOKIE_JAR}")"
+HAS_AUTH_IDENTITIES_DATA="$(printf '%s' "${AUTH_IDENTITIES_JSON}" | python3 -c 'import json, sys; print("yes" if "data" in json.load(sys.stdin) else "no")')"
+if [ "${HAS_AUTH_IDENTITIES_DATA}" != "yes" ]; then
+  echo "Auth identities API did not return data" >&2
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi

@@ -27,6 +27,7 @@ import {
   getConversation,
   getConversationSummary,
   getCurrentAuthUser,
+  getGithubOAuthStartUrl,
   getHealth,
   getLatestConversationSummaryJob,
   getAnonymousUserDataSummary,
@@ -35,6 +36,7 @@ import {
   getUserProfile,
   importAnonymousUserData,
   importCurrentUserData,
+  listAuthIdentities,
   listUserSecurityEvents,
   loginUser,
   listConversations,
@@ -44,11 +46,13 @@ import {
   requestEmailVerification,
   requestPasswordReset,
   sendChatMessage,
+  unlinkAuthIdentity,
   updateConversationTitle,
   updateCurrentAuthUser,
   updateTripPlanFavorite,
   updateUserProfile,
   type AuthUser,
+  type AuthIdentity,
   type ChatMessage,
   type Conversation,
   type ConversationSummary,
@@ -190,6 +194,12 @@ export default function App() {
     enabled: Boolean(authUserQuery.data),
   });
 
+  const authIdentitiesQuery = useQuery({
+    queryKey: ['auth-identities'],
+    queryFn: listAuthIdentities,
+    enabled: Boolean(authUserQuery.data),
+  });
+
   const anonymousDataSummaryQuery = useQuery({
     queryKey: ['anonymous-data-summary', authUserQuery.data?.id],
     queryFn: getAnonymousUserDataSummary,
@@ -224,6 +234,7 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
       queryClient.invalidateQueries({ queryKey: ['security-events'] });
+      queryClient.invalidateQueries({ queryKey: ['auth-identities'] });
     },
   });
 
@@ -292,6 +303,14 @@ export default function App() {
     onSuccess: (user) => {
       queryClient.setQueryData(['auth-user'], user);
       setAccountModalOpen(false);
+    },
+  });
+
+  const unlinkAuthIdentityMutation = useMutation({
+    mutationFn: unlinkAuthIdentity,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auth-identities'] });
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
     },
   });
 
@@ -553,16 +572,27 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const authAction = params.get('authAction');
     const token = params.get('token');
-    if (!authAction || !token) {
+    if (!authAction) {
       return;
     }
 
-    if (authAction === 'verify-email') {
+    if (authAction === 'verify-email' && token) {
       confirmEmailVerificationMutation.mutate({ token });
     }
-    if (authAction === 'reset-password') {
+    if (authAction === 'reset-password' && token) {
       setPasswordResetToken(token);
       setPasswordResetConfirmModalOpen(true);
+    }
+    if (authAction === 'oauth-github') {
+      const authStatus = params.get('authStatus');
+      if (authStatus === 'success') {
+        setAuthActionMessage('GitHub sign-in completed.');
+        queryClient.invalidateQueries({ queryKey: ['auth-user'] });
+        queryClient.invalidateQueries({ queryKey: ['auth-identities'] });
+        queryClient.invalidateQueries({ queryKey: ['security-events'] });
+      } else {
+        setAuthActionMessage('GitHub sign-in failed. Check the OAuth app configuration and try again.');
+      }
     }
     window.history.replaceState({}, document.title, window.location.pathname);
   }, []);
@@ -695,6 +725,7 @@ export default function App() {
     queryClient.invalidateQueries({ queryKey: ['conversations'] });
     queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     queryClient.invalidateQueries({ queryKey: ['security-events'] });
+    queryClient.invalidateQueries({ queryKey: ['auth-identities'] });
   }
 
   function openAuthModal(mode: 'LOGIN' | 'REGISTER') {
@@ -932,13 +963,16 @@ export default function App() {
           <RuntimeStatus health={healthQuery.data} loading={healthQuery.isLoading} error={healthQuery.isError} />
           <AccountStatus
             user={authUserQuery.data}
+            authIdentities={authIdentitiesQuery.data?.data ?? []}
             securityEvents={securityEventsQuery.data?.data ?? []}
             loading={
               authUserQuery.isLoading ||
+              authIdentitiesQuery.isLoading ||
               securityEventsQuery.isLoading ||
               logoutMutation.isPending ||
               changePasswordMutation.isPending ||
               updateAuthUserMutation.isPending ||
+              unlinkAuthIdentityMutation.isPending ||
               exportUserDataMutation.isPending ||
               importUserDataMutation.isPending ||
               importAnonymousUserDataMutation.isPending ||
@@ -947,6 +981,11 @@ export default function App() {
             }
             onLogin={() => openAuthModal('LOGIN')}
             onRegister={() => openAuthModal('REGISTER')}
+            githubOAuthEnabled={Boolean(healthQuery.data?.githubOAuthEnabled)}
+            onStartGithubOAuth={() => {
+              window.location.assign(getGithubOAuthStartUrl());
+            }}
+            onUnlinkGithub={() => unlinkAuthIdentityMutation.mutate('github')}
             authActionMessage={authActionMessage}
             onRequestEmailVerification={() => requestEmailVerificationMutation.mutate()}
             onEditAccount={() => {
@@ -1871,10 +1910,14 @@ function RuntimeStatus({
 
 function AccountStatus({
   user,
+  authIdentities,
   securityEvents,
   loading,
   onLogin,
   onRegister,
+  githubOAuthEnabled,
+  onStartGithubOAuth,
+  onUnlinkGithub,
   authActionMessage,
   onRequestEmailVerification,
   onEditAccount,
@@ -1889,10 +1932,14 @@ function AccountStatus({
   onLogout,
 }: {
   user?: AuthUser | null;
+  authIdentities: AuthIdentity[];
   securityEvents: UserSecurityEvent[];
   loading: boolean;
   onLogin: () => void;
   onRegister: () => void;
+  githubOAuthEnabled: boolean;
+  onStartGithubOAuth: () => void;
+  onUnlinkGithub: () => void;
   authActionMessage: string;
   onRequestEmailVerification: () => void;
   onEditAccount: () => void;
@@ -1907,6 +1954,7 @@ function AccountStatus({
   onLogout: () => void;
 }) {
   const accountDataManagementDisabled = Boolean(user && !user.emailVerified);
+  const githubIdentity = authIdentities.find((identity) => identity.provider === 'github');
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 bg-white p-3">
@@ -1944,6 +1992,29 @@ function AccountStatus({
           <Button size="small" onClick={onChangePassword}>
             Change password
           </Button>
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-slate-600">GitHub</p>
+                <p className="truncate text-xs text-slate-400">
+                  {githubIdentity
+                    ? githubIdentity.displayName || githubIdentity.email || 'Linked'
+                    : githubOAuthEnabled
+                      ? 'Not linked'
+                      : 'Not configured'}
+                </p>
+              </div>
+              {githubIdentity ? (
+                <Button size="small" onClick={onUnlinkGithub}>
+                  Unlink
+                </Button>
+              ) : (
+                <Button size="small" onClick={onStartGithubOAuth} disabled={!githubOAuthEnabled}>
+                  Link
+                </Button>
+              )}
+            </div>
+          </div>
           {accountDataManagementDisabled && (
             <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-700">
               Verify your email before exporting or importing account data.
@@ -1994,13 +2065,24 @@ function AccountStatus({
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
-          <Button size="small" type="primary" onClick={onLogin}>
-            Sign in
+        <div className="grid gap-2">
+          <div className="grid grid-cols-2 gap-2">
+            <Button size="small" type="primary" onClick={onLogin}>
+              Sign in
+            </Button>
+            <Button size="small" onClick={onRegister}>
+              Register
+            </Button>
+          </div>
+          <Button size="small" onClick={onStartGithubOAuth} disabled={!githubOAuthEnabled}>
+            Continue with GitHub
           </Button>
-          <Button size="small" onClick={onRegister}>
-            Register
-          </Button>
+          {authActionMessage && (
+            <div className="break-words rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-600">
+              {authActionMessage}
+            </div>
+          )}
+          {!githubOAuthEnabled && <p className="text-xs text-slate-400">GitHub OAuth is not configured.</p>}
         </div>
       )}
     </section>
@@ -2257,6 +2339,9 @@ function formatSecurityEventType(value: string): string {
     'auth.email_verified': 'Email verified',
     'auth.password_reset_requested': 'Password reset requested',
     'auth.password_reset_completed': 'Password reset completed',
+    'auth.oauth_logged_in': 'GitHub sign-in',
+    'auth.identity_linked': 'Identity linked',
+    'auth.identity_unlinked': 'Identity unlinked',
     'user.data_exported': 'Data exported',
     'user.data_imported': 'Data imported',
     'user.anonymous_data_imported': 'Local data imported',

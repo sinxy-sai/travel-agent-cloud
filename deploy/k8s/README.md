@@ -71,11 +71,15 @@ kubectl create secret generic agent-runtime-secrets \
   --from-literal=EMAIL_PROVIDER='mock' \
   --from-literal=EMAIL_FROM='no-reply@travel-agent-cloud.local' \
   --from-literal=PUBLIC_APP_URL='http://your-server-public-ip' \
+  --from-literal=GITHUB_OAUTH_CLIENT_ID='your-github-oauth-client-id' \
+  --from-literal=GITHUB_OAUTH_CLIENT_SECRET='your-github-oauth-client-secret' \
+  --from-literal=GITHUB_OAUTH_REDIRECT_URI='http://your-server-public-ip/api/v1/auth/oauth/github/callback' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 Use `AUTH_COOKIE_SECURE='true'` only after HTTPS is configured. Plain HTTP browsers will not send Secure cookies.
 The auth rate-limit values control register/login attempts per client and email.
+For GitHub OAuth, create a GitHub OAuth App with callback URL matching `GITHUB_OAUTH_REDIRECT_URI`. On HTTPS domains, use `https://your-domain.example/api/v1/auth/oauth/github/callback` and set `PUBLIC_APP_URL` to the frontend origin.
 
 For real email verification and password reset links, replace the email fields in the full `agent-runtime-secrets` command with SMTP settings. QQ Mail normally uses SSL on port 465 with an SMTP authorization code:
 

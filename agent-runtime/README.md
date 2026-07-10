@@ -68,6 +68,17 @@ PUBLIC_APP_URL=https://your-domain.example
 Email verification and password reset tokens are generated as random one-time tokens. Only SHA-256 token hashes are stored in `auth_tokens`; the plaintext token is shown only in mock mode or inside the email link.
 Account data export and import endpoints require a verified email address. Unverified accounts can still sign in, update profile details, plan trips, chat, request verification emails, and reset passwords.
 
+GitHub OAuth can be enabled with a GitHub OAuth App. Set the OAuth App callback URL to the backend callback endpoint, for example `http://localhost:8000/api/v1/auth/oauth/github/callback` during local development:
+
+```bash
+GITHUB_OAUTH_CLIENT_ID=your-github-oauth-client-id
+GITHUB_OAUTH_CLIENT_SECRET=your-github-oauth-client-secret
+GITHUB_OAUTH_REDIRECT_URI=http://localhost:8000/api/v1/auth/oauth/github/callback
+OAUTH_HTTP_TIMEOUT_SECONDS=10
+```
+
+GitHub OAuth uses a signed `state` value plus an httpOnly state cookie. The runtime requests `read:user user:email` and only creates or links accounts when GitHub returns a verified primary email. OAuth-created accounts can use password reset to add a local password later.
+
 When running through Docker Compose, create a local `docker-compose.override.yml` from the project root if you want containers to read this `.env` file:
 
 ```bash
@@ -101,6 +112,9 @@ Current events:
 - `agent.conversation.deleted`
 - `agent.conversation.summarize.requested`
 - `agent.conversation.summary.created`
+- `auth.oauth_logged_in`
+- `auth.identity_linked`
+- `auth.identity_unlinked`
 - `user.data_exported`
 - `user.data.imported`
 - `user.anonymous_data.imported`
@@ -141,6 +155,7 @@ When database storage is enabled, the service creates the current tables on star
 - `conversation_summary_jobs`
 - `trip_plans`
 - `auth_tokens`
+- `auth_identities`
 - `users`
 - `user_profiles`
 - `user_security_events`

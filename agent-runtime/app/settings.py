@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     public_app_url: str = "http://localhost:5173"
     email_verification_token_ttl_seconds: int = 60 * 60 * 24
     password_reset_token_ttl_seconds: int = 60 * 30
+    github_oauth_client_id: str = ""
+    github_oauth_client_secret: str = ""
+    github_oauth_redirect_uri: str = ""
+    oauth_http_timeout_seconds: float = 10.0
     llm_provider: str = "mock"
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"

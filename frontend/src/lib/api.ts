@@ -121,6 +121,7 @@ export interface HealthResponse {
   llmEnabled: boolean;
   databaseEnabled: boolean;
   messageQueueEnabled: boolean;
+  githubOAuthEnabled: boolean;
 }
 
 export interface UserProfile {
@@ -151,6 +152,21 @@ export interface AuthUser {
 
 export interface AuthSession {
   user: AuthUser;
+}
+
+export interface AuthIdentity {
+  id: string;
+  userId: string;
+  provider: string;
+  providerUserId: string;
+  email: string;
+  displayName: string;
+  avatarUrl: string;
+  createdAt: string;
+}
+
+export interface AuthIdentityListResponse {
+  data: AuthIdentity[];
 }
 
 export interface UserSecurityEvent {
@@ -320,6 +336,15 @@ export async function listUserSecurityEvents(page = 1, pageSize = 5): Promise<Us
   return response.data;
 }
 
+export async function listAuthIdentities(): Promise<AuthIdentityListResponse> {
+  const response = await api.get<AuthIdentityListResponse>('/api/v1/auth/identities');
+  return response.data;
+}
+
+export async function unlinkAuthIdentity(provider: string): Promise<void> {
+  await api.delete(`/api/v1/auth/identities/${provider}`);
+}
+
 export async function updateCurrentAuthUser(request: AuthUserUpdateRequest): Promise<AuthUser> {
   const response = await api.patch<AuthUser>('/api/v1/auth/me', request);
   return response.data;
@@ -470,4 +495,16 @@ export function getAnonymousUserId(): string {
       : `anon:${Date.now()}:${Math.random().toString(16).slice(2)}`;
   window.localStorage.setItem(storageKey, userId);
   return userId;
+}
+
+export function getGithubOAuthStartUrl(): string {
+  return buildApiUrl('/api/v1/auth/oauth/github/start');
+}
+
+function buildApiUrl(path: string): string {
+  const baseUrl = import.meta.env.VITE_AGENT_API_BASE_URL ?? '';
+  if (!baseUrl) {
+    return path;
+  }
+  return `${baseUrl.replace(/\/$/, '')}${path}`;
 }

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import session_scope
 from app.models import (
+    AuthIdentityRecord,
     ConversationRecord,
     ConversationSummaryJobRecord,
     ConversationSummaryRecord,
@@ -45,6 +46,10 @@ class EmailAlreadyRegisteredError(AuthError):
     pass
 
 
+class AuthIdentityConflictError(AuthError):
+    pass
+
+
 class UserNotFoundError(AuthError):
     pass
 
@@ -68,6 +73,23 @@ class UserStore:
         )
         self._users_by_id[user.id] = user
         self._password_hashes_by_email[normalized_email] = (user.id, hash_password(password))
+        return user
+
+    def create_oauth_user(self, email: str, display_name: str = "") -> AuthUser:
+        normalized_email = _normalize_email(email)
+        if normalized_email in self._password_hashes_by_email:
+            raise EmailAlreadyRegisteredError(normalized_email)
+
+        now = _now()
+        user = AuthUser(
+            id=str(uuid4()),
+            email=normalized_email,
+            display_name=display_name.strip(),
+            email_verified=True,
+            created_at=now,
+        )
+        self._users_by_id[user.id] = user
+        self._password_hashes_by_email[normalized_email] = (user.id, unusable_password_hash())
         return user
 
     def authenticate(self, email: str, password: str) -> AuthUser:
@@ -154,6 +176,25 @@ class DatabaseUserStore:
                 raise EmailAlreadyRegisteredError(normalized_email) from exc
             return _to_auth_user(record)
 
+    def create_oauth_user(self, email: str, display_name: str = "") -> AuthUser:
+        normalized_email = _normalize_email(email)
+        now = _now()
+        with session_scope(self._session_factory) as session:
+            record = UserRecord(
+                email=normalized_email,
+                password_hash=unusable_password_hash(),
+                display_name=display_name.strip(),
+                email_verified=True,
+                email_verified_at=now,
+                updated_at=now,
+            )
+            session.add(record)
+            try:
+                session.flush()
+            except IntegrityError as exc:
+                raise EmailAlreadyRegisteredError(normalized_email) from exc
+            return _to_auth_user(record)
+
     def authenticate(self, email: str, password: str) -> AuthUser:
         normalized_email = _normalize_email(email)
         with session_scope(self._session_factory) as session:
@@ -228,6 +269,7 @@ class DatabaseUserStore:
                 session.scalars(select(ConversationRecord.id).where(ConversationRecord.user_id == user_id))
             )
             session.execute(delete(TripPlanRecord).where(TripPlanRecord.user_id == user_id))
+            session.execute(delete(AuthIdentityRecord).where(AuthIdentityRecord.user_id == user_id))
             session.execute(delete(AuthTokenRecord).where(AuthTokenRecord.user_id == user_id))
             session.execute(delete(ConversationSummaryJobRecord).where(ConversationSummaryJobRecord.user_id == user_id))
             session.execute(delete(ConversationSummaryRecord).where(ConversationSummaryRecord.user_id == user_id))
@@ -250,6 +292,10 @@ def hash_password(password: str) -> str:
             _b64url_encode(digest),
         ]
     )
+
+
+def unusable_password_hash() -> str:
+    return f"oauth_unset${secrets.token_urlsafe(32)}"
 
 
 def verify_password(password: str, password_hash: str) -> bool:
