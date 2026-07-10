@@ -21,6 +21,32 @@ if (-not ($health.PSObject.Properties.Name -contains "messageQueueEnabled")) {
   throw "Health API did not return messageQueueEnabled"
 }
 
+Write-Host "Checking auth API"
+$authSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+$authEmail = "smoke-$([guid]::NewGuid().ToString('N'))@example.com"
+$authBody = @{
+  email = $authEmail
+  password = "SmokeTest123!"
+  displayName = "Smoke Test Account"
+} | ConvertTo-Json
+$registeredSession = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/register" -Method Post -ContentType "application/json" -WebSession $authSession -Body $authBody
+if ($registeredSession.user.email -ne $authEmail) {
+  throw "Auth register API did not return the created user"
+}
+$currentAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -WebSession $authSession
+if ($currentAuthUser.email -ne $authEmail) {
+  throw "Auth me API did not return the cookie-authenticated user"
+}
+Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/logout" -Method Post -WebSession $authSession
+try {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -WebSession $authSession
+  throw "Auth me API accepted a logged-out session"
+} catch {
+  if ($_.Exception.Response.StatusCode.value__ -ne 401) {
+    throw
+  }
+}
+
 Write-Host "Checking user profile API"
 $profileBody = @{
   displayName = "Smoke Test Traveler"

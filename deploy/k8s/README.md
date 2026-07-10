@@ -63,8 +63,13 @@ kubectl create secret generic agent-runtime-secrets \
   --from-literal=LLM_BASE_URL='https://api.deepseek.com' \
   --from-literal=LLM_MODEL='deepseek-v4-flash' \
   --from-literal=MESSAGE_QUEUE_URL='amqp://travel_agent:change-me-to-a-strong-password@rabbitmq:5672/' \
+  --from-literal=AUTH_SECRET_KEY='change-me-to-a-long-random-secret' \
+  --from-literal=AUTH_TOKEN_TTL_SECONDS='604800' \
+  --from-literal=AUTH_COOKIE_SECURE='false' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
+
+Use `AUTH_COOKIE_SECURE='true'` only after HTTPS is configured. Plain HTTP browsers will not send Secure cookies.
 
 The normal deploy command will create/update PostgreSQL, RabbitMQ, the API, worker, frontend, and ingress together:
 

@@ -26,6 +26,41 @@ if [ "${HAS_MESSAGE_QUEUE_FIELD}" != "yes" ]; then
 fi
 echo
 
+echo "Checking auth API"
+AUTH_COOKIE_JAR="$(mktemp)"
+AUTH_EMAIL="smoke-$(date +%s)-$$@example.com"
+REGISTER_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/register" \
+  -H "Content-Type: application/json" \
+  -c "${AUTH_COOKIE_JAR}" \
+  -b "${AUTH_COOKIE_JAR}" \
+  -d "{\"email\":\"${AUTH_EMAIL}\",\"password\":\"SmokeTest123!\",\"displayName\":\"Smoke Test Account\"}")"
+echo "${REGISTER_JSON}"
+REGISTERED_EMAIL="$(printf '%s' "${REGISTER_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("user", {}).get("email", ""))')"
+if [ "${REGISTERED_EMAIL}" != "${AUTH_EMAIL}" ]; then
+  echo "Auth register API did not return the created user" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+CURRENT_AUTH_USER_JSON="$(curl -fsS "${BASE_URL}/api/v1/auth/me" \
+  -b "${AUTH_COOKIE_JAR}")"
+CURRENT_AUTH_EMAIL="$(printf '%s' "${CURRENT_AUTH_USER_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("email", ""))')"
+if [ "${CURRENT_AUTH_EMAIL}" != "${AUTH_EMAIL}" ]; then
+  echo "Auth me API did not return the cookie-authenticated user" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+curl -fsS -X POST "${BASE_URL}/api/v1/auth/logout" \
+  -b "${AUTH_COOKIE_JAR}" \
+  -c "${AUTH_COOKIE_JAR}"
+LOGGED_OUT_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/auth/me" \
+  -b "${AUTH_COOKIE_JAR}")"
+rm -f "${AUTH_COOKIE_JAR}"
+if [ "${LOGGED_OUT_STATUS}" != "401" ]; then
+  echo "Auth me API accepted a logged-out session" >&2
+  exit 1
+fi
+echo
+
 echo "Checking user profile API"
 UPDATED_PROFILE_JSON="$(curl -fsS -X PATCH "${BASE_URL}/api/v1/me/profile" \
   -H "Content-Type: application/json" \

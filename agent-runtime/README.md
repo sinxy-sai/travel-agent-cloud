@@ -24,9 +24,13 @@ LLM_PROVIDER=openai_compatible
 LLM_API_KEY=your-api-key
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=your-model-name
+AUTH_SECRET_KEY=change-me-to-a-random-secret
+AUTH_TOKEN_TTL_SECONDS=604800
+AUTH_COOKIE_SECURE=false
 ```
 
 If the model is not configured or the provider call fails, the service falls back to deterministic mock responses so local development and deployment checks still work.
+`AUTH_SECRET_KEY` signs login cookies. Use a stable random value in production; changing it logs out existing users.
 
 When running through Docker Compose, create a local `docker-compose.override.yml` from the project root if you want containers to read this `.env` file:
 
@@ -97,10 +101,45 @@ When database storage is enabled, the service creates the current tables on star
 - `conversation_summaries`
 - `conversation_summary_jobs`
 - `trip_plans`
+- `users`
 
-Conversation APIs are scoped by `X-User-Id`. This is an anonymous-user boundary for the current milestone, not a replacement for real authentication.
+Conversation APIs are scoped by the signed-in user when a valid session cookie or Bearer token is present. Without a valid session, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
 
 ## API
+
+Create an account:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -c cookies.txt \
+  -d '{"email":"you@example.com","password":"ChangeMe123!","displayName":"Traveler"}'
+```
+
+Sign in:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -c cookies.txt \
+  -d '{"email":"you@example.com","password":"ChangeMe123!"}'
+```
+
+Get the current signed-in user:
+
+```bash
+curl http://localhost:8000/api/v1/auth/me \
+  -b cookies.txt
+```
+
+Sign out:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/logout \
+  -b cookies.txt
+```
+
+Authenticated requests are scoped by the signed-in user's httpOnly cookie. If no valid login cookie or Bearer token is present, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
 
 Create a structured trip plan:
 

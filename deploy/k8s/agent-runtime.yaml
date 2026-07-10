@@ -84,6 +84,24 @@ spec:
                   name: agent-runtime-secrets
                   key: MESSAGE_QUEUE_URL
                   optional: true
+            - name: AUTH_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_SECRET_KEY
+                  optional: true
+            - name: AUTH_TOKEN_TTL_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_TOKEN_TTL_SECONDS
+                  optional: true
+            - name: AUTH_COOKIE_SECURE
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_COOKIE_SECURE
+                  optional: true
           readinessProbe:
             httpGet:
               path: /health

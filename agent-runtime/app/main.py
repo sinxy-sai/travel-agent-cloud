@@ -1,8 +1,18 @@
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from app.agent import handle_chat
+from app.auth import (
+    AUTH_COOKIE_NAME,
+    DatabaseUserStore,
+    EmailAlreadyRegisteredError,
+    InvalidCredentialsError,
+    UserNotFoundError,
+    UserStore,
+    create_access_token,
+    verify_access_token,
+)
 from app.conversations import (
     ConversationNotFoundError,
     ConversationStore,
@@ -17,6 +27,10 @@ from app.observability import RequestLoggingMiddleware, configure_logging
 from app.planner import build_mock_trip_plan
 from app.profiles import DatabaseUserProfileStore, UserProfileStore
 from app.schemas import (
+    AuthLoginRequest,
+    AuthRegisterRequest,
+    AuthSession,
+    AuthUser,
     ChatRequest,
     ChatResponse,
     Conversation,
@@ -57,6 +71,7 @@ summary_store = DatabaseConversationSummaryStore(session_factory) if session_fac
 summary_job_store = (
     DatabaseConversationSummaryJobStore(session_factory) if session_factory else ConversationSummaryJobStore()
 )
+user_store = DatabaseUserStore(session_factory) if session_factory else UserStore()
 event_publisher = create_event_publisher(settings)
 conversation_summarizer = ConversationSummarizerWorker(conversation_store, summary_store, event_publisher)
 
@@ -82,6 +97,65 @@ def health() -> dict[str, str | bool]:
         "databaseEnabled": session_factory is not None,
         "messageQueueEnabled": event_publisher.enabled,
     }
+
+
+@app.post("/api/v1/auth/register", response_model=AuthSession, status_code=status.HTTP_201_CREATED)
+def register(request: AuthRegisterRequest, response: Response) -> AuthSession:
+    try:
+        user = user_store.create_user(request.email, request.password, request.display_name)
+    except EmailAlreadyRegisteredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "EMAIL_ALREADY_REGISTERED", "message": "Email is already registered"},
+        ) from exc
+    token = create_access_token(settings, user.id)
+    _set_auth_cookie(response, token)
+    return AuthSession(user=user)
+
+
+@app.post("/api/v1/auth/login", response_model=AuthSession)
+def login(request: AuthLoginRequest, response: Response) -> AuthSession:
+    try:
+        user = user_store.authenticate(request.email, request.password)
+    except InvalidCredentialsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "INVALID_CREDENTIALS", "message": "Invalid email or password"},
+        ) from exc
+    token = create_access_token(settings, user.id)
+    _set_auth_cookie(response, token)
+    return AuthSession(user=user)
+
+
+@app.get("/api/v1/auth/me", response_model=AuthUser)
+def get_current_auth_user(request: Request) -> AuthUser:
+    token = request.cookies.get(AUTH_COOKIE_NAME) or _bearer_token(request)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
+        )
+
+    try:
+        user_id = verify_access_token(settings, token)
+        return user_store.get_user(user_id)
+    except (InvalidCredentialsError, UserNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
+        ) from exc
+
+
+@app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(response: Response) -> Response:
+    response.status_code = status.HTTP_204_NO_CONTENT
+    response.delete_cookie(
+        AUTH_COOKIE_NAME,
+        path="/",
+        samesite="lax",
+        secure=settings.auth_cookie_secure,
+    )
+    return response
 
 
 @app.post("/api/v1/trip-plan", response_model=TripPlanResponse)
@@ -346,3 +420,23 @@ def _download_filename(title: str) -> str:
 
 def _updated_fields(fields: set[str]) -> list[str]:
     return sorted(to_camel(field) for field in fields)
+
+
+def _set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        AUTH_COOKIE_NAME,
+        token,
+        max_age=settings.auth_token_ttl_seconds,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+
+
+def _bearer_token(request: Request) -> str | None:
+    authorization = request.headers.get("Authorization", "")
+    prefix = "Bearer "
+    if authorization.startswith(prefix):
+        return authorization[len(prefix) :].strip()
+    return None

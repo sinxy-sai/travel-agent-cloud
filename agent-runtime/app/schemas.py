@@ -106,6 +106,46 @@ class UserProfileUpdateRequest(APIModel):
         return normalized[:12]
 
 
+class AuthRegisterRequest(APIModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str = Field(default="", max_length=80)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+            raise ValueError("Valid email is required")
+        return email
+
+    @field_validator("display_name")
+    @classmethod
+    def strip_display_name(cls, value: str) -> str:
+        return value.strip()
+
+
+class AuthLoginRequest(APIModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class AuthUser(APIModel):
+    id: str
+    email: str
+    display_name: str = ""
+    created_at: datetime
+
+
+class AuthSession(APIModel):
+    user: AuthUser
+
+
 class MessageRole(StrEnum):
     USER = "USER"
     ASSISTANT = "ASSISTANT"

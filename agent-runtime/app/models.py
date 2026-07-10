@@ -43,6 +43,18 @@ class MessageRecord(Base):
     conversation: Mapped[ConversationRecord] = relationship(back_populates="messages")
 
 
+class UserRecord(Base):
+    __tablename__ = "users"
+    __table_args__ = (Index("ix_users_email", "email", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class ConversationSummaryRecord(Base):
     __tablename__ = "conversation_summaries"
     __table_args__ = (Index("ix_conversation_summaries_user_updated", "user_id", "updated_at"),)

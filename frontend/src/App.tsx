@@ -20,16 +20,21 @@ import {
   exportTripPlanMarkdown,
   getConversation,
   getConversationSummary,
+  getCurrentAuthUser,
   getHealth,
   getLatestConversationSummaryJob,
   getTripPlan,
   getUserProfile,
+  loginUser,
   listConversations,
   listTripPlans,
+  logoutUser,
+  registerUser,
   sendChatMessage,
   updateConversationTitle,
   updateTripPlanFavorite,
   updateUserProfile,
+  type AuthUser,
   type ChatMessage,
   type Conversation,
   type ConversationSummary,
@@ -96,6 +101,17 @@ export default function App() {
   const [profilePreferredBudget, setProfilePreferredBudget] = useState('');
   const [profileTravelStyle, setProfileTravelStyle] = useState('');
   const [profileInterests, setProfileInterests] = useState<string[]>([]);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authDisplayName, setAuthDisplayName] = useState('');
+
+  const authUserQuery = useQuery({
+    queryKey: ['auth-user'],
+    queryFn: getCurrentAuthUser,
+    retry: false,
+  });
 
   const conversationsQuery = useQuery({
     queryKey: ['conversations', conversationPage, conversationSearch],
@@ -124,6 +140,31 @@ export default function App() {
   const userProfileQuery = useQuery({
     queryKey: ['user-profile'],
     queryFn: getUserProfile,
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: registerUser,
+    onSuccess: (session) => {
+      applyAuthenticatedSession(session.user);
+    },
+  });
+
+  const loginMutation = useMutation({
+    mutationFn: loginUser,
+    onSuccess: (session) => {
+      applyAuthenticatedSession(session.user);
+    },
+  });
+
+  const logoutMutation = useMutation({
+    mutationFn: logoutUser,
+    onSuccess: () => {
+      clearWorkspace();
+      queryClient.setQueryData(['auth-user'], null);
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+    },
   });
 
   const tripPlanMutation = useMutation({
@@ -409,6 +450,62 @@ export default function App() {
     submitChatMessage(chatInput);
   };
 
+  function applyAuthenticatedSession(user: AuthUser) {
+    setAuthModalOpen(false);
+    resetAuthForm();
+    clearWorkspace();
+    queryClient.setQueryData(['auth-user'], user);
+    queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+    queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+  }
+
+  function openAuthModal(mode: 'LOGIN' | 'REGISTER') {
+    setAuthMode(mode);
+    setAuthModalOpen(true);
+    loginMutation.reset();
+    registerMutation.reset();
+  }
+
+  function resetAuthForm() {
+    setAuthEmail('');
+    setAuthPassword('');
+    setAuthDisplayName('');
+    loginMutation.reset();
+    registerMutation.reset();
+  }
+
+  function submitAuth() {
+    const email = authEmail.trim();
+    if (!email || !authPassword || loginMutation.isPending || registerMutation.isPending) {
+      return;
+    }
+
+    if (authMode === 'LOGIN') {
+      loginMutation.mutate({ email, password: authPassword });
+    } else {
+      registerMutation.mutate({
+        email,
+        password: authPassword,
+        displayName: authDisplayName,
+      });
+    }
+  }
+
+  function clearWorkspace() {
+    setConversationId(undefined);
+    setChatMessages([]);
+    setChatSuggestions(defaultChatSuggestions);
+    setChatInput('');
+    setConversationSummary(null);
+    resetConversationSummaryJobPolling();
+    setPlan(null);
+    setSelectedTripPlanId(undefined);
+    setSelectedTripPlanFavorite(false);
+    setConversationPage(1);
+    setTripPlanPage(1);
+  }
+
   const submitChatMessage = (rawMessage: string) => {
     const message = rawMessage.trim();
     if (!message || chatMutation.isPending) {
@@ -503,6 +600,13 @@ export default function App() {
           </div>
 
           <RuntimeStatus health={healthQuery.data} loading={healthQuery.isLoading} error={healthQuery.isError} />
+          <AccountStatus
+            user={authUserQuery.data}
+            loading={authUserQuery.isLoading || logoutMutation.isPending}
+            onLogin={() => openAuthModal('LOGIN')}
+            onRegister={() => openAuthModal('REGISTER')}
+            onLogout={() => logoutMutation.mutate()}
+          />
           <TravelerProfile
             profile={userProfileQuery.data}
             loading={userProfileQuery.isLoading}
@@ -889,6 +993,67 @@ export default function App() {
         </aside>
       </section>
       <Modal
+        title={authMode === 'LOGIN' ? 'Sign in' : 'Create account'}
+        open={authModalOpen}
+        okText={authMode === 'LOGIN' ? 'Sign in' : 'Create account'}
+        onOk={submitAuth}
+        confirmLoading={loginMutation.isPending || registerMutation.isPending}
+        okButtonProps={{ disabled: !authEmail.trim() || !authPassword }}
+        onCancel={() => {
+          setAuthModalOpen(false);
+          resetAuthForm();
+        }}
+      >
+        <div className="space-y-3">
+          {authMode === 'REGISTER' && (
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-ink">Display name</span>
+              <Input
+                maxLength={80}
+                value={authDisplayName}
+                onChange={(event) => setAuthDisplayName(event.target.value)}
+                placeholder="Traveler name"
+              />
+            </label>
+          )}
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Email</span>
+            <Input
+              value={authEmail}
+              onChange={(event) => setAuthEmail(event.target.value)}
+              placeholder="you@example.com"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Password</span>
+            <Input.Password
+              value={authPassword}
+              onChange={(event) => setAuthPassword(event.target.value)}
+              onPressEnter={submitAuth}
+              placeholder={authMode === 'LOGIN' ? 'Password' : 'At least 8 characters'}
+            />
+          </label>
+          {(loginMutation.isError || registerMutation.isError) && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {authMode === 'LOGIN'
+                ? 'Email or password is incorrect.'
+                : 'Could not create account. The email may already be registered.'}
+            </div>
+          )}
+          <Button
+            type="link"
+            className="px-0"
+            onClick={() => {
+              setAuthMode(authMode === 'LOGIN' ? 'REGISTER' : 'LOGIN');
+              loginMutation.reset();
+              registerMutation.reset();
+            }}
+          >
+            {authMode === 'LOGIN' ? 'Create a new account' : 'Sign in to an existing account'}
+          </Button>
+        </div>
+      </Modal>
+      <Modal
         title="Rename conversation"
         open={Boolean(renameConversation)}
         okText="Save"
@@ -1011,6 +1176,48 @@ function RuntimeStatus({
         <StatusRow label="PostgreSQL" active={Boolean(health?.databaseEnabled)} muted={!runtimeOnline || loading} />
         <StatusRow label="RabbitMQ" active={Boolean(health?.messageQueueEnabled)} muted={!runtimeOnline || loading} />
       </div>
+    </section>
+  );
+}
+
+function AccountStatus({
+  user,
+  loading,
+  onLogin,
+  onRegister,
+  onLogout,
+}: {
+  user?: AuthUser | null;
+  loading: boolean;
+  onLogin: () => void;
+  onRegister: () => void;
+  onLogout: () => void;
+}) {
+  return (
+    <section className="mb-5 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-ink">Account</h2>
+          <p className="mt-1 truncate text-xs text-slate-500">
+            {user ? user.displayName || user.email : 'Anonymous mode'}
+          </p>
+        </div>
+        {loading && <Spin size="small" />}
+      </div>
+      {user ? (
+        <Button size="small" className="w-full" loading={loading} onClick={onLogout}>
+          Sign out
+        </Button>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <Button size="small" type="primary" onClick={onLogin}>
+            Sign in
+          </Button>
+          <Button size="small" onClick={onRegister}>
+            Register
+          </Button>
+        </div>
+      )}
     </section>
   );
 }

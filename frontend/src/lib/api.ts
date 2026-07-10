@@ -141,9 +141,32 @@ export interface UserProfileUpdateRequest {
   interests?: string[];
 }
 
+export interface AuthUser {
+  id: string;
+  email: string;
+  displayName: string;
+  createdAt: string;
+}
+
+export interface AuthSession {
+  user: AuthUser;
+}
+
+export interface AuthRegisterRequest {
+  email: string;
+  password: string;
+  displayName?: string;
+}
+
+export interface AuthLoginRequest {
+  email: string;
+  password: string;
+}
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_AGENT_API_BASE_URL ?? '',
   timeout: 30000,
+  withCredentials: true,
 });
 
 api.interceptors.request.use((config) => {
@@ -159,6 +182,32 @@ export async function createTripPlan(request: TripPlanRequest): Promise<TripPlan
 export async function getHealth(): Promise<HealthResponse> {
   const response = await api.get<HealthResponse>('/health');
   return response.data;
+}
+
+export async function registerUser(request: AuthRegisterRequest): Promise<AuthSession> {
+  const response = await api.post<AuthSession>('/api/v1/auth/register', request);
+  return response.data;
+}
+
+export async function loginUser(request: AuthLoginRequest): Promise<AuthSession> {
+  const response = await api.post<AuthSession>('/api/v1/auth/login', request);
+  return response.data;
+}
+
+export async function logoutUser(): Promise<void> {
+  await api.post('/api/v1/auth/logout');
+}
+
+export async function getCurrentAuthUser(): Promise<AuthUser | null> {
+  try {
+    const response = await api.get<AuthUser>('/api/v1/auth/me');
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function sendChatMessage(request: ChatRequest): Promise<ChatResponse> {

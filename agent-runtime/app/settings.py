@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     rpc_timeout_seconds: float = 5.0
     worker_reconnect_initial_seconds: float = 2.0
     worker_reconnect_max_seconds: float = 30.0
+    auth_secret_key: str = "travel-agent-cloud-local-dev-secret"
+    auth_token_ttl_seconds: int = 60 * 60 * 24 * 7
+    auth_cookie_secure: bool = False
     llm_provider: str = "mock"
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
