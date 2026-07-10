@@ -20,6 +20,7 @@ PATCH  /api/v1/conversations/{conversationId}
 GET    /api/v1/conversations/{conversationId}/summary
 POST   /api/v1/conversations/{conversationId}/summary
 POST   /api/v1/conversations/{conversationId}/summary-jobs
+GET    /api/v1/conversations/{conversationId}/summary-jobs/latest
 DELETE /api/v1/conversations/{conversationId}
 GET    /api/v1/trip-plans
 GET    /api/v1/trip-plans/{tripPlanId}
@@ -76,18 +77,21 @@ POST /api/v1/conversations/{conversationId}/summary
   -> RabbitMQ events when MESSAGE_QUEUE_URL is configured
 
 POST /api/v1/conversations/{conversationId}/summary-jobs
+  -> PostgreSQL conversation_summary_jobs status=QUEUED
   -> RabbitMQ agent.conversation.summarize.requested
   -> agent-runtime-worker
+  -> PostgreSQL conversation_summary_jobs status=RUNNING/SUCCEEDED/FAILED
   -> ConversationSummarizerWorker
 ```
 
-No standalone RabbitMQ consumer is enabled yet. The worker is intentionally reusable so a future consumer can call the same code path without duplicating business logic.
+The default K3s deployment keeps the API process separate from the worker. Enable `deploy/k8s/addons/agent-runtime-worker.yaml` when RabbitMQ is configured and asynchronous summaries should be processed.
 
 Queue rules:
 
 - Producers publish small JSON events with stable camelCase field names.
 - Consumers must be idempotent because queue delivery can be retried.
 - Business data remains in PostgreSQL; queue messages carry IDs and minimal context.
+- Long-running user-facing jobs must persist status in PostgreSQL and expose a read endpoint for polling.
 - Secrets are injected through Kubernetes Secret or local `.env`, never committed.
 
 Supporting infrastructure:

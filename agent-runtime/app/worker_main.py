@@ -7,6 +7,7 @@ from app.events import create_event_publisher
 from app.observability import configure_logging
 from app.settings import get_settings
 from app.summaries import DatabaseConversationSummaryStore
+from app.summary_jobs import DatabaseConversationSummaryJobStore
 from app.workers.conversation_summarizer import ConversationSummarizerWorker
 from app.workers.rabbitmq_consumer import RabbitMQConsumerConfig, RabbitMQConversationSummaryConsumer
 
@@ -31,6 +32,7 @@ def main() -> int:
 
     conversation_store = DatabaseConversationStore(session_factory)
     summary_store = DatabaseConversationSummaryStore(session_factory)
+    summary_job_store = DatabaseConversationSummaryJobStore(session_factory)
 
     summarizer = ConversationSummarizerWorker(
         conversation_store=conversation_store,
@@ -43,6 +45,7 @@ def main() -> int:
             timeout_seconds=settings.rpc_timeout_seconds,
         ),
         worker=summarizer,
+        job_tracker=summary_job_store,
     )
     consumer.start()
     return 0

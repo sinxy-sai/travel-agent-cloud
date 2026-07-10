@@ -92,9 +92,14 @@ export interface ConversationSummary {
 }
 
 export interface ConversationSummaryJob {
+  id: string;
   conversationId: string;
-  status: 'QUEUED';
+  status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
   eventType: string;
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
 }
 
 export interface ConversationListResponse {
@@ -208,6 +213,20 @@ export async function createConversationSummary(conversationId: string): Promise
 export async function createConversationSummaryJob(conversationId: string): Promise<ConversationSummaryJob> {
   const response = await api.post<ConversationSummaryJob>(`/api/v1/conversations/${conversationId}/summary-jobs`);
   return response.data;
+}
+
+export async function getLatestConversationSummaryJob(conversationId: string): Promise<ConversationSummaryJob | null> {
+  try {
+    const response = await api.get<ConversationSummaryJob>(
+      `/api/v1/conversations/${conversationId}/summary-jobs/latest`,
+    );
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function getConversationSummary(conversationId: string): Promise<ConversationSummary | null> {

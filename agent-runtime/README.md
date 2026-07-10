@@ -50,9 +50,9 @@ Current events:
 - `agent.conversation.summarize.requested`
 - `agent.conversation.summary.created`
 
-Conversation summaries are generated through `app.workers.conversation_summarizer.ConversationSummarizerWorker`. The current HTTP API calls this worker synchronously.
+Conversation summaries are generated through `app.workers.conversation_summarizer.ConversationSummarizerWorker`. The HTTP API can call this worker synchronously, or queue an asynchronous job when RabbitMQ is configured.
 
-RabbitMQ consumer support is available through `python -m app.worker_main`, but it is not started by the normal API process. The consumer listens to `agent.conversation.summarize.requested`, skips `manual_api` events that the HTTP API already handled, and processes asynchronous requests from future producers. Failed or invalid messages are rejected into the consumer dead-letter queue.
+RabbitMQ consumer support is available through `python -m app.worker_main`, but it is not started by the normal API process. The consumer listens to `agent.conversation.summarize.requested`, skips `manual_api` events that the HTTP API already handled, and processes asynchronous summary jobs. The API stores job status in `conversation_summary_jobs`; the consumer moves jobs through `QUEUED`, `RUNNING`, `SUCCEEDED`, and `FAILED`. Failed or invalid messages are rejected into the consumer dead-letter queue.
 
 Run the worker locally only when both RabbitMQ and PostgreSQL are configured:
 
@@ -82,6 +82,7 @@ When database storage is enabled, the service creates the current tables on star
 - `conversations`
 - `messages`
 - `conversation_summaries`
+- `conversation_summary_jobs`
 - `trip_plans`
 
 Conversation APIs are scoped by `X-User-Id`. This is an anonymous-user boundary for the current milestone, not a replacement for real authentication.
@@ -162,6 +163,12 @@ curl -X POST http://localhost:8000/api/v1/conversations/{conversationId}/summary
 ```
 
 This endpoint returns `202 Accepted` only when `MESSAGE_QUEUE_URL` is configured and the event was published to RabbitMQ. Without RabbitMQ, use the synchronous `/summary` endpoint.
+
+Get the latest asynchronous summary job status:
+
+```bash
+curl http://localhost:8000/api/v1/conversations/{conversationId}/summary-jobs/latest
+```
 
 Get the latest conversation summary:
 

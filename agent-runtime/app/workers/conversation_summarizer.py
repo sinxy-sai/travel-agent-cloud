@@ -24,6 +24,7 @@ class ConversationSummaryWriter(Protocol):
 class SummarizeConversationCommand:
     user_id: str
     conversation_id: str
+    summary_job_id: str | None = None
     requested_by: str = "manual_api"
     emit_requested_event: bool = True
 
@@ -64,11 +65,22 @@ class ConversationSummarizerWorker:
         self._event_publisher.publish(
             CONVERSATION_SUMMARY_CREATED_EVENT,
             command.user_id,
-            {
-                "conversationId": command.conversation_id,
-                "summaryId": summary.id,
-                "messageCount": summary.message_count,
-                "requestedBy": command.requested_by,
-            },
+            _without_none(
+                {
+                    "summaryJobId": command.summary_job_id,
+                    "conversationId": command.conversation_id,
+                    "summaryId": summary.id,
+                    "messageCount": summary.message_count,
+                    "requestedBy": command.requested_by,
+                }
+            ),
         )
         return summary
+
+
+def _without_none(payload: dict[str, object | None]) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in payload.items()
+        if value is not None
+    }

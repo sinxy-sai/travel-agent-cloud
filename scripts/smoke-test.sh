@@ -151,9 +151,21 @@ if [ "${MESSAGE_QUEUE_ENABLED}" = "yes" ]; then
   SUMMARY_JOB_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/conversations/${CHAT_CONVERSATION_ID}/summary-jobs" \
     -H "X-User-Id: ${USER_ID}")"
   echo "${SUMMARY_JOB_JSON}"
+  SUMMARY_JOB_ID="$(printf '%s' "${SUMMARY_JOB_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("id", ""))')"
+  if [ -z "${SUMMARY_JOB_ID}" ]; then
+    echo "Conversation summary job API did not return job id" >&2
+    exit 1
+  fi
   SUMMARY_JOB_STATUS="$(printf '%s' "${SUMMARY_JOB_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("status", ""))')"
   if [ "${SUMMARY_JOB_STATUS}" != "QUEUED" ]; then
     echo "Conversation summary job API did not return QUEUED status" >&2
+    exit 1
+  fi
+  LATEST_SUMMARY_JOB_JSON="$(curl -fsS "${BASE_URL}/api/v1/conversations/${CHAT_CONVERSATION_ID}/summary-jobs/latest" \
+    -H "X-User-Id: ${USER_ID}")"
+  LATEST_SUMMARY_JOB_ID="$(printf '%s' "${LATEST_SUMMARY_JOB_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("id", ""))')"
+  if [ "${LATEST_SUMMARY_JOB_ID}" != "${SUMMARY_JOB_ID}" ]; then
+    echo "Conversation summary latest job API did not return the queued job" >&2
     exit 1
   fi
 else

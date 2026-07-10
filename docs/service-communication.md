@@ -100,8 +100,10 @@ Event payloads use camelCase fields:
 - Agent Runtime publishes domain events to the `travel.events` topic exchange when `MESSAGE_QUEUE_URL` is configured.
 - Agent Runtime has a reusable synchronous conversation summarizer worker at `app/workers/conversation_summarizer.py`.
 - `POST /api/v1/conversations/{conversationId}/summary` now emits `agent.conversation.summarize.requested` before generating and persisting the summary.
-- `POST /api/v1/conversations/{conversationId}/summary-jobs` publishes `agent.conversation.summarize.requested` and returns `202 Accepted` only after RabbitMQ accepts the event.
+- `POST /api/v1/conversations/{conversationId}/summary-jobs` creates a persisted `conversation_summary_jobs` row, publishes `agent.conversation.summarize.requested` with `summaryJobId`, and returns `202 Accepted` only after RabbitMQ accepts the event.
+- `GET /api/v1/conversations/{conversationId}/summary-jobs/latest` returns the newest persisted job status for frontend polling.
 - A RabbitMQ consumer entrypoint exists at `python -m app.worker_main`.
+- The consumer updates job status from `QUEUED` to `RUNNING`, then `SUCCEEDED` or `FAILED`.
 - Docker Compose exposes the consumer as the `agent-runtime-worker` service behind the `worker` profile.
 - K3s exposes the consumer as the optional `deploy/k8s/addons/agent-runtime-worker.yaml` addon.
 - No production queue consumer is enabled by the default deployment yet.

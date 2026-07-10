@@ -107,8 +107,15 @@ if ($loadedSummary.id -ne $summary.id) {
 Write-Host "Checking conversation async summary job API"
 if ($health.messageQueueEnabled) {
   $summaryJob = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations/$($chatResponse.conversationId)/summary-jobs" -Method Post -Headers $headers
+  if (-not $summaryJob.id) {
+    throw "Conversation summary job API did not return job id"
+  }
   if ($summaryJob.status -ne "QUEUED") {
     throw "Conversation summary job API did not return QUEUED status"
+  }
+  $latestSummaryJob = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations/$($chatResponse.conversationId)/summary-jobs/latest" -Headers $headers
+  if ($latestSummaryJob.id -ne $summaryJob.id) {
+    throw "Conversation summary latest job API did not return the queued job"
   }
 } else {
   try {

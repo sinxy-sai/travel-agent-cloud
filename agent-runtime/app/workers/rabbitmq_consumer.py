@@ -1,9 +1,10 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from app.events import CONVERSATION_SUMMARY_REQUESTED_EVENT, EVENT_EXCHANGE
+from app.summary_jobs import ConversationSummaryJobNotFoundError
 from app.workers.conversation_summarizer import ConversationSummarizerWorker, SummarizeConversationCommand
 
 logger = logging.getLogger("travel_agent_runtime.worker")
@@ -24,10 +25,27 @@ class RabbitMQConsumerConfig:
     prefetch_count: int = 1
 
 
+class ConversationSummaryJobTracker(Protocol):
+    def mark_running(self, user_id: str, job_id: str):
+        pass
+
+    def mark_succeeded(self, user_id: str, job_id: str):
+        pass
+
+    def mark_failed(self, user_id: str, job_id: str, error_message: str):
+        pass
+
+
 class RabbitMQConversationSummaryConsumer:
-    def __init__(self, config: RabbitMQConsumerConfig, worker: ConversationSummarizerWorker) -> None:
+    def __init__(
+        self,
+        config: RabbitMQConsumerConfig,
+        worker: ConversationSummarizerWorker,
+        job_tracker: ConversationSummaryJobTracker | None = None,
+    ) -> None:
         self._config = config
         self._worker = worker
+        self._job_tracker = job_tracker
 
     def start(self) -> None:
         import pika
@@ -65,7 +83,9 @@ class RabbitMQConversationSummaryConsumer:
                 )
                 return
 
+            self._mark_job_running(command)
             summary = self._worker.handle(command)
+            self._mark_job_succeeded(command)
             channel.basic_ack(delivery_tag=method.delivery_tag)
             logger.info(
                 "conversation_summary_job_completed event_id=%s conversation_id=%s summary_id=%s",
@@ -77,8 +97,46 @@ class RabbitMQConversationSummaryConsumer:
             channel.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
             logger.warning("conversation_summary_job_rejected event_id=%s error=%s", event_id, exc)
         except Exception as exc:
+            if "command" in locals():
+                self._mark_job_failed(command, str(exc) or exc.__class__.__name__)
             channel.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
             logger.exception("conversation_summary_job_failed event_id=%s error=%s", event_id, exc.__class__.__name__)
+
+    def _mark_job_running(self, command: SummarizeConversationCommand) -> None:
+        if self._job_tracker is None or command.summary_job_id is None:
+            return
+        try:
+            self._job_tracker.mark_running(command.user_id, command.summary_job_id)
+        except ConversationSummaryJobNotFoundError:
+            logger.warning(
+                "conversation_summary_job_status_missing job_id=%s conversation_id=%s status=RUNNING",
+                command.summary_job_id,
+                command.conversation_id,
+            )
+
+    def _mark_job_succeeded(self, command: SummarizeConversationCommand) -> None:
+        if self._job_tracker is None or command.summary_job_id is None:
+            return
+        try:
+            self._job_tracker.mark_succeeded(command.user_id, command.summary_job_id)
+        except ConversationSummaryJobNotFoundError:
+            logger.warning(
+                "conversation_summary_job_status_missing job_id=%s conversation_id=%s status=SUCCEEDED",
+                command.summary_job_id,
+                command.conversation_id,
+            )
+
+    def _mark_job_failed(self, command: SummarizeConversationCommand, error_message: str) -> None:
+        if self._job_tracker is None or command.summary_job_id is None:
+            return
+        try:
+            self._job_tracker.mark_failed(command.user_id, command.summary_job_id, error_message)
+        except ConversationSummaryJobNotFoundError:
+            logger.warning(
+                "conversation_summary_job_status_missing job_id=%s conversation_id=%s status=FAILED",
+                command.summary_job_id,
+                command.conversation_id,
+            )
 
 
 def _declare_topology(channel: Any) -> None:
@@ -115,11 +173,13 @@ def _parse_summary_command(body: bytes) -> SummarizeConversationCommand:
     data = event.get("data") if isinstance(event.get("data"), dict) else event
     user_id = _required_text(event, "userId")
     conversation_id = _required_text(data, "conversationId")
+    summary_job_id = data.get("summaryJobId") if isinstance(data.get("summaryJobId"), str) else None
     requested_by = data.get("requestedBy") if isinstance(data.get("requestedBy"), str) else "rabbitmq"
 
     return SummarizeConversationCommand(
         user_id=user_id,
         conversation_id=conversation_id,
+        summary_job_id=summary_job_id,
         requested_by=requested_by,
         emit_requested_event=False,
     )

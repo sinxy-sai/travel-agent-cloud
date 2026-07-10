@@ -59,6 +59,26 @@ class ConversationSummaryRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ConversationSummaryJobRecord(Base):
+    __tablename__ = "conversation_summary_jobs"
+    __table_args__ = (
+        Index("ix_conversation_summary_jobs_user_conversation_updated", "user_id", "conversation_id", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String(80), index=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    event_type: Mapped[str] = mapped_column(String(120))
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class TripPlanRecord(Base):
     __tablename__ = "trip_plans"
     __table_args__ = (

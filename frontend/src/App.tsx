@@ -21,6 +21,7 @@ import {
   getConversation,
   getConversationSummary,
   getHealth,
+  getLatestConversationSummaryJob,
   getTripPlan,
   getUserProfile,
   listConversations,
@@ -32,6 +33,7 @@ import {
   type ChatMessage,
   type Conversation,
   type ConversationSummary,
+  type ConversationSummaryJob,
   type HealthResponse,
   type SavedTripPlan,
   type TripPlanResponse,
@@ -57,7 +59,7 @@ const defaultChatSuggestions = [
 const historyPageSize = 8;
 const summaryJobPollingIntervalMs = 2000;
 const summaryJobPollingTimeoutMs = 30000;
-type ConversationSummaryJobUiStatus = 'IDLE' | 'POLLING' | 'TIMEOUT';
+type ConversationSummaryJobUiStatus = 'IDLE' | 'POLLING' | 'FAILED' | 'TIMEOUT';
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -73,8 +75,10 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatSuggestions, setChatSuggestions] = useState<string[]>(defaultChatSuggestions);
   const [conversationSummary, setConversationSummary] = useState<ConversationSummary | null>(null);
+  const [conversationSummaryJob, setConversationSummaryJob] = useState<ConversationSummaryJob | null>(null);
   const [conversationSummaryJobStatus, setConversationSummaryJobStatus] =
     useState<ConversationSummaryJobUiStatus>('IDLE');
+  const [conversationSummaryJobError, setConversationSummaryJobError] = useState('');
   const summaryJobPollingIntervalRef = useRef<number | undefined>(undefined);
   const summaryJobPollingConversationIdRef = useRef<string | undefined>(undefined);
   const [tripPlanFilter, setTripPlanFilter] = useState<'ALL' | 'FAVORITES'>('ALL');
@@ -225,6 +229,7 @@ export default function App() {
   const createConversationSummaryJobMutation = useMutation({
     mutationFn: createConversationSummaryJob,
     onSuccess: (job) => {
+      setConversationSummaryJob(job);
       startConversationSummaryJobPolling(job.conversationId);
     },
   });
@@ -317,14 +322,18 @@ export default function App() {
   function resetConversationSummaryJobPolling() {
     stopConversationSummaryJobPolling();
     setConversationSummaryJobStatus('IDLE');
+    setConversationSummaryJob(null);
+    setConversationSummaryJobError('');
   }
 
   function startConversationSummaryJobPolling(targetConversationId: string) {
     stopConversationSummaryJobPolling();
     setConversationSummaryJobStatus('POLLING');
+    setConversationSummaryJobError('');
     summaryJobPollingConversationIdRef.current = targetConversationId;
     const startedAt = Date.now();
 
+    void pollConversationSummaryJob(targetConversationId, startedAt);
     summaryJobPollingIntervalRef.current = window.setInterval(() => {
       void pollConversationSummaryJob(targetConversationId, startedAt);
     }, summaryJobPollingIntervalMs);
@@ -336,22 +345,63 @@ export default function App() {
     }
 
     try {
-      const summary = await getConversationSummary(targetConversationId);
+      const latestJob = await getLatestConversationSummaryJob(targetConversationId);
       if (summaryJobPollingConversationIdRef.current !== targetConversationId) {
         return;
       }
-      if (summary) {
-        setConversationSummary(summary);
-        resetConversationSummaryJobPolling();
-        return;
+
+      if (latestJob) {
+        setConversationSummaryJob(latestJob);
+
+        if (latestJob.status === 'FAILED') {
+          stopConversationSummaryJobPolling();
+          setConversationSummaryJobStatus('FAILED');
+          setConversationSummaryJobError(latestJob.errorMessage || 'Summary job failed. Please try again.');
+          return;
+        }
+
+        if (latestJob.status === 'SUCCEEDED') {
+          const summary = await getConversationSummary(targetConversationId);
+          if (summaryJobPollingConversationIdRef.current !== targetConversationId) {
+            return;
+          }
+          if (summary) {
+            setConversationSummary(summary);
+            resetConversationSummaryJobPolling();
+          }
+          return;
+        }
+      } else {
+        const summary = await getConversationSummary(targetConversationId);
+        if (summaryJobPollingConversationIdRef.current !== targetConversationId) {
+          return;
+        }
+        if (summary) {
+          setConversationSummary(summary);
+          resetConversationSummaryJobPolling();
+          return;
+        }
       }
     } catch {
-      // Keep polling until the timeout; transient API failures should not immediately fail the queued job UI.
+      try {
+        const summary = await getConversationSummary(targetConversationId);
+        if (summaryJobPollingConversationIdRef.current !== targetConversationId) {
+          return;
+        }
+        if (summary) {
+          setConversationSummary(summary);
+          resetConversationSummaryJobPolling();
+          return;
+        }
+      } catch {
+        // Keep polling until the timeout; transient API failures should not immediately fail the queued job UI.
+      }
     }
 
     if (Date.now() - startedAt >= summaryJobPollingTimeoutMs) {
       stopConversationSummaryJobPolling();
       setConversationSummaryJobStatus('TIMEOUT');
+      setConversationSummaryJobError('Summary job is still running. Try loading the saved summary again later.');
     }
   }
 
@@ -754,13 +804,19 @@ export default function App() {
 
           {conversationSummaryJobStatus === 'POLLING' && (
             <div className="mb-4 rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-mist/75">
-              Summary job queued. Waiting for worker result...
+              Summary job {formatSummaryJobStatus(conversationSummaryJob?.status)}. Waiting for worker result...
             </div>
           )}
 
           {conversationSummaryJobStatus === 'TIMEOUT' && (
             <div className="mb-4 rounded-lg border border-amber-300/30 bg-amber-400/10 p-3 text-sm text-amber-100">
-              Summary job is still running. Try loading the saved summary again later.
+              {conversationSummaryJobError || 'Summary job is still running. Try loading the saved summary again later.'}
+            </div>
+          )}
+
+          {conversationSummaryJobStatus === 'FAILED' && (
+            <div className="mb-4 rounded-lg border border-red-300/40 bg-red-500/10 p-3 text-sm text-red-100">
+              {conversationSummaryJobError || 'Summary job failed. Please try again.'}
             </div>
           )}
 
@@ -1197,6 +1253,10 @@ function formatDateTime(value: string): string {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
+}
+
+function formatSummaryJobStatus(status?: ConversationSummaryJob['status']): string {
+  return status ? status.toLowerCase().replace('_', ' ') : 'queued';
 }
 
 function splitInterests(value: string): string[] {
