@@ -1,5 +1,5 @@
 import hmac
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -17,7 +17,13 @@ from app.auth import (
     UserNotFoundError,
     UserStore,
     create_access_token,
-    verify_access_token,
+    verify_access_token_claims,
+)
+from app.auth_sessions import (
+    AuthSessionNotFoundError,
+    AuthSessionRevokedError,
+    AuthSessionStore,
+    DatabaseAuthSessionStore,
 )
 from app.auth_identities import (
     AuthIdentityNotFoundError,
@@ -68,6 +74,9 @@ from app.schemas import (
     AuthPasswordResetConfirmRequest,
     AuthRegisterRequest,
     AuthSession,
+    AuthSessionInfo,
+    AuthSessionListResponse,
+    AuthSessionRevokeAllResponse,
     AuthTokenConfirmRequest,
     AuthUser,
     AuthUserUpdateRequest,
@@ -124,6 +133,7 @@ security_event_store = (
 )
 auth_token_store = DatabaseAuthTokenStore(session_factory) if session_factory else AuthTokenStore()
 auth_identity_store = DatabaseAuthIdentityStore(session_factory) if session_factory else AuthIdentityStore()
+auth_session_store = DatabaseAuthSessionStore(session_factory) if session_factory else AuthSessionStore()
 mailer = Mailer(settings)
 event_publisher = create_event_publisher(settings)
 conversation_summarizer = ConversationSummarizerWorker(conversation_store, summary_store, event_publisher)
@@ -170,7 +180,8 @@ def register(request: Request, payload: AuthRegisterRequest, response: Response)
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "EMAIL_ALREADY_REGISTERED", "message": "Email is already registered"},
         ) from exc
-    token = create_access_token(settings, user.id)
+    session_info = _create_auth_session(request, user)
+    token = create_access_token(settings, user.id, session_info.id)
     _set_auth_cookie(response, token)
     _send_email_verification(user)
     _record_security_event(request, user.id, "auth.registered")
@@ -187,7 +198,8 @@ def login(request: Request, payload: AuthLoginRequest, response: Response) -> Au
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "INVALID_CREDENTIALS", "message": "Invalid email or password"},
         ) from exc
-    token = create_access_token(settings, user.id)
+    session_info = _create_auth_session(request, user)
+    token = create_access_token(settings, user.id, session_info.id)
     _set_auth_cookie(response, token)
     _record_security_event(request, user.id, "auth.logged_in")
     return AuthSession(user=user)
@@ -214,6 +226,45 @@ def update_current_auth_user(request: Request, payload: AuthUserUpdateRequest) -
 def list_current_auth_identities(request: Request) -> AuthIdentityListResponse:
     user = _get_current_auth_user(request)
     return AuthIdentityListResponse(data=auth_identity_store.list_for_user(user.id))
+
+
+@app.get("/api/v1/auth/sessions", response_model=AuthSessionListResponse)
+def list_current_auth_sessions(request: Request) -> AuthSessionListResponse:
+    user = _get_current_auth_user(request)
+    current_session_id = _get_current_auth_session_id(request)
+    return AuthSessionListResponse(data=auth_session_store.list_for_user(user.id, current_session_id))
+
+
+@app.delete("/api/v1/auth/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_current_auth_session(request: Request, session_id: str, response: Response) -> Response:
+    user = _get_current_auth_user(request)
+    current_session_id = _get_current_auth_session_id(request)
+    try:
+        auth_session_store.revoke(user.id, session_id)
+    except AuthSessionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "SESSION_NOT_FOUND", "message": "Auth session not found"},
+        ) from exc
+    _record_security_event(
+        request,
+        user.id,
+        "auth.session_revoked",
+        {"current": session_id == current_session_id},
+    )
+    response.status_code = status.HTTP_204_NO_CONTENT
+    if session_id == current_session_id:
+        _delete_auth_cookie(response)
+    return response
+
+
+@app.post("/api/v1/auth/sessions/revoke-all", response_model=AuthSessionRevokeAllResponse)
+def revoke_other_auth_sessions(request: Request) -> AuthSessionRevokeAllResponse:
+    user = _get_current_auth_user(request)
+    current_session_id = _get_current_auth_session_id(request)
+    revoked = auth_session_store.revoke_all(user.id, except_session_id=current_session_id)
+    _record_security_event(request, user.id, "auth.sessions_revoked_all", {"revoked": revoked})
+    return AuthSessionRevokeAllResponse(revoked=revoked)
 
 
 @app.delete("/api/v1/auth/identities/{provider}", status_code=status.HTTP_204_NO_CONTENT)
@@ -284,7 +335,8 @@ def github_oauth_callback(
     except (OAuthConfigurationError, OAuthProviderError, AuthIdentityConflictError, UserNotFoundError, ValueError):
         return _oauth_frontend_redirect("error", "github_login_failed")
 
-    token = create_access_token(settings, user.id)
+    session_info = _create_auth_session(request, user)
+    token = create_access_token(settings, user.id, session_info.id)
     redirect = _oauth_frontend_redirect("success")
     _set_auth_cookie(redirect, token)
     _delete_oauth_state_cookie(redirect)
@@ -358,10 +410,16 @@ def request_password_reset(request: Request, payload: AuthEmailRequest) -> AuthE
 
 @app.post("/api/v1/auth/password-reset/confirm", status_code=status.HTTP_204_NO_CONTENT)
 def confirm_password_reset(request: Request, payload: AuthPasswordResetConfirmRequest) -> Response:
+    current_user = _get_optional_current_auth_user(request)
+    current_session_id = _get_current_auth_session_id(request) if current_user else None
     try:
         user_id = auth_token_store.consume(payload.token, TOKEN_PURPOSE_PASSWORD_RESET)
         user_store.reset_password(user_id, payload.new_password)
+        revoke_except_session_id = current_session_id if current_user and current_user.id == user_id else None
+        revoked = auth_session_store.revoke_all(user_id, except_session_id=revoke_except_session_id)
         _record_security_event(request, user_id, "auth.password_reset_completed")
+        if revoked:
+            _record_security_event(request, user_id, "auth.sessions_revoked_all", {"revoked": revoked})
     except (InvalidAuthTokenError, UserNotFoundError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -388,6 +446,7 @@ def delete_current_auth_user(request: Request, payload: AuthAccountDeleteRequest
         ) from exc
 
     security_event_store.delete_for_user(user.id)
+    auth_session_store.revoke_all(user.id)
     response.status_code = status.HTTP_204_NO_CONTENT
     _delete_auth_cookie(response)
     return response
@@ -502,6 +561,10 @@ def list_current_user_security_events(
 def logout(request: Request, response: Response) -> Response:
     try:
         user = _get_current_auth_user(request)
+        session_id = _get_current_auth_session_id(request)
+        if session_id:
+            auth_session_store.revoke(user.id, session_id)
+            _record_security_event(request, user.id, "auth.session_revoked", {"current": True})
         _record_security_event(request, user.id, "auth.logged_out")
     except HTTPException:
         pass
@@ -887,7 +950,7 @@ def _bearer_token(request: Request) -> str | None:
     return None
 
 
-def _get_current_auth_user(request: Request) -> AuthUser:
+def _get_current_auth_claims(request: Request):
     token = request.cookies.get(AUTH_COOKIE_NAME) or _bearer_token(request)
     if not token:
         raise HTTPException(
@@ -896,13 +959,30 @@ def _get_current_auth_user(request: Request) -> AuthUser:
         )
 
     try:
-        user_id = verify_access_token(settings, token)
-        return user_store.get_user(user_id)
-    except (InvalidCredentialsError, UserNotFoundError) as exc:
+        claims = verify_access_token_claims(settings, token)
+        if claims.session_id:
+            auth_session_store.require_active(claims.user_id, claims.session_id)
+        return claims
+    except (InvalidCredentialsError, AuthSessionNotFoundError, AuthSessionRevokedError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
         ) from exc
+
+
+def _get_current_auth_user(request: Request) -> AuthUser:
+    claims = _get_current_auth_claims(request)
+    try:
+        return user_store.get_user(claims.user_id)
+    except UserNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
+        ) from exc
+
+
+def _get_current_auth_session_id(request: Request) -> str | None:
+    return _get_current_auth_claims(request).session_id
 
 
 def _get_optional_current_auth_user(request: Request) -> AuthUser | None:
@@ -931,6 +1011,23 @@ def _check_auth_rate_limit(request: Request, action: str, email: str) -> None:
         detail={"code": "RATE_LIMITED", "message": "Too many authentication attempts"},
         headers={"Retry-After": str(decision.retry_after_seconds)},
     )
+
+
+def _create_auth_session(request: Request, user: AuthUser) -> AuthSessionInfo:
+    expires_at = datetime.now(UTC) + timedelta(seconds=settings.auth_token_ttl_seconds)
+    session_info = auth_session_store.create(
+        user.id,
+        expires_at,
+        client_identifier=client_identifier(request),
+        user_agent=request.headers.get("user-agent", ""),
+    )
+    _record_security_event(
+        request,
+        user.id,
+        "auth.session_created",
+        {"sessionId": _redact_user_id(session_info.id)},
+    )
+    return session_info
 
 
 def _send_email_verification(user: AuthUser) -> AuthEmailActionResponse:

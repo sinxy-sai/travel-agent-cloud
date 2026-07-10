@@ -37,6 +37,7 @@ import {
   importAnonymousUserData,
   importCurrentUserData,
   listAuthIdentities,
+  listAuthSessions,
   listUserSecurityEvents,
   loginUser,
   listConversations,
@@ -45,6 +46,8 @@ import {
   registerUser,
   requestEmailVerification,
   requestPasswordReset,
+  revokeAuthSession,
+  revokeOtherAuthSessions,
   sendChatMessage,
   unlinkAuthIdentity,
   updateConversationTitle,
@@ -53,6 +56,7 @@ import {
   updateUserProfile,
   type AuthUser,
   type AuthIdentity,
+  type AuthSessionInfo,
   type ChatMessage,
   type Conversation,
   type ConversationSummary,
@@ -201,6 +205,12 @@ export default function App() {
     enabled: Boolean(authUserQuery.data),
   });
 
+  const authSessionsQuery = useQuery({
+    queryKey: ['auth-sessions'],
+    queryFn: listAuthSessions,
+    enabled: Boolean(authUserQuery.data),
+  });
+
   const anonymousDataSummaryQuery = useQuery({
     queryKey: ['anonymous-data-summary', authUserQuery.data?.id],
     queryFn: getAnonymousUserDataSummary,
@@ -236,6 +246,7 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
       queryClient.invalidateQueries({ queryKey: ['security-events'] });
       queryClient.invalidateQueries({ queryKey: ['auth-identities'] });
+      queryClient.invalidateQueries({ queryKey: ['auth-sessions'] });
     },
   });
 
@@ -319,6 +330,22 @@ export default function App() {
     mutationFn: unlinkAuthIdentity,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['auth-identities'] });
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
+    },
+  });
+
+  const revokeAuthSessionMutation = useMutation({
+    mutationFn: revokeAuthSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auth-sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
+    },
+  });
+
+  const revokeOtherAuthSessionsMutation = useMutation({
+    mutationFn: revokeOtherAuthSessions,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auth-sessions'] });
       queryClient.invalidateQueries({ queryKey: ['security-events'] });
     },
   });
@@ -735,6 +762,7 @@ export default function App() {
     queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     queryClient.invalidateQueries({ queryKey: ['security-events'] });
     queryClient.invalidateQueries({ queryKey: ['auth-identities'] });
+    queryClient.invalidateQueries({ queryKey: ['auth-sessions'] });
   }
 
   function openAuthModal(mode: 'LOGIN' | 'REGISTER') {
@@ -982,15 +1010,19 @@ export default function App() {
           <AccountStatus
             user={authUserQuery.data}
             authIdentities={authIdentitiesQuery.data?.data ?? []}
+            authSessions={authSessionsQuery.data?.data ?? []}
             securityEvents={securityEventsQuery.data?.data ?? []}
             loading={
               authUserQuery.isLoading ||
               authIdentitiesQuery.isLoading ||
+              authSessionsQuery.isLoading ||
               securityEventsQuery.isLoading ||
               logoutMutation.isPending ||
               changePasswordMutation.isPending ||
               updateAuthUserMutation.isPending ||
               unlinkAuthIdentityMutation.isPending ||
+              revokeAuthSessionMutation.isPending ||
+              revokeOtherAuthSessionsMutation.isPending ||
               exportUserDataMutation.isPending ||
               importUserDataMutation.isPending ||
               importAnonymousUserDataMutation.isPending ||
@@ -1004,6 +1036,8 @@ export default function App() {
               window.location.assign(getGithubOAuthStartUrl());
             }}
             onUnlinkGithub={() => unlinkAuthIdentityMutation.mutate('github')}
+            onRevokeSession={(sessionId) => revokeAuthSessionMutation.mutate(sessionId)}
+            onRevokeOtherSessions={() => revokeOtherAuthSessionsMutation.mutate()}
             authActionMessage={authActionMessage}
             onRequestEmailVerification={() => requestEmailVerificationMutation.mutate()}
             onEditAccount={() => {
@@ -1937,6 +1971,7 @@ function RuntimeStatus({
 function AccountStatus({
   user,
   authIdentities,
+  authSessions,
   securityEvents,
   loading,
   onLogin,
@@ -1944,6 +1979,8 @@ function AccountStatus({
   githubOAuthEnabled,
   onStartGithubOAuth,
   onUnlinkGithub,
+  onRevokeSession,
+  onRevokeOtherSessions,
   authActionMessage,
   onRequestEmailVerification,
   onEditAccount,
@@ -1960,6 +1997,7 @@ function AccountStatus({
 }: {
   user?: AuthUser | null;
   authIdentities: AuthIdentity[];
+  authSessions: AuthSessionInfo[];
   securityEvents: UserSecurityEvent[];
   loading: boolean;
   onLogin: () => void;
@@ -1967,6 +2005,8 @@ function AccountStatus({
   githubOAuthEnabled: boolean;
   onStartGithubOAuth: () => void;
   onUnlinkGithub: () => void;
+  onRevokeSession: (sessionId: string) => void;
+  onRevokeOtherSessions: () => void;
   authActionMessage: string;
   onRequestEmailVerification: () => void;
   onEditAccount: () => void;
@@ -1984,6 +2024,8 @@ function AccountStatus({
   const accountDataManagementDisabled = Boolean(user && !user.emailVerified);
   const githubIdentity = authIdentities.find((identity) => identity.provider === 'github');
   const passwordConfigured = user?.passwordConfigured ?? true;
+  const activeSessions = authSessions.filter((session) => !session.revoked);
+  const otherSessions = activeSessions.filter((session) => !session.current);
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 bg-white p-3">
@@ -2052,6 +2094,52 @@ function AccountStatus({
           {accountDataManagementDisabled && (
             <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-700">
               Verify your email before exporting or importing account data.
+            </div>
+          )}
+          {activeSessions.length > 0 && (
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-slate-600">Active sessions</p>
+                <Popconfirm
+                  title="Sign out other devices?"
+                  description="Other active sessions will need to sign in again."
+                  okText="Sign out"
+                  cancelText="Cancel"
+                  onConfirm={onRevokeOtherSessions}
+                  disabled={otherSessions.length === 0}
+                >
+                  <Button size="small" disabled={otherSessions.length === 0}>
+                    Sign out others
+                  </Button>
+                </Popconfirm>
+              </div>
+              <div className="space-y-2">
+                {activeSessions.slice(0, 3).map((session) => (
+                  <div key={session.id} className="rounded-md bg-white px-2 py-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-slate-700">
+                          {session.current ? 'Current device' : session.userAgent || 'Unknown device'}
+                        </p>
+                        <p className="mt-1 text-slate-400">Last seen {formatDateTime(session.lastSeenAt)}</p>
+                      </div>
+                      {session.current ? (
+                        <span className="shrink-0 rounded bg-emerald-50 px-2 py-1 text-emerald-700">Current</span>
+                      ) : (
+                        <Popconfirm
+                          title="Revoke this session?"
+                          description="This device will need to sign in again."
+                          okText="Revoke"
+                          cancelText="Cancel"
+                          onConfirm={() => onRevokeSession(session.id)}
+                        >
+                          <Button size="small">Revoke</Button>
+                        </Popconfirm>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           <Button size="small" onClick={onExportData} disabled={accountDataManagementDisabled}>
@@ -2368,6 +2456,9 @@ function formatSecurityEventType(value: string): string {
     'auth.registered': 'Account created',
     'auth.logged_in': 'Signed in',
     'auth.logged_out': 'Signed out',
+    'auth.session_created': 'Session created',
+    'auth.session_revoked': 'Session revoked',
+    'auth.sessions_revoked_all': 'Other sessions revoked',
     'auth.password_changed': 'Password changed',
     'auth.email_verification_requested': 'Verification email sent',
     'auth.email_verified': 'Email verified',

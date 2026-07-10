@@ -238,6 +238,27 @@ curl -X POST http://localhost:8000/api/v1/auth/password-reset/confirm \
   -d '{"token":"token-from-email","newPassword":"NewChangeMe123!"}'
 ```
 
+List active and revoked login sessions:
+
+```bash
+curl http://localhost:8000/api/v1/auth/sessions \
+  -b cookies.txt
+```
+
+Revoke one session by id:
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/auth/sessions/session-id \
+  -b cookies.txt
+```
+
+Sign out every other active session while keeping the current session:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/sessions/revoke-all \
+  -b cookies.txt
+```
+
 List recent account security activity:
 
 ```bash
@@ -294,7 +315,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout \
 ```
 
 Authenticated requests are scoped by the signed-in user's httpOnly cookie. If no valid login cookie or Bearer token is present, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
-Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL, RabbitMQ, and SMTP are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes, session tokens, or email action tokens. User data import accepts that export format, ignores exported account identity fields, and restores data into the currently signed-in account. Anonymous data import copies the current browser's anonymous workspace into the signed-in account and records `user.anonymous_data_imported`; the frontend checks `/anonymous-data/summary` after login and prompts the user before importing. Account security activity records successful account events and stores only a hashed client identifier plus non-sensitive details. Password reset completion writes `auth.password_reset_completed`. Account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, security events, and saved trip plans.
+Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. JWTs include a `sid` claim for new logins; the runtime checks `auth_sessions` so logout and explicit revocation can invalidate a session before the token expires. Existing tokens without `sid` remain accepted until their natural expiry for deployment compatibility. Session records store a hashed client identifier and sanitized User-Agent, never raw JWTs. Service credentials such as PostgreSQL, RabbitMQ, and SMTP are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes, session tokens, or email action tokens. User data import accepts that export format, ignores exported account identity fields, and restores data into the currently signed-in account. Anonymous data import copies the current browser's anonymous workspace into the signed-in account and records `user.anonymous_data_imported`; the frontend checks `/anonymous-data/summary` after login and prompts the user before importing. Account security activity records successful account events and stores only a hashed client identifier plus non-sensitive details. Password reset completion writes `auth.password_reset_completed` and revokes older sessions; account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, sessions, security events, and saved trip plans.
 
 Create a structured trip plan:
 

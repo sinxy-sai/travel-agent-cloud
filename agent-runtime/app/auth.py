@@ -4,6 +4,7 @@ import hmac
 import json
 import re
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -14,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import session_scope
 from app.models import (
     AuthIdentityRecord,
+    AuthSessionRecord,
     ConversationRecord,
     ConversationSummaryJobRecord,
     ConversationSummaryRecord,
@@ -53,6 +55,12 @@ class AuthIdentityConflictError(AuthError):
 
 class UserNotFoundError(AuthError):
     pass
+
+
+@dataclass(frozen=True)
+class AccessTokenClaims:
+    user_id: str
+    session_id: str | None = None
 
 
 class UserStore:
@@ -274,6 +282,7 @@ class DatabaseUserStore:
             )
             session.execute(delete(TripPlanRecord).where(TripPlanRecord.user_id == user_id))
             session.execute(delete(AuthIdentityRecord).where(AuthIdentityRecord.user_id == user_id))
+            session.execute(delete(AuthSessionRecord).where(AuthSessionRecord.user_id == user_id))
             session.execute(delete(AuthTokenRecord).where(AuthTokenRecord.user_id == user_id))
             session.execute(delete(ConversationSummaryJobRecord).where(ConversationSummaryJobRecord.user_id == user_id))
             session.execute(delete(ConversationSummaryRecord).where(ConversationSummaryRecord.user_id == user_id))
@@ -321,7 +330,12 @@ def verify_password(password: str, password_hash: str) -> bool:
     return hmac.compare_digest(actual_digest, expected_digest)
 
 
-def create_access_token(settings: Settings, user_id: str, now: datetime | None = None) -> str:
+def create_access_token(
+    settings: Settings,
+    user_id: str,
+    session_id: str | None = None,
+    now: datetime | None = None,
+) -> str:
     issued_at = now or _now()
     expires_at = issued_at + timedelta(seconds=settings.auth_token_ttl_seconds)
     header = {"alg": JWT_ALGORITHM, "typ": "JWT"}
@@ -330,12 +344,18 @@ def create_access_token(settings: Settings, user_id: str, now: datetime | None =
         "iat": int(issued_at.timestamp()),
         "exp": int(expires_at.timestamp()),
     }
+    if session_id:
+        payload["sid"] = session_id
     signing_input = f"{_b64url_json(header)}.{_b64url_json(payload)}"
     signature = _sign(settings.auth_secret_key, signing_input)
     return f"{signing_input}.{signature}"
 
 
 def verify_access_token(settings: Settings, token: str, now: datetime | None = None) -> str:
+    return verify_access_token_claims(settings, token, now).user_id
+
+
+def verify_access_token_claims(settings: Settings, token: str, now: datetime | None = None) -> AccessTokenClaims:
     try:
         header_text, payload_text, signature = token.split(".", 2)
     except ValueError as exc:
@@ -356,14 +376,17 @@ def verify_access_token(settings: Settings, token: str, now: datetime | None = N
         raise InvalidCredentialsError()
 
     subject = payload.get("sub")
+    session_id = payload.get("sid")
     expires_at = payload.get("exp")
     if not isinstance(subject, str) or not isinstance(expires_at, int):
+        raise InvalidCredentialsError()
+    if session_id is not None and not isinstance(session_id, str):
         raise InvalidCredentialsError()
 
     current_time = int((now or _now()).timestamp())
     if expires_at <= current_time:
         raise InvalidCredentialsError()
-    return subject
+    return AccessTokenClaims(user_id=subject, session_id=session_id)
 
 
 def _normalize_email(email: str) -> str:

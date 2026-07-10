@@ -215,6 +215,26 @@ class AuthSession(APIModel):
     user: AuthUser
 
 
+class AuthSessionInfo(APIModel):
+    id: str
+    user_id: str
+    user_agent: str = ""
+    current: bool = False
+    revoked: bool = False
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None = None
+
+
+class AuthSessionListResponse(APIModel):
+    data: list[AuthSessionInfo]
+
+
+class AuthSessionRevokeAllResponse(APIModel):
+    revoked: int
+
+
 class AuthIdentity(APIModel):
     id: str
     user_id: str

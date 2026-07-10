@@ -100,6 +100,23 @@ if [ "${CURRENT_AUTH_PASSWORD_CONFIGURED}" != "yes" ]; then
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
+AUTH_SESSIONS_JSON="$(curl -fsS "${BASE_URL}/api/v1/auth/sessions" \
+  -b "${AUTH_COOKIE_JAR}")"
+AUTH_SESSIONS_COUNT="$(printf '%s' "${AUTH_SESSIONS_JSON}" | python3 -c 'import json, sys; print(len(json.load(sys.stdin).get("data", [])))')"
+AUTH_SESSIONS_HAS_CURRENT="$(printf '%s' "${AUTH_SESSIONS_JSON}" | python3 -c 'import json, sys; print("yes" if any(item.get("current") for item in json.load(sys.stdin).get("data", [])) else "no")')"
+if [ "${AUTH_SESSIONS_COUNT}" -lt 1 ] || [ "${AUTH_SESSIONS_HAS_CURRENT}" != "yes" ]; then
+  echo "Auth sessions API did not return the current session" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+REVOKE_OTHER_SESSIONS_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/sessions/revoke-all" \
+  -b "${AUTH_COOKIE_JAR}")"
+HAS_REVOKED_COUNT="$(printf '%s' "${REVOKE_OTHER_SESSIONS_JSON}" | python3 -c 'import json, sys; print("yes" if "revoked" in json.load(sys.stdin) else "no")')"
+if [ "${HAS_REVOKED_COUNT}" != "yes" ]; then
+  echo "Auth revoke other sessions API did not return revoked count" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
 UNVERIFIED_EXPORT_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/me/export" \
   -b "${AUTH_COOKIE_JAR}")"
 if [ "${UNVERIFIED_EXPORT_STATUS}" != "403" ]; then

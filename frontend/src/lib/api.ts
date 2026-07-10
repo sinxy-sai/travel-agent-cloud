@@ -155,6 +155,26 @@ export interface AuthSession {
   user: AuthUser;
 }
 
+export interface AuthSessionInfo {
+  id: string;
+  userId: string;
+  userAgent: string;
+  current: boolean;
+  revoked: boolean;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  revokedAt?: string | null;
+}
+
+export interface AuthSessionListResponse {
+  data: AuthSessionInfo[];
+}
+
+export interface AuthSessionRevokeAllResponse {
+  revoked: number;
+}
+
 export interface AuthIdentity {
   id: string;
   userId: string;
@@ -289,6 +309,20 @@ export async function loginUser(request: AuthLoginRequest): Promise<AuthSession>
 
 export async function logoutUser(): Promise<void> {
   await api.post('/api/v1/auth/logout');
+}
+
+export async function listAuthSessions(): Promise<AuthSessionListResponse> {
+  const response = await api.get<AuthSessionListResponse>('/api/v1/auth/sessions');
+  return response.data;
+}
+
+export async function revokeAuthSession(sessionId: string): Promise<void> {
+  await api.delete(`/api/v1/auth/sessions/${sessionId}`);
+}
+
+export async function revokeOtherAuthSessions(): Promise<AuthSessionRevokeAllResponse> {
+  const response = await api.post<AuthSessionRevokeAllResponse>('/api/v1/auth/sessions/revoke-all');
+  return response.data;
 }
 
 export async function changePassword(request: AuthPasswordChangeRequest): Promise<void> {

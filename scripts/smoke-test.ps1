@@ -78,6 +78,17 @@ if ($currentAuthUser.email -ne $authEmail) {
 if (-not $currentAuthUser.passwordConfigured) {
   throw "Auth me API should return passwordConfigured=true for password accounts"
 }
+$authSessions = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/sessions" -WebSession $authSession
+if (-not $authSessions.data -or $authSessions.data.Count -lt 1) {
+  throw "Auth sessions API did not return the current session"
+}
+if (-not ($authSessions.data | Where-Object { $_.current })) {
+  throw "Auth sessions API did not mark the current session"
+}
+$revokeOtherSessionsResponse = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/sessions/revoke-all" -Method Post -WebSession $authSession
+if (-not ($revokeOtherSessionsResponse.PSObject.Properties.Name -contains "revoked")) {
+  throw "Auth revoke other sessions API did not return revoked count"
+}
 try {
   Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/export" -WebSession $authSession
   throw "User data export API accepted an unverified account"
