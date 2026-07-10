@@ -37,9 +37,27 @@ $registeredSession = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/register" -Met
 if ($registeredSession.user.email -ne $authEmail) {
   throw "Auth register API did not return the created user"
 }
+if ($registeredSession.user.emailVerified) {
+  throw "Newly registered accounts should start with emailVerified=false"
+}
 $currentAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -WebSession $authSession
 if ($currentAuthUser.email -ne $authEmail) {
   throw "Auth me API did not return the cookie-authenticated user"
+}
+$verificationResponse = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/email-verification/request" -Method Post -WebSession $authSession
+if ($verificationResponse.PSObject.Properties.Name -contains "devToken" -and $verificationResponse.devToken) {
+  $verifiedAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/email-verification/confirm" -Method Post -ContentType "application/json" -Body (@{
+    token = $verificationResponse.devToken
+  } | ConvertTo-Json)
+  if (-not $verifiedAuthUser.emailVerified) {
+    throw "Email verification API did not mark the user as verified"
+  }
+}
+$missingResetResponse = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/password-reset/request" -Method Post -ContentType "application/json" -Body (@{
+  email = "missing-$([guid]::NewGuid().ToString('N'))@example.com"
+} | ConvertTo-Json)
+if (-not $missingResetResponse.sent) {
+  throw "Password reset request should return a generic accepted response for missing email"
 }
 $securityEvents = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/security-events?page=1&pageSize=5" -WebSession $authSession
 if (-not $securityEvents.data -or $securityEvents.data.Count -eq 0) {
@@ -63,11 +81,23 @@ $importedUserData = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/import" -Method P
 if (-not $importedUserData.profileImported) {
   throw "User data import API did not import the profile"
 }
-$passwordChangeBody = @{
-  currentPassword = "SmokeTest123!"
-  newPassword = $changedPassword
-} | ConvertTo-Json
-Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/password" -Method Patch -ContentType "application/json" -WebSession $authSession -Body $passwordChangeBody
+$resetPassword = "SmokeTest789!"
+$resetResponse = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/password-reset/request" -Method Post -ContentType "application/json" -Body (@{
+  email = $authEmail
+} | ConvertTo-Json)
+if ($resetResponse.PSObject.Properties.Name -contains "devToken" -and $resetResponse.devToken) {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/password-reset/confirm" -Method Post -ContentType "application/json" -Body (@{
+    token = $resetResponse.devToken
+    newPassword = $resetPassword
+  } | ConvertTo-Json)
+  $changedPassword = $resetPassword
+} else {
+  $passwordChangeBody = @{
+    currentPassword = "SmokeTest123!"
+    newPassword = $changedPassword
+  } | ConvertTo-Json
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/password" -Method Patch -ContentType "application/json" -WebSession $authSession -Body $passwordChangeBody
+}
 Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/logout" -Method Post -WebSession $authSession
 try {
   Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -WebSession $authSession
@@ -83,7 +113,7 @@ $oldPasswordLoginBody = @{
 } | ConvertTo-Json
 try {
   Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/login" -Method Post -ContentType "application/json" -WebSession $authSession -Body $oldPasswordLoginBody
-  throw "Auth login accepted the old password after a password change"
+  throw "Auth login accepted the old password after a password update"
 } catch {
   if ($_.Exception.Response.StatusCode.value__ -ne 401) {
     throw

@@ -16,6 +16,7 @@ from app.models import (
     ConversationRecord,
     ConversationSummaryJobRecord,
     ConversationSummaryRecord,
+    AuthTokenRecord,
     MessageRecord,
     TripPlanRecord,
     UserProfileRecord,
@@ -85,6 +86,14 @@ class UserStore:
             raise UserNotFoundError(user_id)
         return user
 
+    def get_user_by_email(self, email: str) -> AuthUser:
+        normalized_email = _normalize_email(email)
+        item = self._password_hashes_by_email.get(normalized_email)
+        if item is None:
+            raise UserNotFoundError(normalized_email)
+        user_id, _password_hash = item
+        return self.get_user(user_id)
+
     def update_user(self, user_id: str, display_name: str) -> AuthUser:
         user = self.get_user(user_id)
         updated_user = user.model_copy(update={"display_name": display_name.strip()})
@@ -100,6 +109,19 @@ class UserStore:
         if not verify_password(current_password, password_hash):
             raise InvalidCredentialsError()
         self._password_hashes_by_email[user.email] = (user_id, hash_password(new_password))
+
+    def reset_password(self, user_id: str, new_password: str) -> None:
+        user = self.get_user(user_id)
+        item = self._password_hashes_by_email.get(user.email)
+        if item is None:
+            raise UserNotFoundError(user_id)
+        self._password_hashes_by_email[user.email] = (user_id, hash_password(new_password))
+
+    def mark_email_verified(self, user_id: str) -> AuthUser:
+        user = self.get_user(user_id)
+        updated_user = user.model_copy(update={"email_verified": True})
+        self._users_by_id[user_id] = updated_user
+        return updated_user
 
     def delete_user(self, user_id: str, current_password: str) -> None:
         user = self.get_user(user_id)
@@ -147,6 +169,14 @@ class DatabaseUserStore:
                 raise UserNotFoundError(user_id)
             return _to_auth_user(record)
 
+    def get_user_by_email(self, email: str) -> AuthUser:
+        normalized_email = _normalize_email(email)
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(select(UserRecord).where(UserRecord.email == normalized_email))
+            if record is None:
+                raise UserNotFoundError(normalized_email)
+            return _to_auth_user(record)
+
     def update_user(self, user_id: str, display_name: str) -> AuthUser:
         with session_scope(self._session_factory) as session:
             record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
@@ -167,6 +197,25 @@ class DatabaseUserStore:
             record.password_hash = hash_password(new_password)
             record.updated_at = _now()
 
+    def reset_password(self, user_id: str, new_password: str) -> None:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
+            if record is None:
+                raise UserNotFoundError(user_id)
+            record.password_hash = hash_password(new_password)
+            record.updated_at = _now()
+
+    def mark_email_verified(self, user_id: str) -> AuthUser:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
+            if record is None:
+                raise UserNotFoundError(user_id)
+            record.email_verified = True
+            record.email_verified_at = _now()
+            record.updated_at = record.email_verified_at
+            session.flush()
+            return _to_auth_user(record)
+
     def delete_user(self, user_id: str, current_password: str) -> None:
         with session_scope(self._session_factory) as session:
             record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
@@ -179,6 +228,7 @@ class DatabaseUserStore:
                 session.scalars(select(ConversationRecord.id).where(ConversationRecord.user_id == user_id))
             )
             session.execute(delete(TripPlanRecord).where(TripPlanRecord.user_id == user_id))
+            session.execute(delete(AuthTokenRecord).where(AuthTokenRecord.user_id == user_id))
             session.execute(delete(ConversationSummaryJobRecord).where(ConversationSummaryJobRecord.user_id == user_id))
             session.execute(delete(ConversationSummaryRecord).where(ConversationSummaryRecord.user_id == user_id))
             session.execute(delete(UserSecurityEventRecord).where(UserSecurityEventRecord.user_id == user_id))
@@ -274,6 +324,7 @@ def _to_auth_user(record: UserRecord) -> AuthUser:
         id=record.id,
         email=record.email,
         display_name=record.display_name,
+        email_verified=record.email_verified,
         created_at=record.created_at,
     )
 

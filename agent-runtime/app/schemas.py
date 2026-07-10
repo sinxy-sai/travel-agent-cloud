@@ -147,6 +147,39 @@ class AuthPasswordChangeRequest(APIModel):
         return value
 
 
+class AuthEmailRequest(APIModel):
+    email: str = Field(min_length=3, max_length=255)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class AuthTokenConfirmRequest(APIModel):
+    token: str = Field(min_length=20, max_length=300)
+
+
+class AuthPasswordResetConfirmRequest(APIModel):
+    token: str = Field(min_length=20, max_length=300)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        if value.strip() != value:
+            raise ValueError("Password cannot start or end with whitespace")
+        return value
+
+
+class AuthEmailActionResponse(APIModel):
+    sent: bool
+    delivery: str
+    expires_at: datetime | None = None
+    dev_token: str | None = None
+    action_url: str | None = None
+
+
 class AuthAccountDeleteRequest(APIModel):
     current_password: str = Field(min_length=1, max_length=128)
     confirmation: str = Field(min_length=6, max_length=32)
@@ -173,6 +206,7 @@ class AuthUser(APIModel):
     id: str
     email: str
     display_name: str = ""
+    email_verified: bool = False
     created_at: datetime
 
 

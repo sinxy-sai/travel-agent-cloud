@@ -15,6 +15,13 @@ from app.auth import (
     create_access_token,
     verify_access_token,
 )
+from app.auth_tokens import (
+    TOKEN_PURPOSE_EMAIL_VERIFICATION,
+    TOKEN_PURPOSE_PASSWORD_RESET,
+    AuthTokenStore,
+    DatabaseAuthTokenStore,
+    InvalidAuthTokenError,
+)
 from app.conversations import (
     ConversationNotFoundError,
     ConversationStore,
@@ -26,15 +33,20 @@ from app.db import maybe_create_session_factory
 from app.events import CONVERSATION_SUMMARY_REQUESTED_EVENT, create_event_publisher
 from app.exporter import saved_trip_plan_to_markdown
 from app.llm import LLMClient
+from app.mailer import Mailer
 from app.observability import RequestLoggingMiddleware, configure_logging
 from app.planner import build_mock_trip_plan
 from app.profiles import DatabaseUserProfileStore, UserProfileStore
 from app.schemas import (
     AuthAccountDeleteRequest,
+    AuthEmailActionResponse,
+    AuthEmailRequest,
     AuthLoginRequest,
     AuthPasswordChangeRequest,
+    AuthPasswordResetConfirmRequest,
     AuthRegisterRequest,
     AuthSession,
+    AuthTokenConfirmRequest,
     AuthUser,
     AuthUserUpdateRequest,
     ChatRequest,
@@ -87,6 +99,8 @@ user_store = DatabaseUserStore(session_factory) if session_factory else UserStor
 security_event_store = (
     DatabaseUserSecurityEventStore(session_factory) if session_factory else UserSecurityEventStore()
 )
+auth_token_store = DatabaseAuthTokenStore(session_factory) if session_factory else AuthTokenStore()
+mailer = Mailer(settings)
 event_publisher = create_event_publisher(settings)
 conversation_summarizer = ConversationSummarizerWorker(conversation_store, summary_store, event_publisher)
 user_data_importer = UserDataImporter(session_factory, conversation_store, profile_store, summary_store)
@@ -132,6 +146,7 @@ def register(request: Request, payload: AuthRegisterRequest, response: Response)
         ) from exc
     token = create_access_token(settings, user.id)
     _set_auth_cookie(response, token)
+    _send_email_verification(user)
     _record_security_event(request, user.id, "auth.registered")
     return AuthSession(user=user)
 
@@ -181,6 +196,69 @@ def change_password(request: Request, payload: AuthPasswordChangeRequest) -> Res
             detail={"code": "INVALID_CREDENTIALS", "message": "Current password is incorrect"},
         ) from exc
     _record_security_event(request, user.id, "auth.password_changed")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post("/api/v1/auth/email-verification/request", response_model=AuthEmailActionResponse)
+def request_email_verification(request: Request) -> AuthEmailActionResponse:
+    user = _get_current_auth_user(request)
+    _check_auth_rate_limit(request, "email-verification", user.id)
+    if user.email_verified:
+        return AuthEmailActionResponse(sent=False, delivery="already_verified")
+    result = _send_email_verification(user)
+    _record_security_event(request, user.id, "auth.email_verification_requested", {"delivery": result.delivery})
+    return result
+
+
+@app.post("/api/v1/auth/email-verification/confirm", response_model=AuthUser)
+def confirm_email_verification(request: Request, payload: AuthTokenConfirmRequest) -> AuthUser:
+    try:
+        user_id = auth_token_store.consume(payload.token, TOKEN_PURPOSE_EMAIL_VERIFICATION)
+        user = user_store.mark_email_verified(user_id)
+    except (InvalidAuthTokenError, UserNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_TOKEN", "message": "Verification link is invalid or expired"},
+        ) from exc
+    _record_security_event(request, user.id, "auth.email_verified")
+    return user
+
+
+@app.post("/api/v1/auth/password-reset/request", response_model=AuthEmailActionResponse)
+def request_password_reset(request: Request, payload: AuthEmailRequest) -> AuthEmailActionResponse:
+    _check_auth_rate_limit(request, "password-reset", payload.email)
+    try:
+        user = user_store.get_user_by_email(payload.email)
+    except (UserNotFoundError, ValueError):
+        return AuthEmailActionResponse(sent=True, delivery="accepted")
+
+    generated = auth_token_store.create(
+        user.id,
+        TOKEN_PURPOSE_PASSWORD_RESET,
+        settings.password_reset_token_ttl_seconds,
+    )
+    delivery = mailer.send_password_reset(user.email, generated.token)
+    if settings.email_provider.strip().lower() in {"", "mock"}:
+        response = AuthEmailActionResponse(sent=delivery.sent, delivery=delivery.delivery, expires_at=generated.expires_at)
+        response.dev_token = generated.token
+        response.action_url = mailer.password_reset_url(generated.token)
+    else:
+        response = AuthEmailActionResponse(sent=True, delivery="accepted")
+    _record_security_event(request, user.id, "auth.password_reset_requested", {"delivery": delivery.delivery})
+    return response
+
+
+@app.post("/api/v1/auth/password-reset/confirm", status_code=status.HTTP_204_NO_CONTENT)
+def confirm_password_reset(request: Request, payload: AuthPasswordResetConfirmRequest) -> Response:
+    try:
+        user_id = auth_token_store.consume(payload.token, TOKEN_PURPOSE_PASSWORD_RESET)
+        user_store.reset_password(user_id, payload.new_password)
+        _record_security_event(request, user_id, "auth.password_reset_completed")
+    except (InvalidAuthTokenError, UserNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_TOKEN", "message": "Password reset link is invalid or expired"},
+        ) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -600,6 +678,20 @@ def _check_auth_rate_limit(request: Request, action: str, email: str) -> None:
         detail={"code": "RATE_LIMITED", "message": "Too many authentication attempts"},
         headers={"Retry-After": str(decision.retry_after_seconds)},
     )
+
+
+def _send_email_verification(user: AuthUser) -> AuthEmailActionResponse:
+    generated = auth_token_store.create(
+        user.id,
+        TOKEN_PURPOSE_EMAIL_VERIFICATION,
+        settings.email_verification_token_ttl_seconds,
+    )
+    delivery = mailer.send_email_verification(user.email, generated.token)
+    response = AuthEmailActionResponse(sent=delivery.sent, delivery=delivery.delivery, expires_at=generated.expires_at)
+    if settings.email_provider.strip().lower() in {"", "mock"}:
+        response.dev_token = generated.token
+        response.action_url = mailer.verification_url(generated.token)
+    return response
 
 
 def _record_security_event(

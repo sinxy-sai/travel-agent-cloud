@@ -14,6 +14,8 @@ import {
 } from '@ant-design/icons';
 import {
   changePassword,
+  confirmEmailVerification,
+  confirmPasswordReset,
   createTripPlan,
   createConversationSummary,
   createConversationSummaryJob,
@@ -36,6 +38,8 @@ import {
   listTripPlans,
   logoutUser,
   registerUser,
+  requestEmailVerification,
+  requestPasswordReset,
   sendChatMessage,
   updateConversationTitle,
   updateCurrentAuthUser,
@@ -115,6 +119,7 @@ export default function App() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authDisplayName, setAuthDisplayName] = useState('');
+  const [authActionMessage, setAuthActionMessage] = useState('');
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountDisplayName, setAccountDisplayName] = useState('');
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
@@ -122,6 +127,13 @@ export default function App() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [passwordChangeSucceeded, setPasswordChangeSucceeded] = useState(false);
+  const [passwordResetRequestModalOpen, setPasswordResetRequestModalOpen] = useState(false);
+  const [passwordResetEmail, setPasswordResetEmail] = useState('');
+  const [passwordResetRequested, setPasswordResetRequested] = useState(false);
+  const [passwordResetConfirmModalOpen, setPasswordResetConfirmModalOpen] = useState(false);
+  const [passwordResetToken, setPasswordResetToken] = useState('');
+  const [passwordResetNewPassword, setPasswordResetNewPassword] = useState('');
+  const [passwordResetConfirmPassword, setPasswordResetConfirmPassword] = useState('');
   const [deleteAccountModalOpen, setDeleteAccountModalOpen] = useState(false);
   const [deleteAccountPassword, setDeleteAccountPassword] = useState('');
   const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState('');
@@ -201,6 +213,55 @@ export default function App() {
       resetPasswordForm();
       setPasswordChangeSucceeded(true);
       queryClient.invalidateQueries({ queryKey: ['security-events'] });
+    },
+  });
+
+  const requestEmailVerificationMutation = useMutation({
+    mutationFn: requestEmailVerification,
+    onSuccess: (response) => {
+      setAuthActionMessage(
+        response.actionUrl
+          ? `Verification link generated: ${response.actionUrl}`
+          : response.delivery === 'already_verified'
+            ? 'Email is already verified.'
+            : 'Verification email sent.',
+      );
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
+    },
+  });
+
+  const confirmEmailVerificationMutation = useMutation({
+    mutationFn: confirmEmailVerification,
+    onSuccess: (user) => {
+      queryClient.setQueryData(['auth-user'], user);
+      setAuthActionMessage('Email verified.');
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
+    },
+    onError: () => {
+      setAuthActionMessage('Verification link is invalid or expired.');
+    },
+  });
+
+  const requestPasswordResetMutation = useMutation({
+    mutationFn: requestPasswordReset,
+    onSuccess: (response) => {
+      setPasswordResetRequested(true);
+      if (response.devToken) {
+        setPasswordResetToken(response.devToken);
+        setPasswordResetRequestModalOpen(false);
+        setPasswordResetConfirmModalOpen(true);
+      }
+    },
+  });
+
+  const confirmPasswordResetMutation = useMutation({
+    mutationFn: confirmPasswordReset,
+    onSuccess: () => {
+      resetPasswordResetForm();
+      setPasswordResetConfirmModalOpen(false);
+      setAuthMode('LOGIN');
+      setAuthModalOpen(true);
+      setAuthActionMessage('Password reset. Sign in with the new password.');
     },
   });
 
@@ -433,6 +494,24 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authAction = params.get('authAction');
+    const token = params.get('token');
+    if (!authAction || !token) {
+      return;
+    }
+
+    if (authAction === 'verify-email') {
+      confirmEmailVerificationMutation.mutate({ token });
+    }
+    if (authAction === 'reset-password') {
+      setPasswordResetToken(token);
+      setPasswordResetConfirmModalOpen(true);
+    }
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }, []);
+
   function stopConversationSummaryJobPolling() {
     if (summaryJobPollingIntervalRef.current !== undefined) {
       window.clearInterval(summaryJobPollingIntervalRef.current);
@@ -565,6 +644,16 @@ export default function App() {
     changePasswordMutation.reset();
   }
 
+  function resetPasswordResetForm() {
+    setPasswordResetEmail('');
+    setPasswordResetRequested(false);
+    setPasswordResetToken('');
+    setPasswordResetNewPassword('');
+    setPasswordResetConfirmPassword('');
+    requestPasswordResetMutation.reset();
+    confirmPasswordResetMutation.reset();
+  }
+
   function resetDeleteAccountForm() {
     setDeleteAccountPassword('');
     setDeleteAccountConfirmation('');
@@ -604,6 +693,28 @@ export default function App() {
     changePasswordMutation.mutate({
       currentPassword,
       newPassword,
+    });
+  }
+
+  function submitPasswordResetRequest() {
+    const email = passwordResetEmail.trim();
+    if (!email || requestPasswordResetMutation.isPending) {
+      return;
+    }
+    requestPasswordResetMutation.mutate({ email });
+  }
+
+  function submitPasswordResetConfirm() {
+    if (
+      !passwordResetToken ||
+      passwordResetNewPassword.length < 8 ||
+      passwordResetNewPassword !== passwordResetConfirmPassword
+    ) {
+      return;
+    }
+    confirmPasswordResetMutation.mutate({
+      token: passwordResetToken,
+      newPassword: passwordResetNewPassword,
     });
   }
 
@@ -754,10 +865,13 @@ export default function App() {
               updateAuthUserMutation.isPending ||
               exportUserDataMutation.isPending ||
               importUserDataMutation.isPending ||
+              requestEmailVerificationMutation.isPending ||
               deleteAccountMutation.isPending
             }
             onLogin={() => openAuthModal('LOGIN')}
             onRegister={() => openAuthModal('REGISTER')}
+            authActionMessage={authActionMessage}
+            onRequestEmailVerification={() => requestEmailVerificationMutation.mutate()}
             onEditAccount={() => {
               setAccountDisplayName(authUserQuery.data?.displayName ?? '');
               updateAuthUserMutation.reset();
@@ -1222,6 +1336,25 @@ export default function App() {
                 : 'Could not create account. The email may already be registered.'}
             </div>
           )}
+          {authActionMessage && (
+            <div className="break-words rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              {authActionMessage}
+            </div>
+          )}
+          {authMode === 'LOGIN' && (
+            <Button
+              type="link"
+              className="px-0"
+              onClick={() => {
+                setPasswordResetEmail(authEmail.trim());
+                setPasswordResetRequested(false);
+                requestPasswordResetMutation.reset();
+                setPasswordResetRequestModalOpen(true);
+              }}
+            >
+              Forgot password?
+            </Button>
+          )}
           <Button
             type="link"
             className="px-0"
@@ -1233,6 +1366,113 @@ export default function App() {
           >
             {authMode === 'LOGIN' ? 'Create a new account' : 'Sign in to an existing account'}
           </Button>
+        </div>
+      </Modal>
+      <Modal
+        title="Reset password"
+        open={passwordResetRequestModalOpen}
+        okText="Send reset link"
+        onOk={submitPasswordResetRequest}
+        confirmLoading={requestPasswordResetMutation.isPending}
+        okButtonProps={{ disabled: !passwordResetEmail.trim() }}
+        onCancel={() => {
+          setPasswordResetRequestModalOpen(false);
+          resetPasswordResetForm();
+        }}
+      >
+        <div className="space-y-3">
+          <p className="text-sm leading-6 text-slate-600">
+            Enter your account email. If it exists, a password reset link will be sent.
+          </p>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Email</span>
+            <Input
+              value={passwordResetEmail}
+              onChange={(event) => {
+                setPasswordResetEmail(event.target.value);
+                setPasswordResetRequested(false);
+                requestPasswordResetMutation.reset();
+              }}
+              onPressEnter={submitPasswordResetRequest}
+              placeholder="you@example.com"
+            />
+          </label>
+          {passwordResetRequested && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              If the email exists, a reset link has been sent.
+            </div>
+          )}
+          {requestPasswordResetMutation.isError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              Could not request password reset. Please try again later.
+            </div>
+          )}
+        </div>
+      </Modal>
+      <Modal
+        title="Set new password"
+        open={passwordResetConfirmModalOpen}
+        okText="Update password"
+        onOk={submitPasswordResetConfirm}
+        confirmLoading={confirmPasswordResetMutation.isPending}
+        okButtonProps={{
+          disabled:
+            !passwordResetToken ||
+            passwordResetNewPassword.length < 8 ||
+            passwordResetNewPassword !== passwordResetConfirmPassword,
+        }}
+        onCancel={() => {
+          setPasswordResetConfirmModalOpen(false);
+          resetPasswordResetForm();
+        }}
+      >
+        <div className="space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Reset token</span>
+            <Input
+              value={passwordResetToken}
+              onChange={(event) => {
+                setPasswordResetToken(event.target.value);
+                confirmPasswordResetMutation.reset();
+              }}
+              placeholder="Token from email link"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">New password</span>
+            <Input.Password
+              value={passwordResetNewPassword}
+              onChange={(event) => {
+                setPasswordResetNewPassword(event.target.value);
+                confirmPasswordResetMutation.reset();
+              }}
+              placeholder="At least 8 characters"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Confirm new password</span>
+            <Input.Password
+              value={passwordResetConfirmPassword}
+              onChange={(event) => {
+                setPasswordResetConfirmPassword(event.target.value);
+                confirmPasswordResetMutation.reset();
+              }}
+              onPressEnter={submitPasswordResetConfirm}
+              placeholder="Repeat new password"
+            />
+          </label>
+          {passwordResetNewPassword &&
+            passwordResetConfirmPassword &&
+            passwordResetNewPassword !== passwordResetConfirmPassword && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                New passwords do not match.
+              </div>
+            )}
+          {confirmPasswordResetMutation.isError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              Password reset link is invalid or expired.
+            </div>
+          )}
         </div>
       </Modal>
       <Modal
@@ -1522,6 +1762,8 @@ function AccountStatus({
   loading,
   onLogin,
   onRegister,
+  authActionMessage,
+  onRequestEmailVerification,
   onEditAccount,
   onChangePassword,
   onExportData,
@@ -1535,6 +1777,8 @@ function AccountStatus({
   loading: boolean;
   onLogin: () => void;
   onRegister: () => void;
+  authActionMessage: string;
+  onRequestEmailVerification: () => void;
   onEditAccount: () => void;
   onChangePassword: () => void;
   onExportData: () => void;
@@ -1556,6 +1800,23 @@ function AccountStatus({
       </div>
       {user ? (
         <div className="grid gap-2">
+          <div
+            className={`rounded-md px-2 py-2 text-xs ${
+              user.emailVerified ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+            }`}
+          >
+            {user.emailVerified ? 'Email verified' : 'Email not verified'}
+          </div>
+          {!user.emailVerified && (
+            <Button size="small" onClick={onRequestEmailVerification}>
+              Resend verification
+            </Button>
+          )}
+          {authActionMessage && (
+            <div className="break-words rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-600">
+              {authActionMessage}
+            </div>
+          )}
           <Button size="small" onClick={onEditAccount}>
             Edit account
           </Button>

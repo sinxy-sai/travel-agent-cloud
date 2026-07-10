@@ -51,8 +51,26 @@ class UserRecord(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(80), default="")
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AuthTokenRecord(Base):
+    __tablename__ = "auth_tokens"
+    __table_args__ = (
+        Index("ix_auth_tokens_hash_purpose", "token_hash", "purpose"),
+        Index("ix_auth_tokens_user_purpose_created", "user_id", "purpose", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String(80), index=True)
+    purpose: Mapped[str] = mapped_column(String(40), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class UserSecurityEventRecord(Base):

@@ -47,11 +47,40 @@ if [ "${REGISTERED_EMAIL}" != "${AUTH_EMAIL}" ]; then
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
+REGISTERED_EMAIL_VERIFIED="$(printf '%s' "${REGISTER_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("user", {}).get("emailVerified") else "no")')"
+if [ "${REGISTERED_EMAIL_VERIFIED}" != "no" ]; then
+  echo "Newly registered accounts should start with emailVerified=false" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
 CURRENT_AUTH_USER_JSON="$(curl -fsS "${BASE_URL}/api/v1/auth/me" \
   -b "${AUTH_COOKIE_JAR}")"
 CURRENT_AUTH_EMAIL="$(printf '%s' "${CURRENT_AUTH_USER_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("email", ""))')"
 if [ "${CURRENT_AUTH_EMAIL}" != "${AUTH_EMAIL}" ]; then
   echo "Auth me API did not return the cookie-authenticated user" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+VERIFICATION_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/email-verification/request" \
+  -b "${AUTH_COOKIE_JAR}")"
+VERIFICATION_DEV_TOKEN="$(printf '%s' "${VERIFICATION_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("devToken") or "")')"
+if [ -n "${VERIFICATION_DEV_TOKEN}" ]; then
+  VERIFIED_USER_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/email-verification/confirm" \
+    -H "Content-Type: application/json" \
+    -d "{\"token\":\"${VERIFICATION_DEV_TOKEN}\"}")"
+  VERIFIED_EMAIL_STATUS="$(printf '%s' "${VERIFIED_USER_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("emailVerified") else "no")')"
+  if [ "${VERIFIED_EMAIL_STATUS}" != "yes" ]; then
+    echo "Email verification API did not mark the user as verified" >&2
+    rm -f "${AUTH_COOKIE_JAR}"
+    exit 1
+  fi
+fi
+MISSING_RESET_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/password-reset/request" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"missing-$(date +%s)-$$@example.com\"}")"
+MISSING_RESET_SENT="$(printf '%s' "${MISSING_RESET_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("sent") else "no")')"
+if [ "${MISSING_RESET_SENT}" != "yes" ]; then
+  echo "Password reset request should return a generic accepted response for missing email" >&2
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
@@ -92,10 +121,22 @@ if [ "${PROFILE_IMPORTED}" != "yes" ]; then
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
-curl -fsS -X PATCH "${BASE_URL}/api/v1/auth/password" \
+AUTH_RESET_PASSWORD="SmokeTest789!"
+RESET_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/password-reset/request" \
   -H "Content-Type: application/json" \
-  -b "${AUTH_COOKIE_JAR}" \
-  -d "{\"currentPassword\":\"SmokeTest123!\",\"newPassword\":\"${AUTH_CHANGED_PASSWORD}\"}"
+  -d "{\"email\":\"${AUTH_EMAIL}\"}")"
+RESET_DEV_TOKEN="$(printf '%s' "${RESET_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("devToken") or "")')"
+if [ -n "${RESET_DEV_TOKEN}" ]; then
+  curl -fsS -X POST "${BASE_URL}/api/v1/auth/password-reset/confirm" \
+    -H "Content-Type: application/json" \
+    -d "{\"token\":\"${RESET_DEV_TOKEN}\",\"newPassword\":\"${AUTH_RESET_PASSWORD}\"}"
+  AUTH_CHANGED_PASSWORD="${AUTH_RESET_PASSWORD}"
+else
+  curl -fsS -X PATCH "${BASE_URL}/api/v1/auth/password" \
+    -H "Content-Type: application/json" \
+    -b "${AUTH_COOKIE_JAR}" \
+    -d "{\"currentPassword\":\"SmokeTest123!\",\"newPassword\":\"${AUTH_CHANGED_PASSWORD}\"}"
+fi
 curl -fsS -X POST "${BASE_URL}/api/v1/auth/logout" \
   -b "${AUTH_COOKIE_JAR}" \
   -c "${AUTH_COOKIE_JAR}"

@@ -114,6 +114,72 @@ spec:
                   name: agent-runtime-secrets
                   key: AUTH_RATE_LIMIT_WINDOW_SECONDS
                   optional: true
+            - name: EMAIL_PROVIDER
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: EMAIL_PROVIDER
+                  optional: true
+            - name: EMAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: EMAIL_FROM
+                  optional: true
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: SMTP_HOST
+                  optional: true
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: SMTP_PORT
+                  optional: true
+            - name: SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: SMTP_USERNAME
+                  optional: true
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: SMTP_PASSWORD
+                  optional: true
+            - name: SMTP_USE_SSL
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: SMTP_USE_SSL
+                  optional: true
+            - name: SMTP_STARTTLS
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: SMTP_STARTTLS
+                  optional: true
+            - name: PUBLIC_APP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: PUBLIC_APP_URL
+                  optional: true
+            - name: EMAIL_VERIFICATION_TOKEN_TTL_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: EMAIL_VERIFICATION_TOKEN_TTL_SECONDS
+                  optional: true
+            - name: PASSWORD_RESET_TOKEN_TTL_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: PASSWORD_RESET_TOKEN_TTL_SECONDS
+                  optional: true
           readinessProbe:
             httpGet:
               path: /health

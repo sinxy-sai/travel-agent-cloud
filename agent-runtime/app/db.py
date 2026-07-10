@@ -38,19 +38,24 @@ def _normalize_database_url(database_url: str) -> str:
 
 def _ensure_existing_schema(engine) -> None:
     inspector = inspect(engine)
-    if not inspector.has_table("trip_plans"):
-        return
-
-    columns = {column["name"] for column in inspector.get_columns("trip_plans")}
     with engine.begin() as connection:
-        if "is_favorite" not in columns:
-            connection.execute(text("ALTER TABLE trip_plans ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT FALSE"))
-        connection.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_trip_plans_user_favorite_created "
-                "ON trip_plans (user_id, is_favorite, created_at)"
+        if inspector.has_table("trip_plans"):
+            trip_plan_columns = {column["name"] for column in inspector.get_columns("trip_plans")}
+            if "is_favorite" not in trip_plan_columns:
+                connection.execute(text("ALTER TABLE trip_plans ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT FALSE"))
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_trip_plans_user_favorite_created "
+                    "ON trip_plans (user_id, is_favorite, created_at)"
+                )
             )
-        )
+
+        if inspector.has_table("users"):
+            user_columns = {column["name"] for column in inspector.get_columns("users")}
+            if "email_verified" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT FALSE"))
+            if "email_verified_at" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMP NULL"))
 
 
 @contextmanager

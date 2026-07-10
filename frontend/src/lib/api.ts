@@ -145,6 +145,7 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string;
+  emailVerified: boolean;
   createdAt: string;
 }
 
@@ -180,6 +181,27 @@ export interface AuthLoginRequest {
 
 export interface AuthPasswordChangeRequest {
   currentPassword: string;
+  newPassword: string;
+}
+
+export interface AuthEmailActionResponse {
+  sent: boolean;
+  delivery: string;
+  expiresAt?: string | null;
+  devToken?: string | null;
+  actionUrl?: string | null;
+}
+
+export interface AuthEmailRequest {
+  email: string;
+}
+
+export interface AuthTokenConfirmRequest {
+  token: string;
+}
+
+export interface AuthPasswordResetConfirmRequest {
+  token: string;
   newPassword: string;
 }
 
@@ -247,6 +269,25 @@ export async function logoutUser(): Promise<void> {
 
 export async function changePassword(request: AuthPasswordChangeRequest): Promise<void> {
   await api.patch('/api/v1/auth/password', request);
+}
+
+export async function requestEmailVerification(): Promise<AuthEmailActionResponse> {
+  const response = await api.post<AuthEmailActionResponse>('/api/v1/auth/email-verification/request');
+  return response.data;
+}
+
+export async function confirmEmailVerification(request: AuthTokenConfirmRequest): Promise<AuthUser> {
+  const response = await api.post<AuthUser>('/api/v1/auth/email-verification/confirm', request);
+  return response.data;
+}
+
+export async function requestPasswordReset(request: AuthEmailRequest): Promise<AuthEmailActionResponse> {
+  const response = await api.post<AuthEmailActionResponse>('/api/v1/auth/password-reset/request', request);
+  return response.data;
+}
+
+export async function confirmPasswordReset(request: AuthPasswordResetConfirmRequest): Promise<void> {
+  await api.post('/api/v1/auth/password-reset/confirm', request);
 }
 
 export async function deleteCurrentAuthUser(request: AuthAccountDeleteRequest): Promise<void> {

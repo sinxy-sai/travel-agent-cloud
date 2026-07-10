@@ -68,11 +68,44 @@ kubectl create secret generic agent-runtime-secrets \
   --from-literal=AUTH_COOKIE_SECURE='false' \
   --from-literal=AUTH_RATE_LIMIT_MAX_ATTEMPTS='20' \
   --from-literal=AUTH_RATE_LIMIT_WINDOW_SECONDS='900' \
+  --from-literal=EMAIL_PROVIDER='mock' \
+  --from-literal=EMAIL_FROM='no-reply@travel-agent-cloud.local' \
+  --from-literal=PUBLIC_APP_URL='http://your-server-public-ip' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 Use `AUTH_COOKIE_SECURE='true'` only after HTTPS is configured. Plain HTTP browsers will not send Secure cookies.
 The auth rate-limit values control register/login attempts per client and email.
+
+For real email verification and password reset links, replace the email fields in the full `agent-runtime-secrets` command with SMTP settings. QQ Mail normally uses SSL on port 465 with an SMTP authorization code:
+
+```bash
+  --from-literal=EMAIL_PROVIDER='smtp' \
+  --from-literal=EMAIL_FROM='your-address@qq.com' \
+  --from-literal=SMTP_HOST='smtp.qq.com' \
+  --from-literal=SMTP_PORT='465' \
+  --from-literal=SMTP_USERNAME='your-address@qq.com' \
+  --from-literal=SMTP_PASSWORD='your-qq-smtp-authorization-code' \
+  --from-literal=SMTP_USE_SSL='true' \
+  --from-literal=SMTP_STARTTLS='false' \
+  --from-literal=PUBLIC_APP_URL='http://your-server-public-ip'
+```
+
+Gmail normally uses STARTTLS on port 587 with a Google app password:
+
+```bash
+  --from-literal=EMAIL_PROVIDER='smtp' \
+  --from-literal=EMAIL_FROM='your-address@gmail.com' \
+  --from-literal=SMTP_HOST='smtp.gmail.com' \
+  --from-literal=SMTP_PORT='587' \
+  --from-literal=SMTP_USERNAME='your-address@gmail.com' \
+  --from-literal=SMTP_PASSWORD='your-google-app-password' \
+  --from-literal=SMTP_USE_SSL='false' \
+  --from-literal=SMTP_STARTTLS='true' \
+  --from-literal=PUBLIC_APP_URL='https://your-domain.example'
+```
+
+When updating `agent-runtime-secrets`, include all existing keys you still need or use `kubectl edit secret agent-runtime-secrets -n travel-agent-cloud`; recreating it with only SMTP keys removes database, LLM, auth, and RabbitMQ settings.
 
 The normal deploy command will create/update PostgreSQL, RabbitMQ, the API, worker, frontend, and ingress together:
 

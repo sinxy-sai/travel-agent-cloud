@@ -35,6 +35,38 @@ If the model is not configured or the provider call fails, the service falls bac
 `AUTH_SECRET_KEY` signs login cookies. Use a stable random value in production; changing it logs out existing users.
 Auth register/login endpoints are rate-limited per client and email by `AUTH_RATE_LIMIT_MAX_ATTEMPTS` within `AUTH_RATE_LIMIT_WINDOW_SECONDS`.
 
+Email verification and password reset use `EMAIL_PROVIDER=mock` by default. Mock mode returns `devToken` and `actionUrl` in API responses for local testing. To send real email, switch to SMTP:
+
+```bash
+EMAIL_PROVIDER=smtp
+EMAIL_FROM=your-address@qq.com
+SMTP_HOST=smtp.qq.com
+SMTP_PORT=465
+SMTP_USERNAME=your-address@qq.com
+SMTP_PASSWORD=your-qq-smtp-authorization-code
+SMTP_USE_SSL=true
+SMTP_STARTTLS=false
+PUBLIC_APP_URL=http://localhost:5173
+EMAIL_VERIFICATION_TOKEN_TTL_SECONDS=86400
+PASSWORD_RESET_TOKEN_TTL_SECONDS=1800
+```
+
+Gmail SMTP uses an app password:
+
+```bash
+EMAIL_PROVIDER=smtp
+EMAIL_FROM=your-address@gmail.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your-address@gmail.com
+SMTP_PASSWORD=your-google-app-password
+SMTP_USE_SSL=false
+SMTP_STARTTLS=true
+PUBLIC_APP_URL=https://your-domain.example
+```
+
+Email verification and password reset tokens are generated as random one-time tokens. Only SHA-256 token hashes are stored in `auth_tokens`; the plaintext token is shown only in mock mode or inside the email link.
+
 When running through Docker Compose, create a local `docker-compose.override.yml` from the project root if you want containers to read this `.env` file:
 
 ```bash
@@ -105,6 +137,7 @@ When database storage is enabled, the service creates the current tables on star
 - `conversation_summaries`
 - `conversation_summary_jobs`
 - `trip_plans`
+- `auth_tokens`
 - `users`
 - `user_profiles`
 - `user_security_events`
@@ -138,6 +171,21 @@ curl http://localhost:8000/api/v1/auth/me \
   -b cookies.txt
 ```
 
+Request a new verification email for the signed-in account:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/email-verification/request \
+  -b cookies.txt
+```
+
+Confirm email verification with the token from the email link:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/email-verification/confirm \
+  -H "Content-Type: application/json" \
+  -d '{"token":"token-from-email"}'
+```
+
 Update account display name:
 
 ```bash
@@ -154,6 +202,22 @@ curl -X PATCH http://localhost:8000/api/v1/auth/password \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{"currentPassword":"ChangeMe123!","newPassword":"NewChangeMe123!"}'
+```
+
+Request password reset by email. The response is intentionally generic so callers cannot discover whether an email is registered:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/password-reset/request \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com"}'
+```
+
+Confirm password reset with the token from the email link:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/password-reset/confirm \
+  -H "Content-Type: application/json" \
+  -d '{"token":"token-from-email","newPassword":"NewChangeMe123!"}'
 ```
 
 List recent account security activity:
@@ -196,7 +260,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout \
 ```
 
 Authenticated requests are scoped by the signed-in user's httpOnly cookie. If no valid login cookie or Bearer token is present, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
-Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL and RabbitMQ are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes or session tokens. User data import accepts that export format, ignores exported account identity fields, and restores data into the currently signed-in account. Account security activity records successful account events and stores only a hashed client identifier plus non-sensitive details. Account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, security events, and saved trip plans.
+Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL, RabbitMQ, and SMTP are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes, session tokens, or email action tokens. User data import accepts that export format, ignores exported account identity fields, and restores data into the currently signed-in account. Account security activity records successful account events and stores only a hashed client identifier plus non-sensitive details. Password reset completion writes `auth.password_reset_completed`. Account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, security events, and saved trip plans.
 
 Create a structured trip plan:
 

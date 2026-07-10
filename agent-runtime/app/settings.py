@@ -17,6 +17,17 @@ class Settings(BaseSettings):
     auth_cookie_secure: bool = False
     auth_rate_limit_max_attempts: int = 20
     auth_rate_limit_window_seconds: int = 15 * 60
+    email_provider: str = "mock"
+    email_from: str = "no-reply@travel-agent-cloud.local"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_use_ssl: bool = False
+    smtp_starttls: bool = True
+    public_app_url: str = "http://localhost:5173"
+    email_verification_token_ttl_seconds: int = 60 * 60 * 24
+    password_reset_token_ttl_seconds: int = 60 * 30
     llm_provider: str = "mock"
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
