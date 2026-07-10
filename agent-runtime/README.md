@@ -28,6 +28,15 @@ LLM_MODEL=your-model-name
 
 If the model is not configured or the provider call fails, the service falls back to deterministic mock responses so local development and deployment checks still work.
 
+When running through Docker Compose, create a local `docker-compose.override.yml` from the project root if you want containers to read this `.env` file:
+
+```bash
+cp docker-compose.override.example.yml docker-compose.override.yml
+docker compose --profile worker up --build
+```
+
+The override file is intentionally ignored by Git because it can point containers at local secret files.
+
 Optional integration placeholders:
 
 ```bash

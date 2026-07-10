@@ -64,7 +64,7 @@ http://localhost:5173
 Docker Compose 会启动 PostgreSQL、RabbitMQ、Agent Runtime 和前端:
 
 ```bash
-docker compose up --build
+docker compose --profile worker up --build
 ```
 
 访问:
@@ -86,7 +86,15 @@ DATABASE_URL=postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_age
 MESSAGE_QUEUE_URL=amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
 ```
 
-当前 Agent Runtime 已支持在配置 `MESSAGE_QUEUE_URL` 后向 RabbitMQ 发布领域事件，但还没有启用生产消费者。未配置队列时，现有接口照常运行。
+如果要让 Docker Compose 里的 Agent Runtime 读取本地 `agent-runtime/.env` 中的真实 LLM 配置，先创建本地 override 文件:
+
+```powershell
+Copy-Item docker-compose.override.example.yml docker-compose.override.yml
+```
+
+`docker-compose.override.yml` 已被 `.gitignore` 忽略，不要提交。Compose 文件中的 `DATABASE_URL` 和 `MESSAGE_QUEUE_URL` 会继续覆盖 `.env` 里的同名值，避免容器误连到宿主机地址。
+
+当前 Agent Runtime 已支持在配置 `MESSAGE_QUEUE_URL` 后向 RabbitMQ 发布领域事件；`--profile worker` 会同时启动异步摘要消费者。未配置队列时，现有接口照常运行。
 
 ## 自动部署
 

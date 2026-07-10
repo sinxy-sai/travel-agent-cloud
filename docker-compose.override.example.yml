@@ -1,0 +1,8 @@
+services:
+  agent-runtime:
+    env_file:
+      - ./agent-runtime/.env
+
+  agent-runtime-worker:
+    env_file:
+      - ./agent-runtime/.env
