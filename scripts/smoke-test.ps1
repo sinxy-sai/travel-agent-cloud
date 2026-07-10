@@ -41,6 +41,13 @@ $currentAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -WebSession 
 if ($currentAuthUser.email -ne $authEmail) {
   throw "Auth me API did not return the cookie-authenticated user"
 }
+$accountUpdateBody = @{
+  displayName = "Updated Smoke Account"
+} | ConvertTo-Json
+$updatedAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -Method Patch -ContentType "application/json" -WebSession $authSession -Body $accountUpdateBody
+if ($updatedAuthUser.displayName -ne "Updated Smoke Account") {
+  throw "Auth user update API did not persist displayName"
+}
 $passwordChangeBody = @{
   currentPassword = "SmokeTest123!"
   newPassword = $changedPassword

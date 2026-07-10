@@ -33,6 +33,7 @@ import {
   registerUser,
   sendChatMessage,
   updateConversationTitle,
+  updateCurrentAuthUser,
   updateTripPlanFavorite,
   updateUserProfile,
   type AuthUser,
@@ -107,6 +108,8 @@ export default function App() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authDisplayName, setAuthDisplayName] = useState('');
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [accountDisplayName, setAccountDisplayName] = useState('');
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -179,6 +182,14 @@ export default function App() {
     onSuccess: () => {
       resetPasswordForm();
       setPasswordChangeSucceeded(true);
+    },
+  });
+
+  const updateAuthUserMutation = useMutation({
+    mutationFn: updateCurrentAuthUser,
+    onSuccess: (user) => {
+      queryClient.setQueryData(['auth-user'], user);
+      setAccountModalOpen(false);
     },
   });
 
@@ -515,6 +526,15 @@ export default function App() {
     }
   }
 
+  function submitAccountUpdate() {
+    if (!authUserQuery.data || updateAuthUserMutation.isPending) {
+      return;
+    }
+    updateAuthUserMutation.mutate({
+      displayName: accountDisplayName,
+    });
+  }
+
   function submitPasswordChange() {
     if (!currentPassword || newPassword.length < 8 || newPassword !== confirmNewPassword) {
       return;
@@ -635,9 +655,19 @@ export default function App() {
           <RuntimeStatus health={healthQuery.data} loading={healthQuery.isLoading} error={healthQuery.isError} />
           <AccountStatus
             user={authUserQuery.data}
-            loading={authUserQuery.isLoading || logoutMutation.isPending || changePasswordMutation.isPending}
+            loading={
+              authUserQuery.isLoading ||
+              logoutMutation.isPending ||
+              changePasswordMutation.isPending ||
+              updateAuthUserMutation.isPending
+            }
             onLogin={() => openAuthModal('LOGIN')}
             onRegister={() => openAuthModal('REGISTER')}
+            onEditAccount={() => {
+              setAccountDisplayName(authUserQuery.data?.displayName ?? '');
+              updateAuthUserMutation.reset();
+              setAccountModalOpen(true);
+            }}
             onChangePassword={() => {
               resetPasswordForm();
               setPasswordModalOpen(true);
@@ -1091,6 +1121,42 @@ export default function App() {
         </div>
       </Modal>
       <Modal
+        title="Account settings"
+        open={accountModalOpen}
+        okText="Save"
+        onOk={submitAccountUpdate}
+        confirmLoading={updateAuthUserMutation.isPending}
+        onCancel={() => {
+          setAccountModalOpen(false);
+          updateAuthUserMutation.reset();
+        }}
+      >
+        <div className="space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Email</span>
+            <Input value={authUserQuery.data?.email ?? ''} disabled />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Display name</span>
+            <Input
+              maxLength={80}
+              value={accountDisplayName}
+              onChange={(event) => {
+                setAccountDisplayName(event.target.value);
+                updateAuthUserMutation.reset();
+              }}
+              onPressEnter={submitAccountUpdate}
+              placeholder="Traveler name"
+            />
+          </label>
+          {updateAuthUserMutation.isError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              Could not update account.
+            </div>
+          )}
+        </div>
+      </Modal>
+      <Modal
         title="Change password"
         open={passwordModalOpen}
         okText="Update password"
@@ -1291,6 +1357,7 @@ function AccountStatus({
   loading,
   onLogin,
   onRegister,
+  onEditAccount,
   onChangePassword,
   onLogout,
 }: {
@@ -1298,6 +1365,7 @@ function AccountStatus({
   loading: boolean;
   onLogin: () => void;
   onRegister: () => void;
+  onEditAccount: () => void;
   onChangePassword: () => void;
   onLogout: () => void;
 }) {
@@ -1314,6 +1382,9 @@ function AccountStatus({
       </div>
       {user ? (
         <div className="grid gap-2">
+          <Button size="small" onClick={onEditAccount}>
+            Edit account
+          </Button>
           <Button size="small" onClick={onChangePassword}>
             Change password
           </Button>

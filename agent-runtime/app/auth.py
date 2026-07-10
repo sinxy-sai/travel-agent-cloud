@@ -76,6 +76,12 @@ class UserStore:
             raise UserNotFoundError(user_id)
         return user
 
+    def update_user(self, user_id: str, display_name: str) -> AuthUser:
+        user = self.get_user(user_id)
+        updated_user = user.model_copy(update={"display_name": display_name.strip()})
+        self._users_by_id[user_id] = updated_user
+        return updated_user
+
     def change_password(self, user_id: str, current_password: str, new_password: str) -> None:
         user = self.get_user(user_id)
         item = self._password_hashes_by_email.get(user.email)
@@ -119,6 +125,16 @@ class DatabaseUserStore:
             record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
             if record is None:
                 raise UserNotFoundError(user_id)
+            return _to_auth_user(record)
+
+    def update_user(self, user_id: str, display_name: str) -> AuthUser:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
+            if record is None:
+                raise UserNotFoundError(user_id)
+            record.display_name = display_name.strip()
+            record.updated_at = _now()
+            session.flush()
             return _to_auth_user(record)
 
     def change_password(self, user_id: str, current_password: str, new_password: str) -> None:

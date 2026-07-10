@@ -55,6 +55,16 @@ if [ "${CURRENT_AUTH_EMAIL}" != "${AUTH_EMAIL}" ]; then
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
+UPDATED_AUTH_USER_JSON="$(curl -fsS -X PATCH "${BASE_URL}/api/v1/auth/me" \
+  -H "Content-Type: application/json" \
+  -b "${AUTH_COOKIE_JAR}" \
+  -d '{"displayName":"Updated Smoke Account"}')"
+UPDATED_AUTH_DISPLAY_NAME="$(printf '%s' "${UPDATED_AUTH_USER_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("displayName", ""))')"
+if [ "${UPDATED_AUTH_DISPLAY_NAME}" != "Updated Smoke Account" ]; then
+  echo "Auth user update API did not persist displayName" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
 curl -fsS -X PATCH "${BASE_URL}/api/v1/auth/password" \
   -H "Content-Type: application/json" \
   -b "${AUTH_COOKIE_JAR}" \

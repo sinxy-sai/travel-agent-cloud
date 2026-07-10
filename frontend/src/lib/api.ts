@@ -168,6 +168,10 @@ export interface AuthPasswordChangeRequest {
   newPassword: string;
 }
 
+export interface AuthUserUpdateRequest {
+  displayName: string;
+}
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_AGENT_API_BASE_URL ?? '',
   timeout: 30000,
@@ -217,6 +221,11 @@ export async function getCurrentAuthUser(): Promise<AuthUser | null> {
     }
     throw error;
   }
+}
+
+export async function updateCurrentAuthUser(request: AuthUserUpdateRequest): Promise<AuthUser> {
+  const response = await api.patch<AuthUser>('/api/v1/auth/me', request);
+  return response.data;
 }
 
 export async function sendChatMessage(request: ChatRequest): Promise<ChatResponse> {

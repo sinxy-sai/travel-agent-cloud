@@ -135,6 +135,15 @@ curl http://localhost:8000/api/v1/auth/me \
   -b cookies.txt
 ```
 
+Update account display name:
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/auth/me \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{"displayName":"Traveler"}'
+```
+
 Change password:
 
 ```bash

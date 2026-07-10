@@ -147,6 +147,15 @@ class AuthPasswordChangeRequest(APIModel):
         return value
 
 
+class AuthUserUpdateRequest(APIModel):
+    display_name: str = Field(default="", max_length=80)
+
+    @field_validator("display_name")
+    @classmethod
+    def strip_display_name(cls, value: str) -> str:
+        return value.strip()
+
+
 class AuthUser(APIModel):
     id: str
     email: str

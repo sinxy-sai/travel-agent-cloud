@@ -32,6 +32,7 @@ from app.schemas import (
     AuthRegisterRequest,
     AuthSession,
     AuthUser,
+    AuthUserUpdateRequest,
     ChatRequest,
     ChatResponse,
     Conversation,
@@ -139,6 +140,18 @@ def login(request: Request, payload: AuthLoginRequest, response: Response) -> Au
 @app.get("/api/v1/auth/me", response_model=AuthUser)
 def get_current_auth_user(request: Request) -> AuthUser:
     return _get_current_auth_user(request)
+
+
+@app.patch("/api/v1/auth/me", response_model=AuthUser)
+def update_current_auth_user(request: Request, payload: AuthUserUpdateRequest) -> AuthUser:
+    user = _get_current_auth_user(request)
+    try:
+        return user_store.update_user(user.id, payload.display_name)
+    except UserNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
+        ) from exc
 
 
 @app.patch("/api/v1/auth/password", status_code=status.HTTP_204_NO_CONTENT)
