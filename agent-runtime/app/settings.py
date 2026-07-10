@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     database_url: str = ""
     message_queue_url: str = ""
     rpc_timeout_seconds: float = 5.0
+    worker_reconnect_initial_seconds: float = 2.0
+    worker_reconnect_max_seconds: float = 30.0
     llm_provider: str = "mock"
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"

@@ -68,7 +68,8 @@ class RabbitMQConversationSummaryConsumer:
         try:
             channel.start_consuming()
         finally:
-            connection.close()
+            if connection.is_open:
+                connection.close()
 
     def _handle_message(self, channel: Any, method: Any, properties: Any, body: bytes) -> None:
         event_id = _property_header(properties, "eventId") or "unknown"

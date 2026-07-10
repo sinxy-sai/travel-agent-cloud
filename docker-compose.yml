@@ -35,6 +35,8 @@ services:
       DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
       MESSAGE_QUEUE_URL: amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
       RPC_TIMEOUT_SECONDS: 5
+      WORKER_RECONNECT_INITIAL_SECONDS: 2
+      WORKER_RECONNECT_MAX_SECONDS: 30
     depends_on:
       - postgres
       - rabbitmq
@@ -51,6 +53,8 @@ services:
       DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
       MESSAGE_QUEUE_URL: amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
       RPC_TIMEOUT_SECONDS: 5
+      WORKER_RECONNECT_INITIAL_SECONDS: 2
+      WORKER_RECONNECT_MAX_SECONDS: 30
       LOG_LEVEL: INFO
     depends_on:
       - postgres

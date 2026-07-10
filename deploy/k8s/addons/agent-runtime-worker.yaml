@@ -27,6 +27,10 @@ spec:
               value: INFO
             - name: RPC_TIMEOUT_SECONDS
               value: "5"
+            - name: WORKER_RECONNECT_INITIAL_SECONDS
+              value: "2"
+            - name: WORKER_RECONNECT_MAX_SECONDS
+              value: "30"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

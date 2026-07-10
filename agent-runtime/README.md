@@ -33,9 +33,12 @@ Optional integration placeholders:
 ```bash
 MESSAGE_QUEUE_URL=amqp://user:password@rabbitmq:5672/
 RPC_TIMEOUT_SECONDS=5
+WORKER_RECONNECT_INITIAL_SECONDS=2
+WORKER_RECONNECT_MAX_SECONDS=30
 ```
 
 `MESSAGE_QUEUE_URL` enables RabbitMQ event publishing. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for queue and future runtime-to-service calls.
+The worker reconnect settings control exponential backoff when PostgreSQL or RabbitMQ is not ready, or when the queue connection drops.
 
 When `MESSAGE_QUEUE_URL` is configured, the runtime publishes small domain events to the durable RabbitMQ topic exchange `travel.events`. Queue failures are logged but do not fail the user request.
 
@@ -53,6 +56,7 @@ Current events:
 Conversation summaries are generated through `app.workers.conversation_summarizer.ConversationSummarizerWorker`. The HTTP API can call this worker synchronously, or queue an asynchronous job when RabbitMQ is configured.
 
 RabbitMQ consumer support is available through `python -m app.worker_main`, but it is not started by the normal API process. The consumer listens to `agent.conversation.summarize.requested`, skips `manual_api` events that the HTTP API already handled, and processes asynchronous summary jobs. The API stores job status in `conversation_summary_jobs`; the consumer moves jobs through `QUEUED`, `RUNNING`, `SUCCEEDED`, and `FAILED`. Failed or invalid messages are rejected into the consumer dead-letter queue.
+If RabbitMQ or PostgreSQL is unavailable at startup, the worker keeps retrying with exponential backoff instead of exiting.
 
 Run the worker locally only when both RabbitMQ and PostgreSQL are configured:
 

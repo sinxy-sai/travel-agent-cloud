@@ -100,3 +100,4 @@ python -m app.worker_main
 ```
 
 It consumes `agent.conversation.summarize.requested` events from RabbitMQ. Manual API summary requests are skipped by the worker because the HTTP request already generated the summary synchronously.
+If RabbitMQ or PostgreSQL is not ready, the worker retries with exponential backoff. The default retry window starts at 2 seconds and caps at 30 seconds.
