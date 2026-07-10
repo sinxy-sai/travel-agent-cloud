@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Empty, Input, InputNumber, Modal, Pagination, Popconfirm, Segmented, Select, Spin } from 'antd';
 import {
@@ -55,6 +55,9 @@ const defaultChatSuggestions = [
 ];
 
 const historyPageSize = 8;
+const summaryJobPollingIntervalMs = 2000;
+const summaryJobPollingTimeoutMs = 30000;
+type ConversationSummaryJobUiStatus = 'IDLE' | 'POLLING' | 'TIMEOUT';
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -70,7 +73,10 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatSuggestions, setChatSuggestions] = useState<string[]>(defaultChatSuggestions);
   const [conversationSummary, setConversationSummary] = useState<ConversationSummary | null>(null);
-  const [conversationSummaryJobQueued, setConversationSummaryJobQueued] = useState(false);
+  const [conversationSummaryJobStatus, setConversationSummaryJobStatus] =
+    useState<ConversationSummaryJobUiStatus>('IDLE');
+  const summaryJobPollingIntervalRef = useRef<number | undefined>(undefined);
+  const summaryJobPollingConversationIdRef = useRef<string | undefined>(undefined);
   const [tripPlanFilter, setTripPlanFilter] = useState<'ALL' | 'FAVORITES'>('ALL');
   const [tripPlanSearchInput, setTripPlanSearchInput] = useState('');
   const [tripPlanSearch, setTripPlanSearch] = useState('');
@@ -123,6 +129,8 @@ export default function App() {
       setSelectedTripPlanId(response.savedTripPlanId);
       setSelectedTripPlanFavorite(false);
       setConversationId(response.conversationId);
+      setConversationSummary(null);
+      resetConversationSummaryJobPolling();
       setConversationPage(1);
       setTripPlanPage(1);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -146,7 +154,7 @@ export default function App() {
     onSuccess: (summary) => {
       setConversationSummary(summary);
       if (summary) {
-        setConversationSummaryJobQueued(false);
+        resetConversationSummaryJobPolling();
       }
     },
   });
@@ -157,7 +165,7 @@ export default function App() {
       setConversationId(conversation.id);
       setChatMessages(conversation.messages);
       setConversationSummary(null);
-      setConversationSummaryJobQueued(false);
+      resetConversationSummaryJobPolling();
       setChatInput('');
       setChatSuggestions(defaultChatSuggestions);
       loadConversationSummaryMutation.mutate(conversation.id);
@@ -176,6 +184,8 @@ export default function App() {
       setInterests(splitInterests(savedTripPlan.interests));
       if (savedTripPlan.conversationId) {
         setConversationId(savedTripPlan.conversationId);
+        setConversationSummary(null);
+        resetConversationSummaryJobPolling();
       }
     },
   });
@@ -186,6 +196,8 @@ export default function App() {
       if (deletedConversationId === conversationId) {
         setConversationId(undefined);
         setChatMessages([]);
+        setConversationSummary(null);
+        resetConversationSummaryJobPolling();
       }
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
@@ -206,17 +218,14 @@ export default function App() {
     mutationFn: createConversationSummary,
     onSuccess: (summary) => {
       setConversationSummary(summary);
-      setConversationSummaryJobQueued(false);
+      resetConversationSummaryJobPolling();
     },
   });
 
   const createConversationSummaryJobMutation = useMutation({
     mutationFn: createConversationSummaryJob,
     onSuccess: (job) => {
-      setConversationSummaryJobQueued(true);
-      window.setTimeout(() => {
-        loadConversationSummaryMutation.mutate(job.conversationId);
-      }, 1500);
+      startConversationSummaryJobPolling(job.conversationId);
     },
   });
 
@@ -289,6 +298,61 @@ export default function App() {
     }
   }, [tripPlanPage, tripPlansQuery.data?.totalPages]);
 
+  useEffect(() => {
+    return () => {
+      stopConversationSummaryJobPolling();
+    };
+  }, []);
+
+  function stopConversationSummaryJobPolling() {
+    if (summaryJobPollingIntervalRef.current !== undefined) {
+      window.clearInterval(summaryJobPollingIntervalRef.current);
+      summaryJobPollingIntervalRef.current = undefined;
+    }
+    summaryJobPollingConversationIdRef.current = undefined;
+  }
+
+  function resetConversationSummaryJobPolling() {
+    stopConversationSummaryJobPolling();
+    setConversationSummaryJobStatus('IDLE');
+  }
+
+  function startConversationSummaryJobPolling(targetConversationId: string) {
+    stopConversationSummaryJobPolling();
+    setConversationSummaryJobStatus('POLLING');
+    summaryJobPollingConversationIdRef.current = targetConversationId;
+    const startedAt = Date.now();
+
+    summaryJobPollingIntervalRef.current = window.setInterval(() => {
+      void pollConversationSummaryJob(targetConversationId, startedAt);
+    }, summaryJobPollingIntervalMs);
+  }
+
+  async function pollConversationSummaryJob(targetConversationId: string, startedAt: number) {
+    if (summaryJobPollingConversationIdRef.current !== targetConversationId) {
+      return;
+    }
+
+    try {
+      const summary = await getConversationSummary(targetConversationId);
+      if (summaryJobPollingConversationIdRef.current !== targetConversationId) {
+        return;
+      }
+      if (summary) {
+        setConversationSummary(summary);
+        resetConversationSummaryJobPolling();
+        return;
+      }
+    } catch {
+      // Keep polling until the timeout; transient API failures should not immediately fail the queued job UI.
+    }
+
+    if (Date.now() - startedAt >= summaryJobPollingTimeoutMs) {
+      stopConversationSummaryJobPolling();
+      setConversationSummaryJobStatus('TIMEOUT');
+    }
+  }
+
   const sendMessage = () => {
     submitChatMessage(chatInput);
   };
@@ -309,7 +373,7 @@ export default function App() {
       },
     ]);
     setConversationSummary(null);
-    setConversationSummaryJobQueued(false);
+    resetConversationSummaryJobPolling();
     setChatInput('');
     chatMutation.mutate({
       message,
@@ -322,7 +386,7 @@ export default function App() {
     setConversationId(undefined);
     setChatMessages([]);
     setConversationSummary(null);
-    setConversationSummaryJobQueued(false);
+    resetConversationSummaryJobPolling();
     setChatInput('');
     setChatSuggestions(defaultChatSuggestions);
   };
@@ -664,7 +728,11 @@ export default function App() {
                   <Button
                     onClick={() => conversationId && createConversationSummaryJobMutation.mutate(conversationId)}
                     loading={createConversationSummaryJobMutation.isPending}
-                    disabled={!conversationId || chatMessages.length === 0}
+                    disabled={
+                      !conversationId ||
+                      chatMessages.length === 0 ||
+                      conversationSummaryJobStatus === 'POLLING'
+                    }
                   >
                     Queue summary
                   </Button>
@@ -682,9 +750,15 @@ export default function App() {
             </div>
           )}
 
-          {conversationSummaryJobQueued && !conversationSummary && (
+          {conversationSummaryJobStatus === 'POLLING' && (
             <div className="mb-4 rounded-lg border border-white/15 bg-white/5 p-3 text-sm text-mist/75">
-              Summary job queued.
+              Summary job queued. Waiting for worker result...
+            </div>
+          )}
+
+          {conversationSummaryJobStatus === 'TIMEOUT' && (
+            <div className="mb-4 rounded-lg border border-amber-300/30 bg-amber-400/10 p-3 text-sm text-amber-100">
+              Summary job is still running. Try loading the saved summary again later.
             </div>
           )}
 
