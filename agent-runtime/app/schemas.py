@@ -316,6 +316,13 @@ class UserDataImportResponse(APIModel):
     skipped_items: int
 
 
+class AnonymousDataSummary(APIModel):
+    has_data: bool
+    conversations: int
+    conversation_summaries: int
+    trip_plans: int
+
+
 class ConversationSummaryJobStatus(StrEnum):
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"

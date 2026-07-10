@@ -50,6 +50,7 @@ from app.schemas import (
     AuthTokenConfirmRequest,
     AuthUser,
     AuthUserUpdateRequest,
+    AnonymousDataSummary,
     ChatRequest,
     ChatResponse,
     Conversation,
@@ -289,12 +290,25 @@ def delete_current_auth_user(request: Request, payload: AuthAccountDeleteRequest
 @app.get("/api/v1/me/export", response_model=UserDataExport)
 def export_current_user_data(request: Request) -> UserDataExport:
     user = _get_current_auth_user(request)
-    return _export_user_data(user.id, user)
+    _require_verified_email(user)
+    exported = _export_user_data(user.id, user)
+    _record_security_event(
+        request,
+        user.id,
+        "user.data_exported",
+        {
+            "conversations": len(exported.conversations),
+            "conversationSummaries": len(exported.conversation_summaries),
+            "tripPlans": len(exported.trip_plans),
+        },
+    )
+    return exported
 
 
 @app.post("/api/v1/me/import", response_model=UserDataImportResponse)
 def import_current_user_data(request: Request, payload: UserDataImportRequest) -> UserDataImportResponse:
     user = _get_current_auth_user(request)
+    _require_verified_email(user)
     _check_auth_rate_limit(request, "import-data", user.id)
     result = user_data_importer.import_user_data(user.id, payload)
     _record_security_event(
@@ -321,9 +335,19 @@ def import_current_user_data(request: Request, payload: UserDataImportRequest) -
     return result
 
 
+@app.get("/api/v1/me/anonymous-data/summary", response_model=AnonymousDataSummary)
+def summarize_current_anonymous_data(request: Request) -> AnonymousDataSummary:
+    user = _get_current_auth_user(request)
+    anonymous_user_id = _anonymous_user_id_from_header(request)
+    if anonymous_user_id == user.id:
+        return AnonymousDataSummary(has_data=False, conversations=0, conversation_summaries=0, trip_plans=0)
+    return _anonymous_data_summary(anonymous_user_id)
+
+
 @app.post("/api/v1/me/anonymous-data/import", response_model=UserDataImportResponse)
 def import_current_anonymous_data(request: Request) -> UserDataImportResponse:
     user = _get_current_auth_user(request)
+    _require_verified_email(user)
     anonymous_user_id = _anonymous_user_id_from_header(request)
     if anonymous_user_id == user.id:
         raise HTTPException(
@@ -691,6 +715,15 @@ def _get_current_auth_user(request: Request) -> AuthUser:
         ) from exc
 
 
+def _require_verified_email(user: AuthUser) -> None:
+    if user.email_verified:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"code": "EMAIL_NOT_VERIFIED", "message": "Verify your email before managing account data"},
+    )
+
+
 def _check_auth_rate_limit(request: Request, action: str, email: str) -> None:
     key = f"{action}:{client_identifier(request)}:{email.strip().lower()}"
     decision = auth_rate_limiter.check(key)
@@ -757,6 +790,24 @@ def _export_user_data(user_id: str, user: AuthUser) -> UserDataExport:
         conversations=conversations,
         conversation_summaries=summaries,
         trip_plans=_list_all_trip_plans(user_id),
+    )
+
+
+def _anonymous_data_summary(user_id: str) -> AnonymousDataSummary:
+    conversations = _list_all_conversations(user_id)
+    trip_plans = _list_all_trip_plans(user_id)
+    summary_count = 0
+    for conversation in conversations:
+        try:
+            summary_store.get(user_id, conversation.id)
+            summary_count += 1
+        except ConversationSummaryNotFoundError:
+            continue
+    return AnonymousDataSummary(
+        has_data=bool(conversations or trip_plans or summary_count),
+        conversations=len(conversations),
+        conversation_summaries=summary_count,
+        trip_plans=len(trip_plans),
     )
 
 

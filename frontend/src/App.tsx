@@ -29,6 +29,8 @@ import {
   getCurrentAuthUser,
   getHealth,
   getLatestConversationSummaryJob,
+  getAnonymousUserDataSummary,
+  getAnonymousUserId,
   getTripPlan,
   getUserProfile,
   importAnonymousUserData,
@@ -138,14 +140,20 @@ export default function App() {
   const [deleteAccountModalOpen, setDeleteAccountModalOpen] = useState(false);
   const [deleteAccountPassword, setDeleteAccountPassword] = useState('');
   const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState('');
+  const [exportDataError, setExportDataError] = useState('');
   const [importDataError, setImportDataError] = useState('');
   const [anonymousImportMessage, setAnonymousImportMessage] = useState('');
+  const [anonymousImportPromptOpen, setAnonymousImportPromptOpen] = useState(false);
+  const [anonymousImportPromptDismissed, setAnonymousImportPromptDismissed] = useState(false);
 
   const authUserQuery = useQuery({
     queryKey: ['auth-user'],
     queryFn: getCurrentAuthUser,
     retry: false,
   });
+  const anonymousImportPromptStorageKey = authUserQuery.data
+    ? `travel-agent-cloud.anonymous-import.${authUserQuery.data.id}.${getAnonymousUserId()}`
+    : '';
 
   const conversationsQuery = useQuery({
     queryKey: ['conversations', conversationPage, conversationSearch],
@@ -182,6 +190,13 @@ export default function App() {
     enabled: Boolean(authUserQuery.data),
   });
 
+  const anonymousDataSummaryQuery = useQuery({
+    queryKey: ['anonymous-data-summary', authUserQuery.data?.id],
+    queryFn: getAnonymousUserDataSummary,
+    enabled: Boolean(authUserQuery.data),
+    retry: false,
+  });
+
   const registerMutation = useMutation({
     mutationFn: registerUser,
     onSuccess: (session) => {
@@ -202,6 +217,8 @@ export default function App() {
       clearWorkspace();
       resetPasswordForm();
       setAnonymousImportMessage('');
+      setAnonymousImportPromptOpen(false);
+      setAnonymousImportPromptDismissed(false);
       queryClient.setQueryData(['auth-user'], null);
       queryClient.invalidateQueries({ queryKey: ['user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -238,6 +255,8 @@ export default function App() {
     onSuccess: (user) => {
       queryClient.setQueryData(['auth-user'], user);
       setAuthActionMessage('Email verified.');
+      setExportDataError('');
+      setImportDataError('');
       queryClient.invalidateQueries({ queryKey: ['security-events'] });
     },
     onError: () => {
@@ -278,8 +297,14 @@ export default function App() {
 
   const exportUserDataMutation = useMutation({
     mutationFn: exportCurrentUserData,
+    onMutate: () => {
+      setExportDataError('');
+    },
     onSuccess: (data) => {
       downloadJsonFile(data, `travel-agent-data-${new Date().toISOString().slice(0, 10)}.json`);
+    },
+    onError: () => {
+      setExportDataError('Could not export account data. Verify your email and try again.');
     },
   });
 
@@ -304,13 +329,20 @@ export default function App() {
       setAnonymousImportMessage(
         `Imported ${result.conversationsImported} conversations and ${result.tripPlansImported} trip plans from this browser.`,
       );
+      if (anonymousImportPromptStorageKey) {
+        window.localStorage.setItem(anonymousImportPromptStorageKey, 'handled');
+      }
+      setAnonymousImportPromptOpen(false);
+      setAnonymousImportPromptDismissed(true);
       clearWorkspace();
+      queryClient.invalidateQueries({ queryKey: ['anonymous-data-summary'] });
       queryClient.invalidateQueries({ queryKey: ['user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
       queryClient.invalidateQueries({ queryKey: ['security-events'] });
     },
     onError: () => {
+      setAnonymousImportPromptOpen(false);
       setAnonymousImportMessage('Could not import local anonymous data.');
     },
   });
@@ -322,6 +354,8 @@ export default function App() {
       resetDeleteAccountForm();
       clearWorkspace();
       setAnonymousImportMessage('');
+      setAnonymousImportPromptOpen(false);
+      setAnonymousImportPromptDismissed(false);
       queryClient.setQueryData(['auth-user'], null);
       queryClient.invalidateQueries({ queryKey: ['user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -533,6 +567,24 @@ export default function App() {
     window.history.replaceState({}, document.title, window.location.pathname);
   }, []);
 
+  useEffect(() => {
+    if (
+      authUserQuery.data &&
+      anonymousDataSummaryQuery.data?.hasData &&
+      !anonymousImportPromptDismissed &&
+      !anonymousImportPromptOpen &&
+      (!anonymousImportPromptStorageKey || !window.localStorage.getItem(anonymousImportPromptStorageKey))
+    ) {
+      setAnonymousImportPromptOpen(true);
+    }
+  }, [
+    anonymousDataSummaryQuery.data?.hasData,
+    anonymousImportPromptDismissed,
+    anonymousImportPromptOpen,
+    anonymousImportPromptStorageKey,
+    authUserQuery.data,
+  ]);
+
   function stopConversationSummaryJobPolling() {
     if (summaryJobPollingIntervalRef.current !== undefined) {
       window.clearInterval(summaryJobPollingIntervalRef.current);
@@ -635,6 +687,8 @@ export default function App() {
     setAuthModalOpen(false);
     resetAuthForm();
     setAnonymousImportMessage('');
+    setAnonymousImportPromptDismissed(false);
+    setAnonymousImportPromptOpen(false);
     clearWorkspace();
     queryClient.setQueryData(['auth-user'], user);
     queryClient.invalidateQueries({ queryKey: ['user-profile'] });
@@ -913,6 +967,7 @@ export default function App() {
               setAnonymousImportMessage('');
               importAnonymousUserDataMutation.mutate();
             }}
+            exportDataError={exportDataError}
             importDataError={importDataError}
             anonymousImportMessage={anonymousImportMessage}
             onDeleteAccount={() => {
@@ -1316,6 +1371,44 @@ export default function App() {
           </div>
         </aside>
       </section>
+      <Modal
+        title="Import local data?"
+        open={anonymousImportPromptOpen}
+        okText="Import local data"
+        cancelText="Skip"
+        onOk={() => importAnonymousUserDataMutation.mutate()}
+        confirmLoading={importAnonymousUserDataMutation.isPending}
+        onCancel={() => {
+          if (anonymousImportPromptStorageKey) {
+            window.localStorage.setItem(anonymousImportPromptStorageKey, 'handled');
+          }
+          setAnonymousImportPromptOpen(false);
+          setAnonymousImportPromptDismissed(true);
+        }}
+      >
+        <div className="space-y-3">
+          <p className="text-sm leading-6 text-slate-600">
+            This browser has anonymous travel planning data. You can copy it into your signed-in account.
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-md bg-slate-50 px-3 py-2">
+              <p className="text-xs font-medium text-slate-500">Conversations</p>
+              <p className="mt-1 text-lg font-semibold text-ink">
+                {anonymousDataSummaryQuery.data?.conversations ?? 0}
+              </p>
+            </div>
+            <div className="rounded-md bg-slate-50 px-3 py-2">
+              <p className="text-xs font-medium text-slate-500">Trip plans</p>
+              <p className="mt-1 text-lg font-semibold text-ink">
+                {anonymousDataSummaryQuery.data?.tripPlans ?? 0}
+              </p>
+            </div>
+          </div>
+          <p className="text-xs leading-5 text-slate-500">
+            Importing copies the local data into your account. The anonymous local copy is left untouched.
+          </p>
+        </div>
+      </Modal>
       <Modal
         title={authMode === 'LOGIN' ? 'Sign in' : 'Create account'}
         open={authModalOpen}
@@ -1789,6 +1882,7 @@ function AccountStatus({
   onExportData,
   onImportData,
   onImportAnonymousData,
+  exportDataError,
   importDataError,
   anonymousImportMessage,
   onDeleteAccount,
@@ -1806,11 +1900,14 @@ function AccountStatus({
   onExportData: () => void;
   onImportData: () => void;
   onImportAnonymousData: () => void;
+  exportDataError: string;
   importDataError: string;
   anonymousImportMessage: string;
   onDeleteAccount: () => void;
   onLogout: () => void;
 }) {
+  const accountDataManagementDisabled = Boolean(user && !user.emailVerified);
+
   return (
     <section className="mb-5 rounded-lg border border-slate-200 bg-white p-3">
       <div className="mb-3 flex items-start justify-between gap-3">
@@ -1847,15 +1944,25 @@ function AccountStatus({
           <Button size="small" onClick={onChangePassword}>
             Change password
           </Button>
-          <Button size="small" onClick={onExportData}>
+          {accountDataManagementDisabled && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-700">
+              Verify your email before exporting or importing account data.
+            </div>
+          )}
+          <Button size="small" onClick={onExportData} disabled={accountDataManagementDisabled}>
             Export data
           </Button>
-          <Button size="small" icon={<UploadOutlined />} onClick={onImportData}>
+          <Button size="small" icon={<UploadOutlined />} onClick={onImportData} disabled={accountDataManagementDisabled}>
             Import data
           </Button>
-          <Button size="small" onClick={onImportAnonymousData}>
+          <Button size="small" onClick={onImportAnonymousData} disabled={accountDataManagementDisabled}>
             Import local data
           </Button>
+          {exportDataError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-2 py-2 text-xs text-red-700">
+              {exportDataError}
+            </div>
+          )}
           {importDataError && (
             <div className="rounded-md border border-red-200 bg-red-50 px-2 py-2 text-xs text-red-700">
               {importDataError}
@@ -2150,6 +2257,7 @@ function formatSecurityEventType(value: string): string {
     'auth.email_verified': 'Email verified',
     'auth.password_reset_requested': 'Password reset requested',
     'auth.password_reset_completed': 'Password reset completed',
+    'user.data_exported': 'Data exported',
     'user.data_imported': 'Data imported',
     'user.anonymous_data_imported': 'Local data imported',
   };

@@ -69,6 +69,15 @@ $currentAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -WebSession 
 if ($currentAuthUser.email -ne $authEmail) {
   throw "Auth me API did not return the cookie-authenticated user"
 }
+try {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/export" -WebSession $authSession
+  throw "User data export API accepted an unverified account"
+} catch {
+  if ($_.Exception.Response.StatusCode.value__ -ne 403) {
+    throw
+  }
+}
+$emailVerifiedForAccountData = [bool]$currentAuthUser.emailVerified
 $verificationResponse = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/email-verification/request" -Method Post -WebSession $authSession
 if ($verificationResponse.PSObject.Properties.Name -contains "devToken" -and $verificationResponse.devToken) {
   $verifiedAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/email-verification/confirm" -Method Post -ContentType "application/json" -Body (@{
@@ -77,6 +86,7 @@ if ($verificationResponse.PSObject.Properties.Name -contains "devToken" -and $ve
   if (-not $verifiedAuthUser.emailVerified) {
     throw "Email verification API did not mark the user as verified"
   }
+  $emailVerifiedForAccountData = $true
 }
 $missingResetResponse = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/password-reset/request" -Method Post -ContentType "application/json" -Body (@{
   email = "missing-$([guid]::NewGuid().ToString('N'))@example.com"
@@ -95,27 +105,35 @@ $updatedAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -Method Patc
 if ($updatedAuthUser.displayName -ne "Updated Smoke Account") {
   throw "Auth user update API did not persist displayName"
 }
-$exportedUserData = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/export" -WebSession $authSession
-if ($exportedUserData.user.email -ne $authEmail) {
-  throw "User data export API did not return the authenticated user"
-}
-if (-not ($exportedUserData.PSObject.Properties.Name -contains "conversations")) {
-  throw "User data export API did not return conversations"
-}
-$importedUserData = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/import" -Method Post -ContentType "application/json" -WebSession $authSession -Body ($exportedUserData | ConvertTo-Json -Depth 40)
-if (-not $importedUserData.profileImported) {
-  throw "User data import API did not import the profile"
-}
-$anonymousImportResult = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/anonymous-data/import" -Method Post -WebSession $authSession -Headers $anonymousHeaders
-if ($anonymousImportResult.conversationsImported -lt 1 -or $anonymousImportResult.tripPlansImported -lt 1) {
-  throw "Anonymous data import API did not import local conversations and trip plans"
-}
-$exportedAfterAnonymousImport = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/export" -WebSession $authSession
-if (-not ($exportedAfterAnonymousImport.conversations | Where-Object { $_.title -like "*Hangzhou*" -or ($_.messages | Where-Object { $_.content -like "*Hangzhou*" }) })) {
-  throw "User data export did not include imported anonymous conversation"
-}
-if (-not ($exportedAfterAnonymousImport.tripPlans | Where-Object { $_.destination -eq "Hangzhou" })) {
-  throw "User data export did not include imported anonymous trip plan"
+if ($emailVerifiedForAccountData) {
+  $exportedUserData = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/export" -WebSession $authSession
+  if ($exportedUserData.user.email -ne $authEmail) {
+    throw "User data export API did not return the authenticated user"
+  }
+  if (-not ($exportedUserData.PSObject.Properties.Name -contains "conversations")) {
+    throw "User data export API did not return conversations"
+  }
+  $importedUserData = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/import" -Method Post -ContentType "application/json" -WebSession $authSession -Body ($exportedUserData | ConvertTo-Json -Depth 40)
+  if (-not $importedUserData.profileImported) {
+    throw "User data import API did not import the profile"
+  }
+  $anonymousSummary = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/anonymous-data/summary" -WebSession $authSession -Headers $anonymousHeaders
+  if (-not $anonymousSummary.hasData -or $anonymousSummary.conversations -lt 1 -or $anonymousSummary.tripPlans -lt 1) {
+    throw "Anonymous data summary API did not report local anonymous data"
+  }
+  $anonymousImportResult = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/anonymous-data/import" -Method Post -WebSession $authSession -Headers $anonymousHeaders
+  if ($anonymousImportResult.conversationsImported -lt 1 -or $anonymousImportResult.tripPlansImported -lt 1) {
+    throw "Anonymous data import API did not import local conversations and trip plans"
+  }
+  $exportedAfterAnonymousImport = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/export" -WebSession $authSession
+  if (-not ($exportedAfterAnonymousImport.conversations | Where-Object { $_.title -like "*Hangzhou*" -or ($_.messages | Where-Object { $_.content -like "*Hangzhou*" }) })) {
+    throw "User data export did not include imported anonymous conversation"
+  }
+  if (-not ($exportedAfterAnonymousImport.tripPlans | Where-Object { $_.destination -eq "Hangzhou" })) {
+    throw "User data export did not include imported anonymous trip plan"
+  }
+} else {
+  Write-Host "Skipping verified account data import/export checks because no dev verification token was returned"
 }
 $resetPassword = "SmokeTest789!"
 $resetResponse = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/password-reset/request" -Method Post -ContentType "application/json" -Body (@{

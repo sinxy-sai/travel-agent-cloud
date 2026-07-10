@@ -232,6 +232,13 @@ export interface UserDataImportResponse {
   skippedItems: number;
 }
 
+export interface AnonymousDataSummary {
+  hasData: boolean;
+  conversations: number;
+  conversationSummaries: number;
+  tripPlans: number;
+}
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_AGENT_API_BASE_URL ?? '',
   timeout: 30000,
@@ -325,6 +332,11 @@ export async function exportCurrentUserData(): Promise<UserDataExport> {
 
 export async function importCurrentUserData(request: UserDataExport): Promise<UserDataImportResponse> {
   const response = await api.post<UserDataImportResponse>('/api/v1/me/import', request);
+  return response.data;
+}
+
+export async function getAnonymousUserDataSummary(): Promise<AnonymousDataSummary> {
+  const response = await api.get<AnonymousDataSummary>('/api/v1/me/anonymous-data/summary');
   return response.data;
 }
 
@@ -445,7 +457,7 @@ export async function exportTripPlanMarkdown(tripPlanId: string): Promise<string
   return response.data;
 }
 
-function getAnonymousUserId(): string {
+export function getAnonymousUserId(): string {
   const storageKey = 'travel-agent-cloud.user-id';
   const existing = window.localStorage.getItem(storageKey);
   if (existing) {

@@ -83,6 +83,14 @@ if [ "${CURRENT_AUTH_EMAIL}" != "${AUTH_EMAIL}" ]; then
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
+UNVERIFIED_EXPORT_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/me/export" \
+  -b "${AUTH_COOKIE_JAR}")"
+if [ "${UNVERIFIED_EXPORT_STATUS}" != "403" ]; then
+  echo "User data export API accepted an unverified account" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+ACCOUNT_DATA_VERIFIED="no"
 VERIFICATION_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/email-verification/request" \
   -b "${AUTH_COOKIE_JAR}")"
 VERIFICATION_DEV_TOKEN="$(printf '%s' "${VERIFICATION_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("devToken") or "")')"
@@ -96,6 +104,7 @@ if [ -n "${VERIFICATION_DEV_TOKEN}" ]; then
     rm -f "${AUTH_COOKIE_JAR}"
     exit 1
   fi
+  ACCOUNT_DATA_VERIFIED="yes"
 fi
 MISSING_RESET_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/password-reset/request" \
   -H "Content-Type: application/json" \
@@ -124,43 +133,58 @@ if [ "${UPDATED_AUTH_DISPLAY_NAME}" != "Updated Smoke Account" ]; then
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
-EXPORTED_USER_DATA_JSON="$(curl -fsS "${BASE_URL}/api/v1/me/export" \
-  -b "${AUTH_COOKIE_JAR}")"
-EXPORTED_USER_EMAIL="$(printf '%s' "${EXPORTED_USER_DATA_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("user", {}).get("email", ""))')"
-HAS_EXPORTED_CONVERSATIONS="$(printf '%s' "${EXPORTED_USER_DATA_JSON}" | python3 -c 'import json, sys; print("yes" if "conversations" in json.load(sys.stdin) else "no")')"
-if [ "${EXPORTED_USER_EMAIL}" != "${AUTH_EMAIL}" ] || [ "${HAS_EXPORTED_CONVERSATIONS}" != "yes" ]; then
-  echo "User data export API did not return the authenticated user data" >&2
-  rm -f "${AUTH_COOKIE_JAR}"
-  exit 1
-fi
-IMPORTED_USER_DATA_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/me/import" \
-  -H "Content-Type: application/json" \
-  -b "${AUTH_COOKIE_JAR}" \
-  -d "${EXPORTED_USER_DATA_JSON}")"
-PROFILE_IMPORTED="$(printf '%s' "${IMPORTED_USER_DATA_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("profileImported") else "no")')"
-if [ "${PROFILE_IMPORTED}" != "yes" ]; then
-  echo "User data import API did not import the profile" >&2
-  rm -f "${AUTH_COOKIE_JAR}"
-  exit 1
-fi
-ANONYMOUS_IMPORT_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/me/anonymous-data/import" \
-  -H "X-User-Id: ${ANONYMOUS_USER_ID}" \
-  -b "${AUTH_COOKIE_JAR}")"
-ANONYMOUS_IMPORT_CONVERSATIONS="$(printf '%s' "${ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("conversationsImported", 0))')"
-ANONYMOUS_IMPORT_TRIP_PLANS="$(printf '%s' "${ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("tripPlansImported", 0))')"
-if [ "${ANONYMOUS_IMPORT_CONVERSATIONS}" -lt 1 ] || [ "${ANONYMOUS_IMPORT_TRIP_PLANS}" -lt 1 ]; then
-  echo "Anonymous data import API did not import local conversations and trip plans" >&2
-  rm -f "${AUTH_COOKIE_JAR}"
-  exit 1
-fi
-EXPORTED_AFTER_ANONYMOUS_IMPORT_JSON="$(curl -fsS "${BASE_URL}/api/v1/me/export" \
-  -b "${AUTH_COOKIE_JAR}")"
-HAS_IMPORTED_ANONYMOUS_CONVERSATION="$(printf '%s' "${EXPORTED_AFTER_ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin).get("conversations", []); print("yes" if any("Hangzhou" in item.get("title", "") or any("Hangzhou" in msg.get("content", "") for msg in item.get("messages", [])) for item in data) else "no")')"
-HAS_IMPORTED_ANONYMOUS_TRIP_PLAN="$(printf '%s' "${EXPORTED_AFTER_ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin).get("tripPlans", []); print("yes" if any(item.get("destination") == "Hangzhou" for item in data) else "no")')"
-if [ "${HAS_IMPORTED_ANONYMOUS_CONVERSATION}" != "yes" ] || [ "${HAS_IMPORTED_ANONYMOUS_TRIP_PLAN}" != "yes" ]; then
-  echo "User data export did not include imported anonymous data" >&2
-  rm -f "${AUTH_COOKIE_JAR}"
-  exit 1
+if [ "${ACCOUNT_DATA_VERIFIED}" = "yes" ]; then
+  EXPORTED_USER_DATA_JSON="$(curl -fsS "${BASE_URL}/api/v1/me/export" \
+    -b "${AUTH_COOKIE_JAR}")"
+  EXPORTED_USER_EMAIL="$(printf '%s' "${EXPORTED_USER_DATA_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("user", {}).get("email", ""))')"
+  HAS_EXPORTED_CONVERSATIONS="$(printf '%s' "${EXPORTED_USER_DATA_JSON}" | python3 -c 'import json, sys; print("yes" if "conversations" in json.load(sys.stdin) else "no")')"
+  if [ "${EXPORTED_USER_EMAIL}" != "${AUTH_EMAIL}" ] || [ "${HAS_EXPORTED_CONVERSATIONS}" != "yes" ]; then
+    echo "User data export API did not return the authenticated user data" >&2
+    rm -f "${AUTH_COOKIE_JAR}"
+    exit 1
+  fi
+  IMPORTED_USER_DATA_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/me/import" \
+    -H "Content-Type: application/json" \
+    -b "${AUTH_COOKIE_JAR}" \
+    -d "${EXPORTED_USER_DATA_JSON}")"
+  PROFILE_IMPORTED="$(printf '%s' "${IMPORTED_USER_DATA_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("profileImported") else "no")')"
+  if [ "${PROFILE_IMPORTED}" != "yes" ]; then
+    echo "User data import API did not import the profile" >&2
+    rm -f "${AUTH_COOKIE_JAR}"
+    exit 1
+  fi
+  ANONYMOUS_SUMMARY_JSON="$(curl -fsS "${BASE_URL}/api/v1/me/anonymous-data/summary" \
+    -H "X-User-Id: ${ANONYMOUS_USER_ID}" \
+    -b "${AUTH_COOKIE_JAR}")"
+  ANONYMOUS_SUMMARY_HAS_DATA="$(printf '%s' "${ANONYMOUS_SUMMARY_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("hasData") else "no")')"
+  ANONYMOUS_SUMMARY_CONVERSATIONS="$(printf '%s' "${ANONYMOUS_SUMMARY_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("conversations", 0))')"
+  ANONYMOUS_SUMMARY_TRIP_PLANS="$(printf '%s' "${ANONYMOUS_SUMMARY_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("tripPlans", 0))')"
+  if [ "${ANONYMOUS_SUMMARY_HAS_DATA}" != "yes" ] || [ "${ANONYMOUS_SUMMARY_CONVERSATIONS}" -lt 1 ] || [ "${ANONYMOUS_SUMMARY_TRIP_PLANS}" -lt 1 ]; then
+    echo "Anonymous data summary API did not report local anonymous data" >&2
+    rm -f "${AUTH_COOKIE_JAR}"
+    exit 1
+  fi
+  ANONYMOUS_IMPORT_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/me/anonymous-data/import" \
+    -H "X-User-Id: ${ANONYMOUS_USER_ID}" \
+    -b "${AUTH_COOKIE_JAR}")"
+  ANONYMOUS_IMPORT_CONVERSATIONS="$(printf '%s' "${ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("conversationsImported", 0))')"
+  ANONYMOUS_IMPORT_TRIP_PLANS="$(printf '%s' "${ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("tripPlansImported", 0))')"
+  if [ "${ANONYMOUS_IMPORT_CONVERSATIONS}" -lt 1 ] || [ "${ANONYMOUS_IMPORT_TRIP_PLANS}" -lt 1 ]; then
+    echo "Anonymous data import API did not import local conversations and trip plans" >&2
+    rm -f "${AUTH_COOKIE_JAR}"
+    exit 1
+  fi
+  EXPORTED_AFTER_ANONYMOUS_IMPORT_JSON="$(curl -fsS "${BASE_URL}/api/v1/me/export" \
+    -b "${AUTH_COOKIE_JAR}")"
+  HAS_IMPORTED_ANONYMOUS_CONVERSATION="$(printf '%s' "${EXPORTED_AFTER_ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin).get("conversations", []); print("yes" if any("Hangzhou" in item.get("title", "") or any("Hangzhou" in msg.get("content", "") for msg in item.get("messages", [])) for item in data) else "no")')"
+  HAS_IMPORTED_ANONYMOUS_TRIP_PLAN="$(printf '%s' "${EXPORTED_AFTER_ANONYMOUS_IMPORT_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin).get("tripPlans", []); print("yes" if any(item.get("destination") == "Hangzhou" for item in data) else "no")')"
+  if [ "${HAS_IMPORTED_ANONYMOUS_CONVERSATION}" != "yes" ] || [ "${HAS_IMPORTED_ANONYMOUS_TRIP_PLAN}" != "yes" ]; then
+    echo "User data export did not include imported anonymous data" >&2
+    rm -f "${AUTH_COOKIE_JAR}"
+    exit 1
+  fi
+else
+  echo "Skipping verified account data import/export checks because no dev verification token was returned"
 fi
 AUTH_RESET_PASSWORD="SmokeTest789!"
 RESET_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/password-reset/request" \
