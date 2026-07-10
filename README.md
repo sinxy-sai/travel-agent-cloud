@@ -110,7 +110,7 @@ Copy-Item docker-compose.override.example.yml docker-compose.override.yml
 - Docker Hub 镜像构建成功后触发 `Deploy K3s`
 - `Deploy K3s` 执行 `kubectl apply -k deploy/k8s`
 - PostgreSQL 已加入默认 Kustomize 部署
-- RabbitMQ 是可选 K3s addon，默认不随自动部署启动
+- RabbitMQ 和 agent-runtime-worker 已加入默认 K3s 自动部署，前提是 VPS 已提前创建对应 Secret
 - GHCR 镜像构建 workflow 保留，但 K3s 默认部署 Docker Hub 镜像
 
 GitHub repository secrets:
@@ -160,7 +160,7 @@ curl http://localhost/health
 }
 ```
 
-`messageQueueEnabled` 为 `true` 代表 Agent Runtime 已配置 RabbitMQ 发布入口；它不代表已经有消费者在处理事件。
+`messageQueueEnabled` 为 `true` 代表 Agent Runtime 已配置 RabbitMQ 发布入口；默认 K3s 部署也会启动 `agent-runtime-worker` 处理异步摘要事件。
 
 也可以通过公网 IP 访问前端:
 

@@ -84,7 +84,7 @@ POST /api/v1/conversations/{conversationId}/summary-jobs
   -> ConversationSummarizerWorker
 ```
 
-The default K3s deployment keeps the API process separate from the worker. Enable `deploy/k8s/addons/agent-runtime-worker.yaml` when RabbitMQ is configured and asynchronous summaries should be processed.
+The default K3s deployment keeps the API process separate from the worker, and deploys RabbitMQ plus `agent-runtime-worker` through Kustomize. Required Kubernetes Secrets must exist before automated deployment.
 
 Queue rules:
 

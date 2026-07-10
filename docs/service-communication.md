@@ -95,7 +95,7 @@ Event payloads use camelCase fields:
 ## Current Implementation Status
 
 - Docker Compose includes RabbitMQ for local development.
-- K3s has an optional RabbitMQ addon manifest in `deploy/k8s/addons/rabbitmq.yaml`.
+- K3s deploys RabbitMQ through `deploy/k8s/addons/rabbitmq.yaml` as part of the default Kustomize deployment.
 - Agent Runtime exposes `MESSAGE_QUEUE_URL` and `RPC_TIMEOUT_SECONDS` settings.
 - Agent Runtime publishes domain events to the `travel.events` topic exchange when `MESSAGE_QUEUE_URL` is configured.
 - Agent Runtime has a reusable synchronous conversation summarizer worker at `app/workers/conversation_summarizer.py`.
@@ -105,5 +105,4 @@ Event payloads use camelCase fields:
 - A RabbitMQ consumer entrypoint exists at `python -m app.worker_main`.
 - The consumer updates job status from `QUEUED` to `RUNNING`, then `SUCCEEDED` or `FAILED`.
 - Docker Compose exposes the consumer as the `agent-runtime-worker` service behind the `worker` profile.
-- K3s exposes the consumer as the optional `deploy/k8s/addons/agent-runtime-worker.yaml` addon.
-- No production queue consumer is enabled by the default deployment yet.
+- K3s deploys the consumer through `deploy/k8s/addons/agent-runtime-worker.yaml` as part of the default Kustomize deployment.
