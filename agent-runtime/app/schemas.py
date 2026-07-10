@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def to_camel(value: str) -> str:
@@ -241,6 +241,30 @@ class UserDataExport(APIModel):
     conversations: list[Conversation]
     conversation_summaries: list[ConversationSummary]
     trip_plans: list[SavedTripPlan]
+
+
+class UserDataImportRequest(UserDataExport):
+    @model_validator(mode="after")
+    def validate_import_size(self) -> "UserDataImportRequest":
+        message_count = sum(len(conversation.messages) for conversation in self.conversations)
+        if len(self.conversations) > 200:
+            raise ValueError("Cannot import more than 200 conversations at once")
+        if message_count > 5000:
+            raise ValueError("Cannot import more than 5000 messages at once")
+        if len(self.conversation_summaries) > 200:
+            raise ValueError("Cannot import more than 200 conversation summaries at once")
+        if len(self.trip_plans) > 500:
+            raise ValueError("Cannot import more than 500 trip plans at once")
+        return self
+
+
+class UserDataImportResponse(APIModel):
+    imported_at: datetime
+    profile_imported: bool
+    conversations_imported: int
+    conversation_summaries_imported: int
+    trip_plans_imported: int
+    skipped_items: int
 
 
 class ConversationSummaryJobStatus(StrEnum):

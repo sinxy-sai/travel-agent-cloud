@@ -10,6 +10,7 @@ import {
   SendOutlined,
   StarFilled,
   StarOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import {
   changePassword,
@@ -28,6 +29,7 @@ import {
   getLatestConversationSummaryJob,
   getTripPlan,
   getUserProfile,
+  importCurrentUserData,
   loginUser,
   listConversations,
   listTripPlans,
@@ -72,6 +74,7 @@ type ConversationSummaryJobUiStatus = 'IDLE' | 'POLLING' | 'FAILED' | 'TIMEOUT';
 
 export default function App() {
   const queryClient = useQueryClient();
+  const importDataInputRef = useRef<HTMLInputElement | null>(null);
   const [destination, setDestination] = useState('Chengdu');
   const [days, setDays] = useState(3);
   const [budget, setBudget] = useState('moderate');
@@ -120,6 +123,7 @@ export default function App() {
   const [deleteAccountModalOpen, setDeleteAccountModalOpen] = useState(false);
   const [deleteAccountPassword, setDeleteAccountPassword] = useState('');
   const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState('');
+  const [importDataError, setImportDataError] = useState('');
 
   const authUserQuery = useQuery({
     queryKey: ['auth-user'],
@@ -202,6 +206,20 @@ export default function App() {
     mutationFn: exportCurrentUserData,
     onSuccess: (data) => {
       downloadJsonFile(data, `travel-agent-data-${new Date().toISOString().slice(0, 10)}.json`);
+    },
+  });
+
+  const importUserDataMutation = useMutation({
+    mutationFn: importCurrentUserData,
+    onSuccess: () => {
+      setImportDataError('');
+      clearWorkspace();
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+    },
+    onError: () => {
+      setImportDataError('Could not import this data file.');
     },
   });
 
@@ -586,6 +604,24 @@ export default function App() {
     });
   }
 
+  async function importUserDataFile(file: File | undefined) {
+    setImportDataError('');
+    if (!file) {
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setImportDataError('Data file is too large.');
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(await file.text());
+      importUserDataMutation.mutate(parsed);
+    } catch {
+      setImportDataError('Could not read this JSON file.');
+    }
+  }
+
   function clearWorkspace() {
     setConversationId(undefined);
     setChatMessages([]);
@@ -702,6 +738,7 @@ export default function App() {
               changePasswordMutation.isPending ||
               updateAuthUserMutation.isPending ||
               exportUserDataMutation.isPending ||
+              importUserDataMutation.isPending ||
               deleteAccountMutation.isPending
             }
             onLogin={() => openAuthModal('LOGIN')}
@@ -716,11 +753,26 @@ export default function App() {
               setPasswordModalOpen(true);
             }}
             onExportData={() => exportUserDataMutation.mutate()}
+            onImportData={() => {
+              setImportDataError('');
+              importDataInputRef.current?.click();
+            }}
+            importDataError={importDataError}
             onDeleteAccount={() => {
               resetDeleteAccountForm();
               setDeleteAccountModalOpen(true);
             }}
             onLogout={() => logoutMutation.mutate()}
+          />
+          <input
+            ref={importDataInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(event) => {
+              void importUserDataFile(event.target.files?.[0]);
+              event.target.value = '';
+            }}
           />
           <TravelerProfile
             profile={userProfileQuery.data}
@@ -1457,6 +1509,8 @@ function AccountStatus({
   onEditAccount,
   onChangePassword,
   onExportData,
+  onImportData,
+  importDataError,
   onDeleteAccount,
   onLogout,
 }: {
@@ -1467,6 +1521,8 @@ function AccountStatus({
   onEditAccount: () => void;
   onChangePassword: () => void;
   onExportData: () => void;
+  onImportData: () => void;
+  importDataError: string;
   onDeleteAccount: () => void;
   onLogout: () => void;
 }) {
@@ -1492,6 +1548,14 @@ function AccountStatus({
           <Button size="small" onClick={onExportData}>
             Export data
           </Button>
+          <Button size="small" icon={<UploadOutlined />} onClick={onImportData}>
+            Import data
+          </Button>
+          {importDataError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-2 py-2 text-xs text-red-700">
+              {importDataError}
+            </div>
+          )}
           <Button size="small" danger icon={<DeleteOutlined />} onClick={onDeleteAccount}>
             Delete account
           </Button>

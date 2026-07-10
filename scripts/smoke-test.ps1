@@ -55,6 +55,10 @@ if ($exportedUserData.user.email -ne $authEmail) {
 if (-not ($exportedUserData.PSObject.Properties.Name -contains "conversations")) {
   throw "User data export API did not return conversations"
 }
+$importedUserData = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/import" -Method Post -ContentType "application/json" -WebSession $authSession -Body ($exportedUserData | ConvertTo-Json -Depth 40)
+if (-not $importedUserData.profileImported) {
+  throw "User data import API did not import the profile"
+}
 $passwordChangeBody = @{
   currentPassword = "SmokeTest123!"
   newPassword = $changedPassword

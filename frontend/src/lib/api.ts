@@ -186,6 +186,15 @@ export interface UserDataExport {
   tripPlans: SavedTripPlan[];
 }
 
+export interface UserDataImportResponse {
+  importedAt: string;
+  profileImported: boolean;
+  conversationsImported: number;
+  conversationSummariesImported: number;
+  tripPlansImported: number;
+  skippedItems: number;
+}
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_AGENT_API_BASE_URL ?? '',
   timeout: 30000,
@@ -248,6 +257,11 @@ export async function updateCurrentAuthUser(request: AuthUserUpdateRequest): Pro
 
 export async function exportCurrentUserData(): Promise<UserDataExport> {
   const response = await api.get<UserDataExport>('/api/v1/me/export');
+  return response.data;
+}
+
+export async function importCurrentUserData(request: UserDataExport): Promise<UserDataImportResponse> {
+  const response = await api.post<UserDataImportResponse>('/api/v1/me/import', request);
   return response.data;
 }
 

@@ -21,6 +21,7 @@ from app.conversations import (
     DatabaseConversationStore,
     TripPlanNotFoundError,
 )
+from app.data_importer import UserDataImporter
 from app.db import maybe_create_session_factory
 from app.events import CONVERSATION_SUMMARY_REQUESTED_EVENT, create_event_publisher
 from app.exporter import saved_trip_plan_to_markdown
@@ -50,6 +51,8 @@ from app.schemas import (
     TripPlanResponse,
     TripPlanUpdateRequest,
     UserDataExport,
+    UserDataImportRequest,
+    UserDataImportResponse,
     UserProfile,
     UserProfileUpdateRequest,
     to_camel,
@@ -81,6 +84,7 @@ summary_job_store = (
 user_store = DatabaseUserStore(session_factory) if session_factory else UserStore()
 event_publisher = create_event_publisher(settings)
 conversation_summarizer = ConversationSummarizerWorker(conversation_store, summary_store, event_publisher)
+user_data_importer = UserDataImporter(session_factory, conversation_store, profile_store, summary_store)
 auth_rate_limiter = FixedWindowRateLimiter(
     settings.auth_rate_limit_max_attempts,
     settings.auth_rate_limit_window_seconds,
@@ -213,6 +217,24 @@ def export_current_user_data(request: Request) -> UserDataExport:
         conversation_summaries=summaries,
         trip_plans=_list_all_trip_plans(user.id),
     )
+
+
+@app.post("/api/v1/me/import", response_model=UserDataImportResponse)
+def import_current_user_data(request: Request, payload: UserDataImportRequest) -> UserDataImportResponse:
+    user = _get_current_auth_user(request)
+    _check_auth_rate_limit(request, "import-data", user.id)
+    result = user_data_importer.import_user_data(user.id, payload)
+    event_publisher.publish(
+        "user.data.imported",
+        user.id,
+        {
+            "conversationsImported": result.conversations_imported,
+            "conversationSummariesImported": result.conversation_summaries_imported,
+            "tripPlansImported": result.trip_plans_imported,
+            "skippedItems": result.skipped_items,
+        },
+    )
+    return result
 
 
 @app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)

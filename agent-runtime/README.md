@@ -68,6 +68,7 @@ Current events:
 - `agent.conversation.deleted`
 - `agent.conversation.summarize.requested`
 - `agent.conversation.summary.created`
+- `user.data.imported`
 
 Conversation summaries are generated through `app.workers.conversation_summarizer.ConversationSummarizerWorker`. The HTTP API can call this worker synchronously, or queue an asynchronous job when RabbitMQ is configured.
 
@@ -161,6 +162,15 @@ curl http://localhost:8000/api/v1/me/export \
   -b cookies.txt
 ```
 
+Import a previously exported data file into the current signed-in account:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/me/import \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  --data-binary @travel-agent-data.json
+```
+
 Delete the current account and owned app data:
 
 ```bash
@@ -178,7 +188,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout \
 ```
 
 Authenticated requests are scoped by the signed-in user's httpOnly cookie. If no valid login cookie or Bearer token is present, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
-Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL and RabbitMQ are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes or session tokens. Account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, and saved trip plans.
+Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL and RabbitMQ are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes or session tokens. User data import accepts that export format, ignores exported account identity fields, and restores data into the currently signed-in account. Account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, and saved trip plans.
 
 Create a structured trip plan:
 

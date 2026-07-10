@@ -74,6 +74,16 @@ if [ "${EXPORTED_USER_EMAIL}" != "${AUTH_EMAIL}" ] || [ "${HAS_EXPORTED_CONVERSA
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
+IMPORTED_USER_DATA_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/me/import" \
+  -H "Content-Type: application/json" \
+  -b "${AUTH_COOKIE_JAR}" \
+  -d "${EXPORTED_USER_DATA_JSON}")"
+PROFILE_IMPORTED="$(printf '%s' "${IMPORTED_USER_DATA_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("profileImported") else "no")')"
+if [ "${PROFILE_IMPORTED}" != "yes" ]; then
+  echo "User data import API did not import the profile" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
 curl -fsS -X PATCH "${BASE_URL}/api/v1/auth/password" \
   -H "Content-Type: application/json" \
   -b "${AUTH_COOKIE_JAR}" \
