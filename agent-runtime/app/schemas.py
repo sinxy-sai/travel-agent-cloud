@@ -221,6 +221,15 @@ class ConversationSummary(APIModel):
     updated_at: datetime
 
 
+class UserDataExport(APIModel):
+    exported_at: datetime
+    user: AuthUser
+    profile: UserProfile
+    conversations: list[Conversation]
+    conversation_summaries: list[ConversationSummary]
+    trip_plans: list[SavedTripPlan]
+
+
 class ConversationSummaryJobStatus(StrEnum):
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"

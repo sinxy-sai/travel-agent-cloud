@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
@@ -46,6 +48,7 @@ from app.schemas import (
     TripPlanRequest,
     TripPlanResponse,
     TripPlanUpdateRequest,
+    UserDataExport,
     UserProfile,
     UserProfileUpdateRequest,
     to_camel,
@@ -166,6 +169,27 @@ def change_password(request: Request, payload: AuthPasswordChangeRequest) -> Res
             detail={"code": "INVALID_CREDENTIALS", "message": "Current password is incorrect"},
         ) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/api/v1/me/export", response_model=UserDataExport)
+def export_current_user_data(request: Request) -> UserDataExport:
+    user = _get_current_auth_user(request)
+    conversations = _list_all_conversations(user.id)
+    summaries = []
+    for conversation in conversations:
+        try:
+            summaries.append(summary_store.get(user.id, conversation.id))
+        except ConversationSummaryNotFoundError:
+            continue
+
+    return UserDataExport(
+        exported_at=datetime.now(UTC),
+        user=user,
+        profile=profile_store.get(user.id),
+        conversations=conversations,
+        conversation_summaries=summaries,
+        trip_plans=_list_all_trip_plans(user.id),
+    )
 
 
 @app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -492,3 +516,27 @@ def _check_auth_rate_limit(request: Request, action: str, email: str) -> None:
         detail={"code": "RATE_LIMITED", "message": "Too many authentication attempts"},
         headers={"Retry-After": str(decision.retry_after_seconds)},
     )
+
+
+def _list_all_conversations(user_id: str) -> list[Conversation]:
+    page = 1
+    page_size = 100
+    conversations: list[Conversation] = []
+    while True:
+        response = conversation_store.list(user_id=user_id, page=page, page_size=page_size)
+        conversations.extend(response.data)
+        if page >= response.total_pages or not response.data:
+            return conversations
+        page += 1
+
+
+def _list_all_trip_plans(user_id: str) -> list[SavedTripPlan]:
+    page = 1
+    page_size = 100
+    trip_plans: list[SavedTripPlan] = []
+    while True:
+        response = conversation_store.list_trip_plans(user_id=user_id, page=page, page_size=page_size)
+        trip_plans.extend(response.data)
+        if page >= response.total_pages or not response.data:
+            return trip_plans
+        page += 1

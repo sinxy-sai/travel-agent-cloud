@@ -48,6 +48,13 @@ $updatedAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -Method Patc
 if ($updatedAuthUser.displayName -ne "Updated Smoke Account") {
   throw "Auth user update API did not persist displayName"
 }
+$exportedUserData = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/export" -WebSession $authSession
+if ($exportedUserData.user.email -ne $authEmail) {
+  throw "User data export API did not return the authenticated user"
+}
+if (-not ($exportedUserData.PSObject.Properties.Name -contains "conversations")) {
+  throw "User data export API did not return conversations"
+}
 $passwordChangeBody = @{
   currentPassword = "SmokeTest123!"
   newPassword = $changedPassword

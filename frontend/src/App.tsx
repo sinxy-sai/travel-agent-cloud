@@ -18,6 +18,7 @@ import {
   createConversationSummaryJob,
   deleteConversation,
   deleteTripPlan,
+  exportCurrentUserData,
   exportTripPlanMarkdown,
   getConversation,
   getConversationSummary,
@@ -190,6 +191,13 @@ export default function App() {
     onSuccess: (user) => {
       queryClient.setQueryData(['auth-user'], user);
       setAccountModalOpen(false);
+    },
+  });
+
+  const exportUserDataMutation = useMutation({
+    mutationFn: exportCurrentUserData,
+    onSuccess: (data) => {
+      downloadJsonFile(data, `travel-agent-data-${new Date().toISOString().slice(0, 10)}.json`);
     },
   });
 
@@ -659,7 +667,8 @@ export default function App() {
               authUserQuery.isLoading ||
               logoutMutation.isPending ||
               changePasswordMutation.isPending ||
-              updateAuthUserMutation.isPending
+              updateAuthUserMutation.isPending ||
+              exportUserDataMutation.isPending
             }
             onLogin={() => openAuthModal('LOGIN')}
             onRegister={() => openAuthModal('REGISTER')}
@@ -672,6 +681,7 @@ export default function App() {
               resetPasswordForm();
               setPasswordModalOpen(true);
             }}
+            onExportData={() => exportUserDataMutation.mutate()}
             onLogout={() => logoutMutation.mutate()}
           />
           <TravelerProfile
@@ -1359,6 +1369,7 @@ function AccountStatus({
   onRegister,
   onEditAccount,
   onChangePassword,
+  onExportData,
   onLogout,
 }: {
   user?: AuthUser | null;
@@ -1367,6 +1378,7 @@ function AccountStatus({
   onRegister: () => void;
   onEditAccount: () => void;
   onChangePassword: () => void;
+  onExportData: () => void;
   onLogout: () => void;
 }) {
   return (
@@ -1387,6 +1399,9 @@ function AccountStatus({
           </Button>
           <Button size="small" onClick={onChangePassword}>
             Change password
+          </Button>
+          <Button size="small" onClick={onExportData}>
+            Export data
           </Button>
           <Button size="small" className="w-full" loading={loading} onClick={onLogout}>
             Sign out
@@ -1699,6 +1714,18 @@ function tripPlanToMarkdown(
 
 function downloadTextFile(content: string, filename: string) {
   const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function downloadJsonFile(data: unknown, filename: string) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

@@ -172,6 +172,15 @@ export interface AuthUserUpdateRequest {
   displayName: string;
 }
 
+export interface UserDataExport {
+  exportedAt: string;
+  user: AuthUser;
+  profile: UserProfile;
+  conversations: Conversation[];
+  conversationSummaries: ConversationSummary[];
+  tripPlans: SavedTripPlan[];
+}
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_AGENT_API_BASE_URL ?? '',
   timeout: 30000,
@@ -225,6 +234,11 @@ export async function getCurrentAuthUser(): Promise<AuthUser | null> {
 
 export async function updateCurrentAuthUser(request: AuthUserUpdateRequest): Promise<AuthUser> {
   const response = await api.patch<AuthUser>('/api/v1/auth/me', request);
+  return response.data;
+}
+
+export async function exportCurrentUserData(): Promise<UserDataExport> {
+  const response = await api.get<UserDataExport>('/api/v1/me/export');
   return response.data;
 }
 

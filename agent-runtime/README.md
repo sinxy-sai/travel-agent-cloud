@@ -153,6 +153,13 @@ curl -X PATCH http://localhost:8000/api/v1/auth/password \
   -d '{"currentPassword":"ChangeMe123!","newPassword":"NewChangeMe123!"}'
 ```
 
+Export signed-in user data:
+
+```bash
+curl http://localhost:8000/api/v1/me/export \
+  -b cookies.txt
+```
+
 Sign out:
 
 ```bash
@@ -161,7 +168,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout \
 ```
 
 Authenticated requests are scoped by the signed-in user's httpOnly cookie. If no valid login cookie or Bearer token is present, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
-Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL and RabbitMQ are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS.
+Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL and RabbitMQ are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes or session tokens.
 
 Create a structured trip plan:
 

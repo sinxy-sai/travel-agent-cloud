@@ -65,6 +65,15 @@ if [ "${UPDATED_AUTH_DISPLAY_NAME}" != "Updated Smoke Account" ]; then
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
+EXPORTED_USER_DATA_JSON="$(curl -fsS "${BASE_URL}/api/v1/me/export" \
+  -b "${AUTH_COOKIE_JAR}")"
+EXPORTED_USER_EMAIL="$(printf '%s' "${EXPORTED_USER_DATA_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("user", {}).get("email", ""))')"
+HAS_EXPORTED_CONVERSATIONS="$(printf '%s' "${EXPORTED_USER_DATA_JSON}" | python3 -c 'import json, sys; print("yes" if "conversations" in json.load(sys.stdin) else "no")')"
+if [ "${EXPORTED_USER_EMAIL}" != "${AUTH_EMAIL}" ] || [ "${HAS_EXPORTED_CONVERSATIONS}" != "yes" ]; then
+  echo "User data export API did not return the authenticated user data" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
 curl -fsS -X PATCH "${BASE_URL}/api/v1/auth/password" \
   -H "Content-Type: application/json" \
   -b "${AUTH_COOKIE_JAR}" \
