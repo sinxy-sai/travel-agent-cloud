@@ -283,6 +283,8 @@ export default function App() {
     () => `${days} days in ${destination}, ${budget} budget, focused on ${interests.join(', ')}`,
     [budget, days, destination, interests],
   );
+  const conversations = conversationsQuery.data?.data ?? [];
+  const tripPlans = tripPlansQuery.data?.data ?? [];
 
   useEffect(() => {
     const totalPages = conversationsQuery.data?.totalPages ?? 0;
@@ -397,7 +399,7 @@ export default function App() {
     setProfileHomeCity(profile?.homeCity ?? '');
     setProfilePreferredBudget(profile?.preferredBudget || budget);
     setProfileTravelStyle(profile?.travelStyle ?? '');
-    setProfileInterests(profile?.interests.length ? profile.interests : interests);
+    setProfileInterests(profile?.interests?.length ? profile.interests : interests);
     setProfileModalOpen(true);
   };
 
@@ -415,7 +417,7 @@ export default function App() {
     if (profile.preferredBudget) {
       setBudget(profile.preferredBudget);
     }
-    if (profile.interests.length > 0) {
+    if (profile.interests?.length > 0) {
       setInterests(profile.interests);
     }
   }
@@ -517,7 +519,7 @@ export default function App() {
             <HistorySection
               title="Recent conversations"
               emptyText="No saved threads yet"
-              hasItems={Boolean(conversationsQuery.data?.data.length)}
+              hasItems={conversations.length > 0}
               loading={
                 conversationsQuery.isLoading ||
                 loadConversationMutation.isPending ||
@@ -552,7 +554,7 @@ export default function App() {
                 />
               }
             >
-              {conversationsQuery.data?.data.map((conversation) => (
+              {conversations.map((conversation) => (
                 <ConversationHistoryItem
                   key={conversation.id}
                   conversation={conversation}
@@ -567,7 +569,7 @@ export default function App() {
             <HistorySection
               title="Saved itineraries"
               emptyText="No saved plans yet"
-              hasItems={Boolean(tripPlansQuery.data?.data.length)}
+              hasItems={tripPlans.length > 0}
               loading={
                 tripPlansQuery.isLoading ||
                 loadTripPlanMutation.isPending ||
@@ -617,7 +619,7 @@ export default function App() {
                 />
               }
             >
-              {tripPlansQuery.data?.data.map((savedTripPlan) => (
+              {tripPlans.map((savedTripPlan) => (
                 <TripPlanHistoryItem
                   key={savedTripPlan.id}
                   tripPlan={savedTripPlan}
@@ -684,7 +686,7 @@ export default function App() {
               </div>
 
               <div className="grid gap-4">
-                {plan.days.map((day) => (
+                {(plan.days ?? []).map((day) => (
                   <article key={day.day} className="rounded-lg border border-slate-200 p-4">
                     <div className="mb-3 flex items-center justify-between">
                       <h3 className="text-lg font-semibold text-ink">Day {day.day}</h3>
@@ -702,7 +704,7 @@ export default function App() {
               <div className="mt-5 rounded-lg bg-slate-50 p-4">
                 <h3 className="font-semibold text-ink">Travel notes</h3>
                 <ul className="mt-2 list-inside list-disc text-slate-600">
-                  {plan.tips.map((tip) => (
+                  {(plan.tips ?? []).map((tip) => (
                     <li key={tip}>{tip}</li>
                   ))}
                 </ul>
@@ -968,7 +970,7 @@ function TravelerProfile({
   onEdit: () => void;
   onUsePreferences: () => void;
 }) {
-  const hasPreferences = Boolean(profile?.preferredBudget || profile?.interests.length);
+  const hasPreferences = Boolean(profile?.preferredBudget || profile?.interests?.length);
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 bg-white p-3">
@@ -987,7 +989,7 @@ function TravelerProfile({
         <ProfileDetail label="Home" value={profile?.homeCity} />
         <ProfileDetail label="Budget" value={profile?.preferredBudget} />
         <ProfileDetail label="Style" value={profile?.travelStyle} />
-        <ProfileDetail label="Interests" value={profile?.interests.join(', ')} />
+        <ProfileDetail label="Interests" value={profile?.interests?.join(', ')} />
       </div>
       {hasPreferences && (
         <Button size="small" className="mt-3 w-full" onClick={onUsePreferences}>
@@ -1103,7 +1105,8 @@ function ConversationHistoryItem({
   onRename: () => void;
   onDelete: () => void;
 }) {
-  const lastMessage = conversation.messages[conversation.messages.length - 1]?.content ?? 'No messages yet';
+  const messages = conversation.messages ?? [];
+  const lastMessage = messages[messages.length - 1]?.content ?? 'No messages yet';
 
   return (
     <div
@@ -1225,7 +1228,7 @@ function tripPlanToMarkdown(
     '',
     '## Itinerary',
     '',
-    ...plan.days.flatMap((day) => [
+    ...(plan.days ?? []).flatMap((day) => [
       `### Day ${day.day}: ${day.theme}`,
       '',
       `- Morning: ${day.morning}`,
@@ -1235,8 +1238,9 @@ function tripPlanToMarkdown(
     ]),
   ];
 
-  if (plan.tips.length > 0) {
-    body.push('## Travel notes', '', ...plan.tips.map((tip) => `- ${tip}`), '');
+  const tips = plan.tips ?? [];
+  if (tips.length > 0) {
+    body.push('## Travel notes', '', ...tips.map((tip) => `- ${tip}`), '');
   }
 
   return [...header, ...body].join('\n').trim() + '\n';
