@@ -135,6 +135,15 @@ curl http://localhost:8000/api/v1/auth/me \
   -b cookies.txt
 ```
 
+Change password:
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/auth/password \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{"currentPassword":"ChangeMe123!","newPassword":"NewChangeMe123!"}'
+```
+
 Sign out:
 
 ```bash
@@ -143,6 +152,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout \
 ```
 
 Authenticated requests are scoped by the signed-in user's httpOnly cookie. If no valid login cookie or Bearer token is present, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
+Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. Service credentials such as PostgreSQL and RabbitMQ are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS.
 
 Create a structured trip plan:
 

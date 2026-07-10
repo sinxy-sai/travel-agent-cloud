@@ -163,6 +163,11 @@ export interface AuthLoginRequest {
   password: string;
 }
 
+export interface AuthPasswordChangeRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_AGENT_API_BASE_URL ?? '',
   timeout: 30000,
@@ -196,6 +201,10 @@ export async function loginUser(request: AuthLoginRequest): Promise<AuthSession>
 
 export async function logoutUser(): Promise<void> {
   await api.post('/api/v1/auth/logout');
+}
+
+export async function changePassword(request: AuthPasswordChangeRequest): Promise<void> {
+  await api.patch('/api/v1/auth/password', request);
 }
 
 export async function getCurrentAuthUser(): Promise<AuthUser | null> {

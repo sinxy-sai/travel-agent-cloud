@@ -12,6 +12,7 @@ import {
   StarOutlined,
 } from '@ant-design/icons';
 import {
+  changePassword,
   createTripPlan,
   createConversationSummary,
   createConversationSummaryJob,
@@ -106,6 +107,11 @@ export default function App() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authDisplayName, setAuthDisplayName] = useState('');
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordChangeSucceeded, setPasswordChangeSucceeded] = useState(false);
 
   const authUserQuery = useQuery({
     queryKey: ['auth-user'],
@@ -160,10 +166,19 @@ export default function App() {
     mutationFn: logoutUser,
     onSuccess: () => {
       clearWorkspace();
+      resetPasswordForm();
       queryClient.setQueryData(['auth-user'], null);
       queryClient.invalidateQueries({ queryKey: ['user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+    },
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: changePassword,
+    onSuccess: () => {
+      resetPasswordForm();
+      setPasswordChangeSucceeded(true);
     },
   });
 
@@ -475,6 +490,14 @@ export default function App() {
     registerMutation.reset();
   }
 
+  function resetPasswordForm() {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setPasswordChangeSucceeded(false);
+    changePasswordMutation.reset();
+  }
+
   function submitAuth() {
     const email = authEmail.trim();
     if (!email || !authPassword || loginMutation.isPending || registerMutation.isPending) {
@@ -490,6 +513,16 @@ export default function App() {
         displayName: authDisplayName,
       });
     }
+  }
+
+  function submitPasswordChange() {
+    if (!currentPassword || newPassword.length < 8 || newPassword !== confirmNewPassword) {
+      return;
+    }
+    changePasswordMutation.mutate({
+      currentPassword,
+      newPassword,
+    });
   }
 
   function clearWorkspace() {
@@ -602,9 +635,13 @@ export default function App() {
           <RuntimeStatus health={healthQuery.data} loading={healthQuery.isLoading} error={healthQuery.isError} />
           <AccountStatus
             user={authUserQuery.data}
-            loading={authUserQuery.isLoading || logoutMutation.isPending}
+            loading={authUserQuery.isLoading || logoutMutation.isPending || changePasswordMutation.isPending}
             onLogin={() => openAuthModal('LOGIN')}
             onRegister={() => openAuthModal('REGISTER')}
+            onChangePassword={() => {
+              resetPasswordForm();
+              setPasswordModalOpen(true);
+            }}
             onLogout={() => logoutMutation.mutate()}
           />
           <TravelerProfile
@@ -1054,6 +1091,75 @@ export default function App() {
         </div>
       </Modal>
       <Modal
+        title="Change password"
+        open={passwordModalOpen}
+        okText="Update password"
+        onOk={submitPasswordChange}
+        confirmLoading={changePasswordMutation.isPending}
+        okButtonProps={{
+          disabled: !currentPassword || newPassword.length < 8 || newPassword !== confirmNewPassword,
+        }}
+        onCancel={() => {
+          setPasswordModalOpen(false);
+          resetPasswordForm();
+        }}
+      >
+        <div className="space-y-3">
+          {passwordChangeSucceeded && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              Password updated. Use the new password next time you sign in.
+            </div>
+          )}
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Current password</span>
+            <Input.Password
+              value={currentPassword}
+              onChange={(event) => {
+                setCurrentPassword(event.target.value);
+                setPasswordChangeSucceeded(false);
+                changePasswordMutation.reset();
+              }}
+              placeholder="Current password"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">New password</span>
+            <Input.Password
+              value={newPassword}
+              onChange={(event) => {
+                setNewPassword(event.target.value);
+                setPasswordChangeSucceeded(false);
+                changePasswordMutation.reset();
+              }}
+              placeholder="At least 8 characters"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-ink">Confirm new password</span>
+            <Input.Password
+              value={confirmNewPassword}
+              onChange={(event) => {
+                setConfirmNewPassword(event.target.value);
+                setPasswordChangeSucceeded(false);
+                changePasswordMutation.reset();
+              }}
+              onPressEnter={submitPasswordChange}
+              placeholder="Repeat new password"
+            />
+          </label>
+          {newPassword && confirmNewPassword && newPassword !== confirmNewPassword && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              New passwords do not match.
+            </div>
+          )}
+          {changePasswordMutation.isError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              Could not update password. Check the current password and try again.
+            </div>
+          )}
+        </div>
+      </Modal>
+      <Modal
         title="Rename conversation"
         open={Boolean(renameConversation)}
         okText="Save"
@@ -1185,12 +1291,14 @@ function AccountStatus({
   loading,
   onLogin,
   onRegister,
+  onChangePassword,
   onLogout,
 }: {
   user?: AuthUser | null;
   loading: boolean;
   onLogin: () => void;
   onRegister: () => void;
+  onChangePassword: () => void;
   onLogout: () => void;
 }) {
   return (
@@ -1205,9 +1313,14 @@ function AccountStatus({
         {loading && <Spin size="small" />}
       </div>
       {user ? (
-        <Button size="small" className="w-full" loading={loading} onClick={onLogout}>
-          Sign out
-        </Button>
+        <div className="grid gap-2">
+          <Button size="small" onClick={onChangePassword}>
+            Change password
+          </Button>
+          <Button size="small" className="w-full" loading={loading} onClick={onLogout}>
+            Sign out
+          </Button>
+        </div>
       ) : (
         <div className="grid grid-cols-2 gap-2">
           <Button size="small" type="primary" onClick={onLogin}>

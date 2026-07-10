@@ -32,6 +32,7 @@ $authBody = @{
   password = "SmokeTest123!"
   displayName = "Smoke Test Account"
 } | ConvertTo-Json
+$changedPassword = "SmokeTest456!"
 $registeredSession = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/register" -Method Post -ContentType "application/json" -WebSession $authSession -Body $authBody
 if ($registeredSession.user.email -ne $authEmail) {
   throw "Auth register API did not return the created user"
@@ -40,6 +41,11 @@ $currentAuthUser = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -WebSession 
 if ($currentAuthUser.email -ne $authEmail) {
   throw "Auth me API did not return the cookie-authenticated user"
 }
+$passwordChangeBody = @{
+  currentPassword = "SmokeTest123!"
+  newPassword = $changedPassword
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/password" -Method Patch -ContentType "application/json" -WebSession $authSession -Body $passwordChangeBody
 Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/logout" -Method Post -WebSession $authSession
 try {
   Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/me" -WebSession $authSession
@@ -48,6 +54,26 @@ try {
   if ($_.Exception.Response.StatusCode.value__ -ne 401) {
     throw
   }
+}
+$oldPasswordLoginBody = @{
+  email = $authEmail
+  password = "SmokeTest123!"
+} | ConvertTo-Json
+try {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/login" -Method Post -ContentType "application/json" -WebSession $authSession -Body $oldPasswordLoginBody
+  throw "Auth login accepted the old password after a password change"
+} catch {
+  if ($_.Exception.Response.StatusCode.value__ -ne 401) {
+    throw
+  }
+}
+$newPasswordLoginBody = @{
+  email = $authEmail
+  password = $changedPassword
+} | ConvertTo-Json
+$changedLoginSession = Invoke-RestMethod -Uri "$BaseUrl/api/v1/auth/login" -Method Post -ContentType "application/json" -WebSession $authSession -Body $newPasswordLoginBody
+if ($changedLoginSession.user.email -ne $authEmail) {
+  throw "Auth login did not accept the changed password"
 }
 
 Write-Host "Checking user profile API"

@@ -76,6 +76,16 @@ class UserStore:
             raise UserNotFoundError(user_id)
         return user
 
+    def change_password(self, user_id: str, current_password: str, new_password: str) -> None:
+        user = self.get_user(user_id)
+        item = self._password_hashes_by_email.get(user.email)
+        if item is None:
+            raise UserNotFoundError(user_id)
+        _, password_hash = item
+        if not verify_password(current_password, password_hash):
+            raise InvalidCredentialsError()
+        self._password_hashes_by_email[user.email] = (user_id, hash_password(new_password))
+
 
 class DatabaseUserStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
@@ -110,6 +120,16 @@ class DatabaseUserStore:
             if record is None:
                 raise UserNotFoundError(user_id)
             return _to_auth_user(record)
+
+    def change_password(self, user_id: str, current_password: str, new_password: str) -> None:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
+            if record is None:
+                raise UserNotFoundError(user_id)
+            if not verify_password(current_password, record.password_hash):
+                raise InvalidCredentialsError()
+            record.password_hash = hash_password(new_password)
+            record.updated_at = _now()
 
 
 def hash_password(password: str) -> str:

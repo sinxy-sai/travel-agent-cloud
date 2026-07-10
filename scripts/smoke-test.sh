@@ -34,6 +34,7 @@ echo
 echo "Checking auth API"
 AUTH_COOKIE_JAR="$(mktemp)"
 AUTH_EMAIL="smoke-$(date +%s)-$$@example.com"
+AUTH_CHANGED_PASSWORD="SmokeTest456!"
 REGISTER_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/register" \
   -H "Content-Type: application/json" \
   -c "${AUTH_COOKIE_JAR}" \
@@ -54,14 +55,39 @@ if [ "${CURRENT_AUTH_EMAIL}" != "${AUTH_EMAIL}" ]; then
   rm -f "${AUTH_COOKIE_JAR}"
   exit 1
 fi
+curl -fsS -X PATCH "${BASE_URL}/api/v1/auth/password" \
+  -H "Content-Type: application/json" \
+  -b "${AUTH_COOKIE_JAR}" \
+  -d "{\"currentPassword\":\"SmokeTest123!\",\"newPassword\":\"${AUTH_CHANGED_PASSWORD}\"}"
 curl -fsS -X POST "${BASE_URL}/api/v1/auth/logout" \
   -b "${AUTH_COOKIE_JAR}" \
   -c "${AUTH_COOKIE_JAR}"
 LOGGED_OUT_STATUS="$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/auth/me" \
   -b "${AUTH_COOKIE_JAR}")"
-rm -f "${AUTH_COOKIE_JAR}"
 if [ "${LOGGED_OUT_STATUS}" != "401" ]; then
   echo "Auth me API accepted a logged-out session" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+OLD_PASSWORD_LOGIN_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST "${BASE_URL}/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -c "${AUTH_COOKIE_JAR}" \
+  -b "${AUTH_COOKIE_JAR}" \
+  -d "{\"email\":\"${AUTH_EMAIL}\",\"password\":\"SmokeTest123!\"}")"
+if [ "${OLD_PASSWORD_LOGIN_STATUS}" != "401" ]; then
+  echo "Auth login accepted the old password after a password change" >&2
+  rm -f "${AUTH_COOKIE_JAR}"
+  exit 1
+fi
+CHANGED_LOGIN_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -c "${AUTH_COOKIE_JAR}" \
+  -b "${AUTH_COOKIE_JAR}" \
+  -d "{\"email\":\"${AUTH_EMAIL}\",\"password\":\"${AUTH_CHANGED_PASSWORD}\"}")"
+CHANGED_LOGIN_EMAIL="$(printf '%s' "${CHANGED_LOGIN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("user", {}).get("email", ""))')"
+rm -f "${AUTH_COOKIE_JAR}"
+if [ "${CHANGED_LOGIN_EMAIL}" != "${AUTH_EMAIL}" ]; then
+  echo "Auth login did not accept the changed password" >&2
   exit 1
 fi
 echo

@@ -28,6 +28,7 @@ from app.planner import build_mock_trip_plan
 from app.profiles import DatabaseUserProfileStore, UserProfileStore
 from app.schemas import (
     AuthLoginRequest,
+    AuthPasswordChangeRequest,
     AuthRegisterRequest,
     AuthSession,
     AuthUser,
@@ -137,21 +138,21 @@ def login(request: Request, payload: AuthLoginRequest, response: Response) -> Au
 
 @app.get("/api/v1/auth/me", response_model=AuthUser)
 def get_current_auth_user(request: Request) -> AuthUser:
-    token = request.cookies.get(AUTH_COOKIE_NAME) or _bearer_token(request)
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
-        )
+    return _get_current_auth_user(request)
 
+
+@app.patch("/api/v1/auth/password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(request: Request, payload: AuthPasswordChangeRequest) -> Response:
+    user = _get_current_auth_user(request)
+    _check_auth_rate_limit(request, "change-password", user.id)
     try:
-        user_id = verify_access_token(settings, token)
-        return user_store.get_user(user_id)
-    except (InvalidCredentialsError, UserNotFoundError) as exc:
+        user_store.change_password(user.id, payload.current_password, payload.new_password)
+    except InvalidCredentialsError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
+            detail={"code": "INVALID_CREDENTIALS", "message": "Current password is incorrect"},
         ) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -448,6 +449,24 @@ def _bearer_token(request: Request) -> str | None:
     if authorization.startswith(prefix):
         return authorization[len(prefix) :].strip()
     return None
+
+
+def _get_current_auth_user(request: Request) -> AuthUser:
+    token = request.cookies.get(AUTH_COOKIE_NAME) or _bearer_token(request)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
+        )
+
+    try:
+        user_id = verify_access_token(settings, token)
+        return user_store.get_user(user_id)
+    except (InvalidCredentialsError, UserNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
+        ) from exc
 
 
 def _check_auth_rate_limit(request: Request, action: str, email: str) -> None:

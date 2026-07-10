@@ -135,6 +135,18 @@ class AuthLoginRequest(APIModel):
         return value.strip().lower()
 
 
+class AuthPasswordChangeRequest(APIModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        if value.strip() != value:
+            raise ValueError("Password cannot start or end with whitespace")
+        return value
+
+
 class AuthUser(APIModel):
     id: str
     email: str
