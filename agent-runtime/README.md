@@ -43,6 +43,18 @@ REDIS_KEY_PREFIX=travel-agent-cloud
 
 The health response includes `redisRateLimitEnabled` so deployments can confirm whether Redis-backed limiting is active.
 
+Configure MinIO-compatible object storage to archive authenticated user data exports:
+
+```bash
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=travel_agent
+MINIO_SECRET_KEY=change-me
+MINIO_BUCKET=travel-agent-exports
+MINIO_SECURE=false
+```
+
+The health response includes `objectStorageEnabled`. Export downloads are proxied through the authenticated API, so MinIO does not need a public endpoint.
+
 Email verification and password reset use `EMAIL_PROVIDER=mock` by default. Mock mode returns `devToken` and `actionUrl` in API responses for local testing. To send real email, switch to SMTP:
 
 ```bash
@@ -283,6 +295,17 @@ curl http://localhost:8000/api/v1/me/export \
   -b cookies.txt
 ```
 
+Archive the same export JSON in MinIO, then download it through the authenticated API:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/me/export-files \
+  -b cookies.txt
+
+curl http://localhost:8000/api/v1/me/export-files/export-id \
+  -b cookies.txt \
+  -o travel-agent-data.json
+```
+
 Import a previously exported data file into the current signed-in account:
 
 ```bash
@@ -325,7 +348,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout \
 ```
 
 Authenticated requests are scoped by the signed-in user's httpOnly cookie. If no valid login cookie or Bearer token is present, the runtime keeps the existing anonymous `X-User-Id` fallback for local development.
-Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. JWTs include a `sid` claim for new logins; the runtime checks `auth_sessions` so logout and explicit revocation can invalidate a session before the token expires. Existing tokens without `sid` remain accepted until their natural expiry for deployment compatibility. Session records store a hashed client identifier and sanitized User-Agent, never raw JWTs. Service credentials such as PostgreSQL, RabbitMQ, and SMTP are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes, session tokens, or email action tokens. User data import accepts that export format, ignores exported account identity fields, and restores data into the currently signed-in account. Anonymous data import copies the current browser's anonymous workspace into the signed-in account and records `user.anonymous_data_imported`; the frontend checks `/anonymous-data/summary` after login and prompts the user before importing. Account security activity records successful account events and stores only a hashed client identifier plus non-sensitive details. Password reset completion writes `auth.password_reset_completed` and revokes older sessions; account deletion requires the current password and confirmation text, then deletes only that user's account, profile, conversations, summaries, summary jobs, sessions, security events, and saved trip plans.
+Application user passwords are stored only as PBKDF2-SHA256 hashes in `users.password_hash`. JWTs include a `sid` claim for new logins; the runtime checks `auth_sessions` so logout and explicit revocation can invalidate a session before the token expires. Existing tokens without `sid` remain accepted until their natural expiry for deployment compatibility. Session records store a hashed client identifier and sanitized User-Agent, never raw JWTs. Service credentials such as PostgreSQL, RabbitMQ, MinIO, and SMTP are managed separately through Docker Compose environment variables locally and Kubernetes Secrets on VPS. User data export returns account metadata, traveler profile, conversations, summaries, and saved trip plans, but never returns password hashes, session tokens, or email action tokens. MinIO export objects are stored below a per-user prefix and are only downloaded through an authenticated ownership-scoped endpoint. User data import accepts the export format, ignores exported account identity fields, and restores data into the currently signed-in account. Anonymous data import copies the current browser's anonymous workspace into the signed-in account and records `user.anonymous_data_imported`; the frontend checks `/anonymous-data/summary` after login and prompts the user before importing. Account security activity records successful account events and stores only a hashed client identifier plus non-sensitive details. Password reset completion writes `auth.password_reset_completed` and revokes older sessions; account deletion requires the current password and confirmation text, then deletes only that user's account, object-storage exports, profile, conversations, summaries, summary jobs, sessions, security events, and saved trip plans.
 
 Create a structured trip plan:
 

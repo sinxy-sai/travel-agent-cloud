@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     message_queue_url: str = ""
     redis_url: str = ""
     redis_key_prefix: str = "travel-agent-cloud"
+    minio_endpoint: str = ""
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
+    minio_bucket: str = "travel-agent-exports"
+    minio_secure: bool = False
     rpc_timeout_seconds: float = 5.0
     worker_reconnect_initial_seconds: float = 2.0
     worker_reconnect_max_seconds: float = 30.0

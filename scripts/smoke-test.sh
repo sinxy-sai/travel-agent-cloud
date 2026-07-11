@@ -39,6 +39,11 @@ if [ "${HAS_REDIS_RATE_LIMIT_FIELD}" != "yes" ]; then
   echo "Health API did not return redisRateLimitEnabled" >&2
   exit 1
 fi
+HAS_OBJECT_STORAGE_FIELD="$(printf '%s' "${HEALTH_JSON}" | python3 -c 'import json, sys; print("yes" if "objectStorageEnabled" in json.load(sys.stdin) else "no")')"
+if [ "${HAS_OBJECT_STORAGE_FIELD}" != "yes" ]; then
+  echo "Health API did not return objectStorageEnabled" >&2
+  exit 1
+fi
 echo
 
 echo "Preparing anonymous local data"
@@ -189,6 +194,23 @@ if [ "${ACCOUNT_DATA_VERIFIED}" = "yes" ]; then
     echo "User data export API did not return the authenticated user data" >&2
     rm -f "${AUTH_COOKIE_JAR}"
     exit 1
+  fi
+  OBJECT_STORAGE_ENABLED="$(printf '%s' "${HEALTH_JSON}" | python3 -c 'import json, sys; print("yes" if json.load(sys.stdin).get("objectStorageEnabled") else "no")')"
+  if [ "${OBJECT_STORAGE_ENABLED}" = "yes" ]; then
+    ARCHIVED_EXPORT_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/me/export-files" -b "${AUTH_COOKIE_JAR}")"
+    ARCHIVED_EXPORT_ID="$(printf '%s' "${ARCHIVED_EXPORT_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("id", ""))')"
+    if [ -z "${ARCHIVED_EXPORT_ID}" ]; then
+      echo "Object storage export API did not return an archived file" >&2
+      rm -f "${AUTH_COOKIE_JAR}"
+      exit 1
+    fi
+    ARCHIVED_EXPORT_DOWNLOAD="$(curl -fsS "${BASE_URL}/api/v1/me/export-files/${ARCHIVED_EXPORT_ID}" -b "${AUTH_COOKIE_JAR}")"
+    ARCHIVED_EXPORT_EMAIL="$(printf '%s' "${ARCHIVED_EXPORT_DOWNLOAD}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("user", {}).get("email", ""))')"
+    if [ "${ARCHIVED_EXPORT_EMAIL}" != "${AUTH_EMAIL}" ]; then
+      echo "Archived user export download did not return the authenticated user data" >&2
+      rm -f "${AUTH_COOKIE_JAR}"
+      exit 1
+    fi
   fi
   IMPORTED_USER_DATA_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/me/import" \
     -H "Content-Type: application/json" \

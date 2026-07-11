@@ -1,7 +1,8 @@
 import hmac
+import json
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -50,6 +51,7 @@ from app.exporter import saved_trip_plan_to_markdown
 from app.llm import LLMClient
 from app.mailer import Mailer
 from app.observability import RequestLoggingMiddleware, configure_logging
+from app.object_storage import MinioObjectStorage, ObjectStorageError, ObjectStorageNotFoundError
 from app.oauth import (
     GITHUB_PROVIDER,
     OAUTH_STATE_COOKIE_NAME,
@@ -97,6 +99,7 @@ from app.schemas import (
     UserDataExport,
     UserDataImportRequest,
     UserDataImportResponse,
+    UserExportFile,
     UserProfile,
     UserProfileUpdateRequest,
     UserSecurityEventListResponse,
@@ -139,6 +142,7 @@ event_publisher = create_event_publisher(settings)
 conversation_summarizer = ConversationSummarizerWorker(conversation_store, summary_store, event_publisher)
 user_data_importer = UserDataImporter(session_factory, conversation_store, profile_store, summary_store)
 github_oauth_client = GitHubOAuthClient(settings)
+object_storage = MinioObjectStorage(settings)
 auth_rate_limiter = create_auth_rate_limiter(
     redis_url=settings.redis_url,
     max_attempts=settings.auth_rate_limit_max_attempts,
@@ -169,6 +173,7 @@ def health() -> dict[str, str | bool]:
         "databaseEnabled": session_factory is not None,
         "messageQueueEnabled": event_publisher.enabled,
         "redisRateLimitEnabled": auth_rate_limiter.distributed,
+        "objectStorageEnabled": object_storage.enabled,
         "githubOAuthEnabled": github_oauth_client.enabled,
     }
 
@@ -436,6 +441,21 @@ def delete_current_auth_user(request: Request, payload: AuthAccountDeleteRequest
     user = _get_current_auth_user(request)
     _check_auth_rate_limit(request, "delete-account", user.id)
     try:
+        user_store.authenticate(user.email, payload.current_password)
+    except InvalidCredentialsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "INVALID_CREDENTIALS", "message": "Current password is incorrect"},
+        ) from exc
+    if object_storage.enabled:
+        try:
+            object_storage.delete_user_exports(user.id)
+        except ObjectStorageError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"code": "OBJECT_STORAGE_UNAVAILABLE", "message": "Could not delete stored export files"},
+            ) from exc
+    try:
         user_store.delete_user(user.id, payload.current_password)
     except InvalidCredentialsError as exc:
         raise HTTPException(
@@ -471,6 +491,73 @@ def export_current_user_data(request: Request) -> UserDataExport:
         },
     )
     return exported
+
+
+@app.post("/api/v1/me/export-files", response_model=UserExportFile, status_code=status.HTTP_201_CREATED)
+def create_current_user_export_file(request: Request) -> UserExportFile:
+    user = _get_current_auth_user(request)
+    _require_verified_email(user)
+    if not object_storage.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "OBJECT_STORAGE_DISABLED", "message": "Object storage is not configured"},
+        )
+
+    exported = _export_user_data(user.id, user)
+    payload = json.dumps(
+        exported.model_dump(mode="json", by_alias=True),
+        ensure_ascii=False,
+        indent=2,
+    ).encode("utf-8")
+    export_id = str(uuid4())
+    try:
+        object_storage.put_user_export(user.id, export_id, payload)
+    except ObjectStorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "OBJECT_STORAGE_UNAVAILABLE", "message": "Could not store export file"},
+        ) from exc
+
+    filename = f"travel-agent-data-{exported.exported_at.date().isoformat()}.json"
+    _record_security_event(request, user.id, "user.export_file_created", {"sizeBytes": len(payload)})
+    return UserExportFile(
+        id=export_id,
+        filename=filename,
+        content_type="application/json",
+        size_bytes=len(payload),
+        created_at=exported.exported_at,
+        download_url=f"/api/v1/me/export-files/{export_id}",
+    )
+
+
+@app.get("/api/v1/me/export-files/{export_id}")
+def download_current_user_export_file(request: Request, export_id: UUID) -> Response:
+    user = _get_current_auth_user(request)
+    _require_verified_email(user)
+    if not object_storage.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "OBJECT_STORAGE_DISABLED", "message": "Object storage is not configured"},
+        )
+    try:
+        payload = object_storage.get_user_export(user.id, str(export_id))
+    except ObjectStorageNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "EXPORT_FILE_NOT_FOUND", "message": "Export file not found"},
+        ) from exc
+    except ObjectStorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "OBJECT_STORAGE_UNAVAILABLE", "message": "Could not read export file"},
+        ) from exc
+
+    filename = f"travel-agent-data-{datetime.now(UTC).date().isoformat()}.json"
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.post("/api/v1/me/import", response_model=UserDataImportResponse)

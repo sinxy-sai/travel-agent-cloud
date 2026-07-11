@@ -29,6 +29,9 @@ if (-not ($health.PSObject.Properties.Name -contains "githubOAuthEnabled")) {
 if (-not ($health.PSObject.Properties.Name -contains "redisRateLimitEnabled")) {
   throw "Health API did not return redisRateLimitEnabled"
 }
+if (-not ($health.PSObject.Properties.Name -contains "objectStorageEnabled")) {
+  throw "Health API did not return objectStorageEnabled"
+}
 
 Write-Host "Preparing anonymous local data"
 $anonymousUserId = "smoke-anon-$([guid]::NewGuid().ToString('N'))"
@@ -139,6 +142,17 @@ if ($emailVerifiedForAccountData) {
   }
   if (-not ($exportedUserData.PSObject.Properties.Name -contains "conversations")) {
     throw "User data export API did not return conversations"
+  }
+  if ($health.objectStorageEnabled) {
+    $archivedExport = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/export-files" -Method Post -WebSession $authSession
+    if (-not $archivedExport.id -or $archivedExport.sizeBytes -lt 1) {
+      throw "Object storage export API did not return an archived file"
+    }
+    $archivedExportResponse = Invoke-WebRequest -Uri "$BaseUrl/api/v1/me/export-files/$($archivedExport.id)" -UseBasicParsing -WebSession $authSession
+    $archivedExportData = $archivedExportResponse.Content | ConvertFrom-Json
+    if ($archivedExportData.user.email -ne $authEmail) {
+      throw "Archived user export download did not return the authenticated user data"
+    }
   }
   $importedUserData = Invoke-RestMethod -Uri "$BaseUrl/api/v1/me/import" -Method Post -ContentType "application/json" -WebSession $authSession -Body ($exportedUserData | ConvertTo-Json -Depth 40)
   if (-not $importedUserData.profileImported) {

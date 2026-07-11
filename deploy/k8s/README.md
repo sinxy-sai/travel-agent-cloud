@@ -30,7 +30,7 @@ If your Docker Hub namespace is not `sinxysai`, update the image fields in:
 - `agent-runtime.yaml`
 - `frontend.yaml`
 
-`postgres.yaml`, RabbitMQ, Redis, and `agent-runtime-worker` are part of the default kustomization. Create the required Secrets before running automated deployment.
+`postgres.yaml`, RabbitMQ, Redis, MinIO, and `agent-runtime-worker` are part of the default kustomization. Create the required Secrets before running automated deployment.
 
 Create `postgres-secrets`:
 
@@ -49,6 +49,16 @@ kubectl create secret generic rabbitmq-secrets \
   -n travel-agent-cloud \
   --from-literal=RABBITMQ_DEFAULT_USER='travel_agent' \
   --from-literal=RABBITMQ_DEFAULT_PASS='change-me-to-a-strong-password' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Create `minio-secrets`:
+
+```bash
+kubectl create secret generic minio-secrets \
+  -n travel-agent-cloud \
+  --from-literal=MINIO_ROOT_USER='travel_agent' \
+  --from-literal=MINIO_ROOT_PASSWORD='change-me-to-a-long-random-password' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
@@ -114,7 +124,7 @@ Gmail normally uses STARTTLS on port 587 with a Google app password:
 
 When updating `agent-runtime-secrets`, include all existing keys you still need or use `kubectl edit secret agent-runtime-secrets -n travel-agent-cloud`; recreating it with only SMTP keys removes database, LLM, auth, and RabbitMQ settings.
 
-The normal deploy command will create/update PostgreSQL, RabbitMQ, Redis, the API, worker, frontend, and ingress together:
+The normal deploy command will create/update PostgreSQL, RabbitMQ, Redis, MinIO, the API, worker, frontend, and ingress together:
 
 ```bash
 kubectl apply -k deploy/k8s

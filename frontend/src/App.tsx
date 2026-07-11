@@ -16,12 +16,14 @@ import {
   changePassword,
   confirmEmailVerification,
   confirmPasswordReset,
+  createCurrentUserExportFile,
   createTripPlan,
   createConversationSummary,
   createConversationSummaryJob,
   deleteCurrentAuthUser,
   deleteConversation,
   deleteTripPlan,
+  downloadCurrentUserExportFile,
   exportCurrentUserData,
   exportTripPlanMarkdown,
   getConversation,
@@ -65,6 +67,7 @@ import {
   type SavedTripPlan,
   type TripPlanResponse,
   type UserProfile,
+  type UserExportFile,
   type UserSecurityEvent,
 } from './lib/api';
 
@@ -150,6 +153,8 @@ export default function App() {
   const [deleteAccountPassword, setDeleteAccountPassword] = useState('');
   const [deleteAccountConfirmation, setDeleteAccountConfirmation] = useState('');
   const [exportDataError, setExportDataError] = useState('');
+  const [archivedExportFile, setArchivedExportFile] = useState<UserExportFile | null>(null);
+  const [archiveExportError, setArchiveExportError] = useState('');
   const [importDataError, setImportDataError] = useState('');
   const [anonymousImportMessage, setAnonymousImportMessage] = useState('');
   const [anonymousImportPromptOpen, setAnonymousImportPromptOpen] = useState(false);
@@ -360,6 +365,34 @@ export default function App() {
     },
     onError: () => {
       setExportDataError('Could not export account data. Verify your email and try again.');
+    },
+  });
+
+  const archiveUserDataMutation = useMutation({
+    mutationFn: createCurrentUserExportFile,
+    onMutate: () => {
+      setArchiveExportError('');
+      setArchivedExportFile(null);
+    },
+    onSuccess: (file) => {
+      setArchivedExportFile(file);
+      queryClient.invalidateQueries({ queryKey: ['security-events'] });
+    },
+    onError: () => {
+      setArchiveExportError('Could not archive account data in object storage.');
+    },
+  });
+
+  const downloadArchivedExportMutation = useMutation({
+    mutationFn: async (file: UserExportFile) => ({
+      file,
+      blob: await downloadCurrentUserExportFile(file.id),
+    }),
+    onSuccess: ({ file, blob }) => {
+      downloadBlobFile(blob, file.filename);
+    },
+    onError: () => {
+      setArchiveExportError('Could not download the archived export.');
     },
   });
 
@@ -1024,6 +1057,8 @@ export default function App() {
               revokeAuthSessionMutation.isPending ||
               revokeOtherAuthSessionsMutation.isPending ||
               exportUserDataMutation.isPending ||
+              archiveUserDataMutation.isPending ||
+              downloadArchivedExportMutation.isPending ||
               importUserDataMutation.isPending ||
               importAnonymousUserDataMutation.isPending ||
               requestEmailVerificationMutation.isPending ||
@@ -1051,6 +1086,13 @@ export default function App() {
             }}
             onSetPassword={openSetPasswordFlow}
             onExportData={() => exportUserDataMutation.mutate()}
+            objectStorageEnabled={Boolean(healthQuery.data?.objectStorageEnabled)}
+            archivedExportFile={archivedExportFile}
+            archiveExportError={archiveExportError}
+            onArchiveData={() => archiveUserDataMutation.mutate()}
+            onDownloadArchivedExport={() =>
+              archivedExportFile && downloadArchivedExportMutation.mutate(archivedExportFile)
+            }
             onImportData={() => {
               setImportDataError('');
               importDataInputRef.current?.click();
@@ -1964,6 +2006,7 @@ function RuntimeStatus({
         <StatusRow label="PostgreSQL" active={Boolean(health?.databaseEnabled)} muted={!runtimeOnline || loading} />
         <StatusRow label="RabbitMQ" active={Boolean(health?.messageQueueEnabled)} muted={!runtimeOnline || loading} />
         <StatusRow label="Redis rate limit" active={Boolean(health?.redisRateLimitEnabled)} muted={!runtimeOnline || loading} />
+        <StatusRow label="Object storage" active={Boolean(health?.objectStorageEnabled)} muted={!runtimeOnline || loading} />
       </div>
     </section>
   );
@@ -1988,6 +2031,11 @@ function AccountStatus({
   onChangePassword,
   onSetPassword,
   onExportData,
+  objectStorageEnabled,
+  archivedExportFile,
+  archiveExportError,
+  onArchiveData,
+  onDownloadArchivedExport,
   onImportData,
   onImportAnonymousData,
   exportDataError,
@@ -2014,6 +2062,11 @@ function AccountStatus({
   onChangePassword: () => void;
   onSetPassword: () => void;
   onExportData: () => void;
+  objectStorageEnabled: boolean;
+  archivedExportFile: UserExportFile | null;
+  archiveExportError: string;
+  onArchiveData: () => void;
+  onDownloadArchivedExport: () => void;
   onImportData: () => void;
   onImportAnonymousData: () => void;
   exportDataError: string;
@@ -2146,6 +2199,27 @@ function AccountStatus({
           <Button size="small" onClick={onExportData} disabled={accountDataManagementDisabled}>
             Export data
           </Button>
+          <Button
+            size="small"
+            icon={<UploadOutlined />}
+            onClick={onArchiveData}
+            disabled={accountDataManagementDisabled || !objectStorageEnabled}
+          >
+            Archive export
+          </Button>
+          {archivedExportFile && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs text-emerald-700">
+              <p className="truncate">Archived {archivedExportFile.filename}</p>
+              <Button size="small" className="mt-2" icon={<DownloadOutlined />} onClick={onDownloadArchivedExport}>
+                Download archived export
+              </Button>
+            </div>
+          )}
+          {archiveExportError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-2 py-2 text-xs text-red-700">
+              {archiveExportError}
+            </div>
+          )}
           <Button size="small" icon={<UploadOutlined />} onClick={onImportData} disabled={accountDataManagementDisabled}>
             Import data
           </Button>
@@ -2469,6 +2543,7 @@ function formatSecurityEventType(value: string): string {
     'auth.identity_linked': 'Identity linked',
     'auth.identity_unlinked': 'Identity unlinked',
     'user.data_exported': 'Data exported',
+    'user.export_file_created': 'Export archived',
     'user.data_imported': 'Data imported',
     'user.anonymous_data_imported': 'Local data imported',
   };
@@ -2528,6 +2603,10 @@ function tripPlanToMarkdown(
 
 function downloadTextFile(content: string, filename: string) {
   const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  downloadBlobFile(blob, filename);
+}
+
+function downloadBlobFile(blob: Blob, filename: string) {
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -2540,14 +2619,7 @@ function downloadTextFile(content: string, filename: string) {
 
 function downloadJsonFile(data: unknown, filename: string) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
+  downloadBlobFile(blob, filename);
 }
 
 function slugify(value: string): string {

@@ -328,6 +328,15 @@ class UserDataExport(APIModel):
     trip_plans: list[SavedTripPlan]
 
 
+class UserExportFile(APIModel):
+    id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    created_at: datetime
+    download_url: str
+
+
 class UserDataImportRequest(UserDataExport):
     @model_validator(mode="after")
     def validate_import_size(self) -> "UserDataImportRequest":

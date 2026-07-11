@@ -122,6 +122,7 @@ export interface HealthResponse {
   databaseEnabled: boolean;
   messageQueueEnabled: boolean;
   redisRateLimitEnabled: boolean;
+  objectStorageEnabled: boolean;
   githubOAuthEnabled: boolean;
 }
 
@@ -261,6 +262,15 @@ export interface UserDataExport {
   tripPlans: SavedTripPlan[];
 }
 
+export interface UserExportFile {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+  downloadUrl: string;
+}
+
 export interface UserDataImportResponse {
   importedAt: string;
   profileImported: boolean;
@@ -388,6 +398,16 @@ export async function updateCurrentAuthUser(request: AuthUserUpdateRequest): Pro
 
 export async function exportCurrentUserData(): Promise<UserDataExport> {
   const response = await api.get<UserDataExport>('/api/v1/me/export');
+  return response.data;
+}
+
+export async function createCurrentUserExportFile(): Promise<UserExportFile> {
+  const response = await api.post<UserExportFile>('/api/v1/me/export-files');
+  return response.data;
+}
+
+export async function downloadCurrentUserExportFile(exportId: string): Promise<Blob> {
+  const response = await api.get<Blob>(`/api/v1/me/export-files/${exportId}`, { responseType: 'blob' });
   return response.data;
 }
 

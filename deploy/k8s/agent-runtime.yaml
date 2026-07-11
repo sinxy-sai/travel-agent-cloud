@@ -96,6 +96,24 @@ spec:
                   name: agent-runtime-secrets
                   key: REDIS_KEY_PREFIX
                   optional: true
+            - name: MINIO_ENDPOINT
+              value: minio:9000
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secrets
+                  key: MINIO_ROOT_USER
+                  optional: true
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secrets
+                  key: MINIO_ROOT_PASSWORD
+                  optional: true
+            - name: MINIO_BUCKET
+              value: travel-agent-exports
+            - name: MINIO_SECURE
+              value: "false"
             - name: AUTH_SECRET_KEY
               valueFrom:
                 secretKeyRef:
