@@ -84,6 +84,19 @@ class TripPlanUpdateRequest(APIModel):
         return self
 
 
+class TripDayRegenerateRequest(APIModel):
+    instruction: str = Field(min_length=1, max_length=1000)
+    expected_version: int = Field(ge=1)
+
+    @field_validator("instruction")
+    @classmethod
+    def validate_instruction(cls, value: str) -> str:
+        instruction = value.strip()
+        if not instruction:
+            raise ValueError("Instruction is required")
+        return instruction
+
+
 class TripPlanListResponse(APIModel):
     data: list[SavedTripPlan]
     page: int

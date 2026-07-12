@@ -46,6 +46,11 @@ export interface TripPlanUpdateRequest {
   expectedVersion?: number;
 }
 
+export interface TripDayRegenerateRequest {
+  instruction: string;
+  expectedVersion: number;
+}
+
 export interface TripPlanListResponse {
   data: SavedTripPlan[];
   page: number;
@@ -543,6 +548,15 @@ export async function updateTripPlan(
   request: TripPlanUpdateRequest,
 ): Promise<SavedTripPlan> {
   const response = await api.patch<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}`, request);
+  return response.data;
+}
+
+export async function regenerateTripPlanDay(
+  tripPlanId: string,
+  day: number,
+  request: TripDayRegenerateRequest,
+): Promise<SavedTripPlan> {
+  const response = await api.post<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}/days/${day}/regenerate`, request);
   return response.data;
 }
 

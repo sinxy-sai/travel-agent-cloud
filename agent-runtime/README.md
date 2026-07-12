@@ -495,6 +495,19 @@ curl -X PATCH http://localhost:8000/api/v1/trip-plans/{tripPlanId} \
 
 Content edits increment `version`. A request using an outdated `expectedVersion` returns HTTP `409` with code `TRIP_PLAN_VERSION_CONFLICT`; reload the saved plan before retrying. Favorite-only updates do not require `expectedVersion`.
 
+Regenerate one day of a saved trip plan. Only the target day is replaced; the rest of the itinerary is preserved:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/trip-plans/{tripPlanId}/days/2/regenerate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "instruction": "Make this day slower and add a local food stop",
+    "expectedVersion": 2
+  }'
+```
+
+Day regeneration also increments `version` and returns HTTP `409` with code `TRIP_PLAN_VERSION_CONFLICT` when `expectedVersion` is stale.
+
 Delete a saved trip plan:
 
 ```bash

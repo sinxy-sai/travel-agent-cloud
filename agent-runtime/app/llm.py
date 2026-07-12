@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
-from app.schemas import AgentMode, ChatMessage, MessageRole, TripPlanRequest, TripPlanResponse
+from app.schemas import AgentMode, ChatMessage, MessageRole, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
 
 
@@ -103,6 +103,58 @@ class LLMClient:
         try:
             payload = json.loads(_extract_json(content))
             return TripPlanResponse.model_validate(payload)
+        except (json.JSONDecodeError, ValidationError, TypeError):
+            return None
+
+    def regenerate_trip_day(self, saved_trip_plan: SavedTripPlan, day: int, instruction: str) -> TripDay | None:
+        if not self.enabled:
+            return None
+
+        current_day = next((item for item in saved_trip_plan.plan.days if item.day == day), None)
+        if current_day is None:
+            return None
+
+        schema_hint = {
+            "day": day,
+            "theme": "Updated day theme",
+            "morning": "Updated morning plan",
+            "afternoon": "Updated afternoon plan",
+            "evening": "Updated evening plan",
+        }
+        itinerary = saved_trip_plan.plan.model_dump(mode="json", by_alias=True)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a travel itinerary replanning agent. Return only valid JSON for one itinerary day. "
+                    "Preserve the requested day number. Do not include markdown fences or commentary."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Update only day {day} of this itinerary. "
+                    f"Destination: {saved_trip_plan.destination}. Budget: {saved_trip_plan.budget}. "
+                    f"Interests: {saved_trip_plan.interests or 'local culture'}. "
+                    f"User instruction: {instruction}. "
+                    f"Current day: {current_day.model_dump(mode='json', by_alias=True)}. "
+                    f"Full itinerary context: {json.dumps(itinerary, ensure_ascii=False)}. "
+                    f"JSON schema example: {json.dumps(schema_hint, ensure_ascii=False)}"
+                ),
+            },
+        ]
+
+        content = self._chat_completion(messages, response_format={"type": "json_object"}) or self._chat_completion(
+            messages,
+            response_format=None,
+        )
+        if not content:
+            return None
+
+        try:
+            payload = json.loads(_extract_json(content))
+            payload["day"] = day
+            return TripDay.model_validate(payload)
         except (json.JSONDecodeError, ValidationError, TypeError):
             return None
 

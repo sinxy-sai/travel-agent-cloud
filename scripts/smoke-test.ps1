@@ -386,6 +386,20 @@ try {
   }
 }
 
+Write-Host "Checking trip plan day regeneration API"
+$dayRegenerationBody = @{
+  instruction = "Make this day slower and add a local food stop"
+  expectedVersion = [int]$editedTripPlan.version
+} | ConvertTo-Json
+$regeneratedTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/days/2/regenerate" -Method Post -ContentType "application/json" -Headers $headers -Body $dayRegenerationBody
+$regeneratedDay = $regeneratedTripPlan.plan.days | Where-Object { $_.day -eq 2 } | Select-Object -First 1
+if (-not $regeneratedDay -or -not $regeneratedDay.theme -or -not $regeneratedDay.morning -or -not $regeneratedDay.afternoon -or -not $regeneratedDay.evening) {
+  throw "Trip plan day regeneration API did not update day 2"
+}
+if ([int]$regeneratedTripPlan.version -ne ([int]$editedTripPlan.version + 1)) {
+  throw "Trip plan day regeneration API did not increment the version"
+}
+
 Write-Host "Checking trip plan favorite API"
 $favoriteBody = @{
   favorite = $true

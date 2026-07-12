@@ -532,6 +532,24 @@ if [ "${STALE_TRIP_PLAN_STATUS}" != "409" ]; then
 fi
 echo
 
+echo "Checking trip plan day regeneration API"
+DAY_REGENERATION_JSON="$(EDITED_TRIP_PLAN_VERSION="${EDITED_TRIP_PLAN_VERSION}" python3 -c 'import json, os; print(json.dumps({"instruction": "Make this day slower and add a local food stop", "expectedVersion": int(os.environ["EDITED_TRIP_PLAN_VERSION"])}, separators=(",", ":")))')"
+REGENERATED_TRIP_PLAN_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}/days/2/regenerate" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${USER_ID}" \
+  -d "${DAY_REGENERATION_JSON}")"
+REGENERATED_TRIP_PLAN_VERSION="$(printf '%s' "${REGENERATED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("version", 0))')"
+REGENERATED_DAY_VALID="$(printf '%s' "${REGENERATED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; plan = json.load(sys.stdin).get("plan", {}); days = plan.get("days", []); day = next((item for item in days if item.get("day") == 2), None); print("yes" if day and all(day.get(key) for key in ("theme", "morning", "afternoon", "evening")) else "no")')"
+if [ "${REGENERATED_DAY_VALID}" != "yes" ]; then
+  echo "Trip plan day regeneration API did not update day 2" >&2
+  exit 1
+fi
+if [ "${REGENERATED_TRIP_PLAN_VERSION}" -ne "$((EDITED_TRIP_PLAN_VERSION + 1))" ]; then
+  echo "Trip plan day regeneration API did not increment the version" >&2
+  exit 1
+fi
+echo
+
 echo "Checking trip plan favorite API"
 FAVORITE_TRIP_PLAN_JSON="$(curl -fsS -X PATCH "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}" \
   -H "Content-Type: application/json" \

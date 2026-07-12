@@ -10,6 +10,7 @@ import {
   SendOutlined,
   StarFilled,
   StarOutlined,
+  SyncOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
 import {
@@ -47,6 +48,7 @@ import {
   listTripPlans,
   logoutUser,
   registerUser,
+  regenerateTripPlanDay,
   requestEmailVerification,
   requestPasswordReset,
   revokeAuthSession,
@@ -108,6 +110,9 @@ export default function App() {
   const [editingTripPlan, setEditingTripPlan] = useState<TripPlanResponse | null>(null);
   const [editingTripPlanTips, setEditingTripPlanTips] = useState('');
   const [tripPlanEditError, setTripPlanEditError] = useState('');
+  const [regeneratingTripDay, setRegeneratingTripDay] = useState<number | null>(null);
+  const [tripDayRegenerateInstruction, setTripDayRegenerateInstruction] = useState('');
+  const [tripDayRegenerateError, setTripDayRegenerateError] = useState('');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -468,6 +473,9 @@ export default function App() {
       setConversationId(response.conversationId);
       setConversationSummary(null);
       resetConversationSummaryJobPolling();
+      setRegeneratingTripDay(null);
+      setTripDayRegenerateInstruction('');
+      setTripDayRegenerateError('');
       setConversationPage(1);
       setTripPlanPage(1);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -520,6 +528,9 @@ export default function App() {
       setDays(savedTripPlan.days);
       setBudget(savedTripPlan.budget);
       setInterests(splitInterests(savedTripPlan.interests));
+      setRegeneratingTripDay(null);
+      setTripDayRegenerateInstruction('');
+      setTripDayRegenerateError('');
       if (savedTripPlan.conversationId) {
         setConversationId(savedTripPlan.conversationId);
         setConversationSummary(null);
@@ -585,6 +596,9 @@ export default function App() {
         setSelectedTripPlanFavorite(false);
         setSelectedTripPlanVersion(1);
         setPlan(null);
+        setRegeneratingTripDay(null);
+        setTripDayRegenerateInstruction('');
+        setTripDayRegenerateError('');
       }
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     },
@@ -627,6 +641,41 @@ export default function App() {
         isApiErrorStatus(error, 409)
           ? 'This itinerary changed elsewhere. Close the editor, reload the saved itinerary, and apply your changes again.'
           : 'Could not save the itinerary. Check the fields and try again.',
+      );
+    },
+  });
+
+  const regenerateTripDayMutation = useMutation({
+    mutationFn: ({
+      tripPlanId,
+      day,
+      instruction,
+      expectedVersion,
+    }: {
+      tripPlanId: string;
+      day: number;
+      instruction: string;
+      expectedVersion: number;
+    }) => regenerateTripPlanDay(tripPlanId, day, { instruction, expectedVersion }),
+    onMutate: () => {
+      setTripDayRegenerateError('');
+    },
+    onSuccess: (savedTripPlan) => {
+      setPlan(savedTripPlan.plan);
+      setSelectedTripPlanVersion(savedTripPlan.version);
+      setRegeneratingTripDay(null);
+      setTripDayRegenerateInstruction('');
+      setTripDayRegenerateError('');
+      queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+      if (savedTripPlan.conversationId) {
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      }
+    },
+    onError: (error) => {
+      setTripDayRegenerateError(
+        isApiErrorStatus(error, 409)
+          ? 'This itinerary changed elsewhere. Reload the saved itinerary before regenerating this day.'
+          : 'Could not regenerate this day. Adjust the instruction and try again.',
       );
     },
   });
@@ -985,6 +1034,9 @@ export default function App() {
     setEditingTripPlan(null);
     setEditingTripPlanTips('');
     setTripPlanEditError('');
+    setRegeneratingTripDay(null);
+    setTripDayRegenerateInstruction('');
+    setTripDayRegenerateError('');
     setConversationPage(1);
     setTripPlanPage(1);
   }
@@ -1121,6 +1173,26 @@ export default function App() {
           .map((tip) => tip.trim())
           .filter(Boolean),
       },
+      expectedVersion: selectedTripPlanVersion,
+    });
+  };
+
+  const openTripDayRegenerator = (day: number) => {
+    setRegeneratingTripDay(day);
+    setTripDayRegenerateInstruction('');
+    setTripDayRegenerateError('');
+    regenerateTripDayMutation.reset();
+  };
+
+  const submitTripDayRegeneration = () => {
+    const instruction = tripDayRegenerateInstruction.trim();
+    if (!selectedTripPlanId || regeneratingTripDay === null || !instruction) {
+      return;
+    }
+    regenerateTripDayMutation.mutate({
+      tripPlanId: selectedTripPlanId,
+      day: regeneratingTripDay,
+      instruction,
       expectedVersion: selectedTripPlanVersion,
     });
   };
@@ -1455,9 +1527,21 @@ export default function App() {
               <div className="grid gap-4">
                 {(plan.days ?? []).map((day) => (
                   <article key={day.day} className="rounded-lg border border-slate-200 p-4">
-                    <div className="mb-3 flex items-center justify-between">
+                    <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <h3 className="text-lg font-semibold text-ink">Day {day.day}</h3>
-                      <span className="rounded-full bg-trail px-3 py-1 text-sm text-white">{day.theme}</span>
+                      <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                        <span className="rounded-full bg-trail px-3 py-1 text-sm text-white">{day.theme}</span>
+                        {selectedTripPlanId && (
+                          <Button
+                            size="small"
+                            icon={<SyncOutlined />}
+                            loading={regenerateTripDayMutation.isPending && regeneratingTripDay === day.day}
+                            onClick={() => openTripDayRegenerator(day.day)}
+                          >
+                            Regenerate
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <div className="grid gap-3 md:grid-cols-3">
                       <PlanBlock title="Morning" value={day.morning} />
@@ -1684,6 +1768,35 @@ export default function App() {
             )}
           </div>
         )}
+      </Modal>
+      <Modal
+        title={regeneratingTripDay === null ? 'Regenerate day' : `Regenerate day ${regeneratingTripDay}`}
+        open={regeneratingTripDay !== null}
+        okText="Regenerate"
+        onOk={submitTripDayRegeneration}
+        confirmLoading={regenerateTripDayMutation.isPending}
+        okButtonProps={{ disabled: !tripDayRegenerateInstruction.trim() }}
+        onCancel={() => {
+          setRegeneratingTripDay(null);
+          setTripDayRegenerateInstruction('');
+          setTripDayRegenerateError('');
+          regenerateTripDayMutation.reset();
+        }}
+      >
+        <div className="space-y-3">
+          <Input.TextArea
+            rows={4}
+            maxLength={1000}
+            value={tripDayRegenerateInstruction}
+            onChange={(event) => setTripDayRegenerateInstruction(event.target.value)}
+            placeholder="Make this day slower, avoid spicy food, add photography spots..."
+          />
+          {tripDayRegenerateError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {tripDayRegenerateError}
+            </div>
+          )}
+        </div>
       </Modal>
       <Modal
         title="Import local data?"

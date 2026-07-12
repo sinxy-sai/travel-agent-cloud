@@ -4,9 +4,10 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, urlencode
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, RedirectResponse
+from pydantic import ValidationError
 
 from app.agent import handle_chat
 from app.auth import (
@@ -65,7 +66,7 @@ from app.oauth import (
     create_oauth_state,
     verify_oauth_state,
 )
-from app.planner import build_mock_trip_plan
+from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan
 from app.profiles import DatabaseUserProfileStore, UserProfileStore
 from app.schemas import (
     AuthAccountDeleteRequest,
@@ -94,6 +95,7 @@ from app.schemas import (
     MessageRole,
     SavedTripPlan,
     TripPlanListResponse,
+    TripDayRegenerateRequest,
     TripPlanRequest,
     TripPlanResponse,
     TripPlanUpdateRequest,
@@ -905,6 +907,81 @@ def update_trip_plan(
             "tripPlanId": trip_plan_id,
             "updatedFields": updated_fields,
             "favorite": trip_plan.favorite,
+            "version": trip_plan.version,
+        },
+    )
+    return trip_plan
+
+
+@app.post("/api/v1/trip-plans/{trip_plan_id}/days/{day}/regenerate", response_model=SavedTripPlan)
+def regenerate_trip_plan_day(
+    trip_plan_id: str,
+    request: TripDayRegenerateRequest,
+    day: int = Path(ge=1, le=14),
+    user_id: str = Depends(get_user_id),
+) -> SavedTripPlan:
+    try:
+        saved_trip_plan = conversation_store.get_trip_plan(user_id, trip_plan_id)
+    except TripPlanNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+
+    if not any(item.day == day for item in saved_trip_plan.plan.days):
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "TRIP_PLAN_DAY_NOT_FOUND", "message": "Trip plan day not found"},
+        )
+
+    regenerated_day = LLMClient(settings).regenerate_trip_day(
+        saved_trip_plan,
+        day,
+        request.instruction,
+    ) or build_mock_regenerated_trip_day(saved_trip_plan, day, request.instruction)
+    updated_plan = saved_trip_plan.plan.model_copy(
+        update={
+            "days": [regenerated_day if item.day == day else item for item in saved_trip_plan.plan.days],
+            "saved_trip_plan_id": saved_trip_plan.id,
+            "conversation_id": saved_trip_plan.conversation_id,
+        }
+    )
+
+    try:
+        trip_plan = conversation_store.update_trip_plan(
+            user_id,
+            trip_plan_id,
+            TripPlanUpdateRequest(plan=updated_plan, expected_version=request.expected_version),
+        )
+    except TripPlanVersionConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TRIP_PLAN_VERSION_CONFLICT",
+                "message": "Trip plan was updated elsewhere; reload it before saving",
+            },
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "TRIP_DAY_REGENERATION_INVALID", "message": "Regenerated trip day was invalid"},
+        ) from exc
+
+    if trip_plan.conversation_id:
+        try:
+            conversation = conversation_store.get(user_id, trip_plan.conversation_id)
+            conversation_store.append_message(conversation, MessageRole.USER, f"Regenerate day {day}: {request.instruction}")
+            conversation_store.append_message(
+                conversation,
+                MessageRole.ASSISTANT,
+                f"Updated day {day}: {regenerated_day.theme}",
+            )
+        except ConversationNotFoundError:
+            pass
+
+    event_publisher.publish(
+        "trip.plan.day.regenerated",
+        user_id,
+        {
+            "tripPlanId": trip_plan_id,
+            "day": day,
             "version": trip_plan.version,
         },
     )

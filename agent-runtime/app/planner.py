@@ -1,4 +1,4 @@
-from app.schemas import TripDay, TripPlanRequest, TripPlanResponse
+from app.schemas import SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 
 
 def build_mock_trip_plan(request: TripPlanRequest) -> TripPlanResponse:
@@ -26,6 +26,18 @@ def build_mock_trip_plan(request: TripPlanRequest) -> TripPlanResponse:
             "Add map, weather, and knowledge-base tools after the service contract is stable.",
             "Persist conversations and generated trips after authentication is introduced.",
         ],
+    )
+
+
+def build_mock_regenerated_trip_day(saved_trip_plan: SavedTripPlan, day: int, instruction: str) -> TripDay:
+    current_day = next(item for item in saved_trip_plan.plan.days if item.day == day)
+    instruction_summary = instruction.strip()[:160]
+    return TripDay(
+        day=day,
+        theme=f"Adjusted: {current_day.theme}",
+        morning=f"Replanned around: {instruction_summary}. Start with the highest-priority stop and keep transit simple.",
+        afternoon=f"Continue with a flexible activity near the morning area in {saved_trip_plan.destination}.",
+        evening=f"End with a {saved_trip_plan.budget} dinner option and leave room to adapt based on energy.",
     )
 
 
