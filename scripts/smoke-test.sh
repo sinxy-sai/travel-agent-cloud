@@ -502,6 +502,36 @@ if [ -z "${TRIP_PLAN_ID}" ]; then
   exit 1
 fi
 
+echo "Checking trip plan content update and version conflict API"
+SAVED_TRIP_PLAN_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}" \
+  -H "X-User-Id: ${USER_ID}")"
+INITIAL_TRIP_PLAN_VERSION="$(printf '%s' "${SAVED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("version", 0))')"
+EDITED_TRIP_PLAN_TITLE_EXPECTED="$(python3 -c 'print("3\u5929\u6210\u90fd\u4e4b\u65c5")')"
+TRIP_PLAN_UPDATE_JSON="$(printf '%s' "${SAVED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; saved = json.load(sys.stdin); plan = saved["plan"]; plan["title"] = "3\u5929\u6210\u90fd\u4e4b\u65c5"; print(json.dumps({"plan": plan, "expectedVersion": saved["version"]}, separators=(",", ":")))')"
+EDITED_TRIP_PLAN_JSON="$(curl -fsS -X PATCH "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${USER_ID}" \
+  -d "${TRIP_PLAN_UPDATE_JSON}")"
+EDITED_TRIP_PLAN_TITLE="$(printf '%s' "${EDITED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("plan", {}).get("title", ""))')"
+EDITED_TRIP_PLAN_VERSION="$(printf '%s' "${EDITED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("version", 0))')"
+if [ "${EDITED_TRIP_PLAN_TITLE}" != "${EDITED_TRIP_PLAN_TITLE_EXPECTED}" ]; then
+  echo "Trip plan content update API did not persist the edited title" >&2
+  exit 1
+fi
+if [ "${EDITED_TRIP_PLAN_VERSION}" -ne "$((INITIAL_TRIP_PLAN_VERSION + 1))" ]; then
+  echo "Trip plan content update API did not increment the version" >&2
+  exit 1
+fi
+STALE_TRIP_PLAN_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X PATCH "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${USER_ID}" \
+  -d "${TRIP_PLAN_UPDATE_JSON}")"
+if [ "${STALE_TRIP_PLAN_STATUS}" != "409" ]; then
+  echo "Trip plan content update API accepted a stale version" >&2
+  exit 1
+fi
+echo
+
 echo "Checking trip plan favorite API"
 FAVORITE_TRIP_PLAN_JSON="$(curl -fsS -X PATCH "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}" \
   -H "Content-Type: application/json" \

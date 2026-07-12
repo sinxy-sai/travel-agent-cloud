@@ -469,6 +469,32 @@ curl -X PATCH http://localhost:8000/api/v1/trip-plans/{tripPlanId} \
   -d '{"favorite":true}'
 ```
 
+Edit a saved trip plan using its current `version`:
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/trip-plans/{tripPlanId} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan": {
+      "title": "Edited Chengdu itinerary",
+      "summary": "A relaxed food-focused city break.",
+      "days": [
+        {
+          "day": 1,
+          "theme": "Historic center",
+          "morning": "Visit Wenshu Monastery",
+          "afternoon": "Walk through the old streets",
+          "evening": "Try a local hotpot restaurant"
+        }
+      ],
+      "tips": ["Reserve popular restaurants in advance"]
+    },
+    "expectedVersion": 1
+  }'
+```
+
+Content edits increment `version`. A request using an outdated `expectedVersion` returns HTTP `409` with code `TRIP_PLAN_VERSION_CONFLICT`; reload the saved plan before retrying. Favorite-only updates do not require `expectedVersion`.
+
 Delete a saved trip plan:
 
 ```bash

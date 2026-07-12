@@ -17,6 +17,7 @@ from app.schemas import (
     TripPlanListResponse,
     TripPlanRequest,
     TripPlanResponse,
+    TripPlanUpdateRequest,
 )
 
 
@@ -25,6 +26,10 @@ class ConversationNotFoundError(Exception):
 
 
 class TripPlanNotFoundError(Exception):
+    pass
+
+
+class TripPlanVersionConflictError(Exception):
     pass
 
 
@@ -128,6 +133,7 @@ class ConversationStore:
             interests=request.interests,
             plan=response,
             created_at=_now(),
+            updated_at=_now(),
         )
         self._trip_plans[trip_plan.id] = (user_id, trip_plan)
         return trip_plan
@@ -149,7 +155,7 @@ class ConversationStore:
                 and (not favorite_only or trip_plan.favorite)
                 and _matches_trip_plan_query(trip_plan, normalized_query)
             ],
-            key=lambda trip_plan: (trip_plan.favorite, trip_plan.created_at),
+            key=lambda trip_plan: (trip_plan.favorite, trip_plan.updated_at or trip_plan.created_at),
             reverse=True,
         )
         start = (page - 1) * page_size
@@ -176,11 +182,34 @@ class ConversationStore:
         del self._trip_plans[trip_plan_id]
 
     def update_trip_plan_favorite(self, user_id: str, trip_plan_id: str, favorite: bool) -> SavedTripPlan:
+        return self.update_trip_plan(user_id, trip_plan_id, TripPlanUpdateRequest(favorite=favorite))
+
+    def update_trip_plan(
+        self,
+        user_id: str,
+        trip_plan_id: str,
+        request: TripPlanUpdateRequest,
+    ) -> SavedTripPlan:
         item = self._trip_plans.get(trip_plan_id)
         if item is None or item[0] != user_id:
             raise TripPlanNotFoundError(trip_plan_id)
-        item[1].favorite = favorite
-        return item[1]
+        trip_plan = item[1]
+        if request.plan is not None:
+            if request.expected_version != trip_plan.version:
+                raise TripPlanVersionConflictError(trip_plan_id)
+            trip_plan.plan = request.plan.model_copy(
+                update={
+                    "saved_trip_plan_id": trip_plan.id,
+                    "conversation_id": trip_plan.conversation_id,
+                }
+            )
+            trip_plan.title = trip_plan.plan.title.strip()
+            trip_plan.days = len(trip_plan.plan.days)
+            trip_plan.version += 1
+            trip_plan.updated_at = _now()
+        if request.favorite is not None:
+            trip_plan.favorite = request.favorite
+        return trip_plan
 
 
 class DatabaseConversationStore:
@@ -344,7 +373,7 @@ class DatabaseConversationStore:
             records = session.scalars(
                 select(TripPlanRecord)
                 .where(*where_clauses)
-                .order_by(TripPlanRecord.is_favorite.desc(), TripPlanRecord.created_at.desc())
+                .order_by(TripPlanRecord.is_favorite.desc(), TripPlanRecord.updated_at.desc())
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             ).all()
@@ -376,6 +405,14 @@ class DatabaseConversationStore:
                 raise TripPlanNotFoundError(trip_plan_id)
 
     def update_trip_plan_favorite(self, user_id: str, trip_plan_id: str, favorite: bool) -> SavedTripPlan:
+        return self.update_trip_plan(user_id, trip_plan_id, TripPlanUpdateRequest(favorite=favorite))
+
+    def update_trip_plan(
+        self,
+        user_id: str,
+        trip_plan_id: str,
+        request: TripPlanUpdateRequest,
+    ) -> SavedTripPlan:
         with session_scope(self._session_factory) as session:
             record = session.scalar(
                 select(TripPlanRecord).where(TripPlanRecord.id == trip_plan_id, TripPlanRecord.user_id == user_id)
@@ -383,7 +420,36 @@ class DatabaseConversationStore:
             if record is None:
                 raise TripPlanNotFoundError(trip_plan_id)
 
-            record.is_favorite = favorite
+            if request.plan is not None:
+                canonical_plan = request.plan.model_copy(
+                    update={
+                        "saved_trip_plan_id": record.id,
+                        "conversation_id": record.conversation_id,
+                    }
+                )
+                values = {
+                    "title": canonical_plan.title.strip(),
+                    "days": len(canonical_plan.days),
+                    "plan": canonical_plan.model_dump(mode="json", by_alias=True),
+                    "version": TripPlanRecord.version + 1,
+                    "updated_at": _now(),
+                }
+                if request.favorite is not None:
+                    values["is_favorite"] = request.favorite
+                result = session.execute(
+                    update(TripPlanRecord)
+                    .where(
+                        TripPlanRecord.id == trip_plan_id,
+                        TripPlanRecord.user_id == user_id,
+                        TripPlanRecord.version == request.expected_version,
+                    )
+                    .values(**values)
+                )
+                if result.rowcount == 0:
+                    raise TripPlanVersionConflictError(trip_plan_id)
+                session.refresh(record)
+            elif request.favorite is not None:
+                record.is_favorite = request.favorite
             session.flush()
             return _to_trip_plan(record)
 
@@ -430,7 +496,9 @@ def _to_trip_plan(record: TripPlanRecord) -> SavedTripPlan:
         interests=record.interests,
         plan=TripPlanResponse.model_validate(record.plan),
         favorite=record.is_favorite,
+        version=record.version,
         created_at=record.created_at,
+        updated_at=record.updated_at or record.created_at,
     )
 
 

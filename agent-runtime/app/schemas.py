@@ -48,11 +48,40 @@ class SavedTripPlan(APIModel):
     interests: str
     plan: TripPlanResponse
     favorite: bool = False
+    version: int = 1
     created_at: datetime
+    updated_at: datetime | None = None
 
 
 class TripPlanUpdateRequest(APIModel):
-    favorite: bool
+    favorite: bool | None = None
+    plan: TripPlanResponse | None = None
+    expected_version: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_update(self) -> "TripPlanUpdateRequest":
+        if self.favorite is None and self.plan is None:
+            raise ValueError("At least one trip plan field is required")
+        if self.plan is None:
+            return self
+        if self.expected_version is None:
+            raise ValueError("expectedVersion is required when updating plan content")
+        if not self.plan.title.strip() or len(self.plan.title.strip()) > 160:
+            raise ValueError("Plan title must be between 1 and 160 characters")
+        if not self.plan.summary.strip() or len(self.plan.summary) > 4000:
+            raise ValueError("Plan summary must be between 1 and 4000 characters")
+        if not 1 <= len(self.plan.days) <= 14:
+            raise ValueError("Plan must contain between 1 and 14 days")
+        expected_days = list(range(1, len(self.plan.days) + 1))
+        if [day.day for day in self.plan.days] != expected_days:
+            raise ValueError("Plan day numbers must be sequential")
+        for day in self.plan.days:
+            values = [day.theme, day.morning, day.afternoon, day.evening]
+            if any(not value.strip() or len(value) > 1000 for value in values):
+                raise ValueError("Plan day fields must be between 1 and 1000 characters")
+        if len(self.plan.tips) > 20 or any(not tip.strip() or len(tip) > 500 for tip in self.plan.tips):
+            raise ValueError("Plan tips are invalid")
+        return self
 
 
 class TripPlanListResponse(APIModel):

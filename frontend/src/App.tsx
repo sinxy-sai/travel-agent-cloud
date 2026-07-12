@@ -38,6 +38,7 @@ import {
   getUserProfile,
   importAnonymousUserData,
   importCurrentUserData,
+  isApiErrorStatus,
   listAuthIdentities,
   listAuthSessions,
   listUserSecurityEvents,
@@ -54,6 +55,7 @@ import {
   unlinkAuthIdentity,
   updateConversationTitle,
   updateCurrentAuthUser,
+  updateTripPlan,
   updateTripPlanFavorite,
   updateUserProfile,
   type AuthUser,
@@ -102,6 +104,10 @@ export default function App() {
   const [plan, setPlan] = useState<TripPlanResponse | null>(null);
   const [selectedTripPlanId, setSelectedTripPlanId] = useState<string | undefined>();
   const [selectedTripPlanFavorite, setSelectedTripPlanFavorite] = useState(false);
+  const [selectedTripPlanVersion, setSelectedTripPlanVersion] = useState(1);
+  const [editingTripPlan, setEditingTripPlan] = useState<TripPlanResponse | null>(null);
+  const [editingTripPlanTips, setEditingTripPlanTips] = useState('');
+  const [tripPlanEditError, setTripPlanEditError] = useState('');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -458,6 +464,7 @@ export default function App() {
       setPlan(response);
       setSelectedTripPlanId(response.savedTripPlanId);
       setSelectedTripPlanFavorite(false);
+      setSelectedTripPlanVersion(1);
       setConversationId(response.conversationId);
       setConversationSummary(null);
       resetConversationSummaryJobPolling();
@@ -508,6 +515,7 @@ export default function App() {
       setPlan(savedTripPlan.plan);
       setSelectedTripPlanId(savedTripPlan.id);
       setSelectedTripPlanFavorite(savedTripPlan.favorite);
+      setSelectedTripPlanVersion(savedTripPlan.version);
       setDestination(savedTripPlan.destination);
       setDays(savedTripPlan.days);
       setBudget(savedTripPlan.budget);
@@ -575,6 +583,7 @@ export default function App() {
       if (deletedTripPlanId === selectedTripPlanId) {
         setSelectedTripPlanId(undefined);
         setSelectedTripPlanFavorite(false);
+        setSelectedTripPlanVersion(1);
         setPlan(null);
       }
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
@@ -589,6 +598,36 @@ export default function App() {
         setSelectedTripPlanFavorite(savedTripPlan.favorite);
       }
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+    },
+  });
+
+  const updateTripPlanMutation = useMutation({
+    mutationFn: ({
+      tripPlanId,
+      editedPlan,
+      expectedVersion,
+    }: {
+      tripPlanId: string;
+      editedPlan: TripPlanResponse;
+      expectedVersion: number;
+    }) => updateTripPlan(tripPlanId, { plan: editedPlan, expectedVersion }),
+    onMutate: () => {
+      setTripPlanEditError('');
+    },
+    onSuccess: (savedTripPlan) => {
+      setPlan(savedTripPlan.plan);
+      setSelectedTripPlanVersion(savedTripPlan.version);
+      setEditingTripPlan(null);
+      setEditingTripPlanTips('');
+      setTripPlanEditError('');
+      queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+    },
+    onError: (error) => {
+      setTripPlanEditError(
+        isApiErrorStatus(error, 409)
+          ? 'This itinerary changed elsewhere. Close the editor, reload the saved itinerary, and apply your changes again.'
+          : 'Could not save the itinerary. Check the fields and try again.',
+      );
     },
   });
 
@@ -942,6 +981,10 @@ export default function App() {
     setPlan(null);
     setSelectedTripPlanId(undefined);
     setSelectedTripPlanFavorite(false);
+    setSelectedTripPlanVersion(1);
+    setEditingTripPlan(null);
+    setEditingTripPlanTips('');
+    setTripPlanEditError('');
     setConversationPage(1);
     setTripPlanPage(1);
   }
@@ -1028,6 +1071,58 @@ export default function App() {
 
   const toggleTripPlanFavorite = (tripPlanId: string, favorite: boolean) => {
     updateTripPlanFavoriteMutation.mutate({ tripPlanId, favorite });
+  };
+
+  const openTripPlanEditor = () => {
+    if (!plan || !selectedTripPlanId) {
+      return;
+    }
+    setEditingTripPlan({
+      ...plan,
+      days: plan.days.map((day) => ({ ...day })),
+      tips: [...plan.tips],
+    });
+    setEditingTripPlanTips(plan.tips.join('\n'));
+    setTripPlanEditError('');
+    updateTripPlanMutation.reset();
+  };
+
+  const updateEditingTripDay = (index: number, field: keyof TripPlanResponse['days'][number], value: string) => {
+    setEditingTripPlan((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        days: current.days.map((day, dayIndex) => (dayIndex === index ? { ...day, [field]: value } : day)),
+      };
+    });
+  };
+
+  const submitTripPlanEdit = () => {
+    if (!selectedTripPlanId || !editingTripPlan || !isTripPlanDraftValid(editingTripPlan, editingTripPlanTips)) {
+      return;
+    }
+    updateTripPlanMutation.mutate({
+      tripPlanId: selectedTripPlanId,
+      editedPlan: {
+        ...editingTripPlan,
+        title: editingTripPlan.title.trim(),
+        summary: editingTripPlan.summary.trim(),
+        days: editingTripPlan.days.map((day) => ({
+          ...day,
+          theme: day.theme.trim(),
+          morning: day.morning.trim(),
+          afternoon: day.afternoon.trim(),
+          evening: day.evening.trim(),
+        })),
+        tips: editingTripPlanTips
+          .split('\n')
+          .map((tip) => tip.trim())
+          .filter(Boolean),
+      },
+      expectedVersion: selectedTripPlanVersion,
+    });
   };
 
   return (
@@ -1333,6 +1428,11 @@ export default function App() {
                 </div>
                 <div className="flex flex-wrap gap-2 md:justify-end">
                   {selectedTripPlanId && (
+                    <Button icon={<EditOutlined />} onClick={openTripPlanEditor}>
+                      Edit
+                    </Button>
+                  )}
+                  {selectedTripPlanId && (
                     <Button
                       icon={selectedTripPlanFavorite ? <StarFilled /> : <StarOutlined />}
                       loading={updateTripPlanFavoriteMutation.isPending}
@@ -1505,6 +1605,86 @@ export default function App() {
           </div>
         </aside>
       </section>
+      <Modal
+        title="Edit itinerary"
+        open={Boolean(editingTripPlan)}
+        width={900}
+        okText="Save changes"
+        onOk={submitTripPlanEdit}
+        confirmLoading={updateTripPlanMutation.isPending}
+        okButtonProps={{
+          disabled: !editingTripPlan || !isTripPlanDraftValid(editingTripPlan, editingTripPlanTips),
+        }}
+        onCancel={() => {
+          setEditingTripPlan(null);
+          setEditingTripPlanTips('');
+          setTripPlanEditError('');
+          updateTripPlanMutation.reset();
+        }}
+      >
+        {editingTripPlan && (
+          <div className="max-h-[65vh] space-y-5 overflow-y-auto pr-2">
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-ink">Title</span>
+              <Input
+                maxLength={160}
+                value={editingTripPlan.title}
+                onChange={(event) => setEditingTripPlan({ ...editingTripPlan, title: event.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-ink">Summary</span>
+              <Input.TextArea
+                rows={3}
+                maxLength={4000}
+                value={editingTripPlan.summary}
+                onChange={(event) => setEditingTripPlan({ ...editingTripPlan, summary: event.target.value })}
+              />
+            </label>
+            {editingTripPlan.days.map((day, index) => (
+              <section key={day.day} className="border-t border-slate-200 pt-4">
+                <h3 className="mb-3 font-semibold text-ink">Day {day.day}</h3>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="block md:col-span-2">
+                    <span className="mb-1 block text-sm font-medium text-ink">Theme</span>
+                    <Input
+                      maxLength={1000}
+                      value={day.theme}
+                      onChange={(event) => updateEditingTripDay(index, 'theme', event.target.value)}
+                    />
+                  </label>
+                  {(['morning', 'afternoon', 'evening'] as const).map((period) => (
+                    <label key={period} className={period === 'evening' ? 'block md:col-span-2' : 'block'}>
+                      <span className="mb-1 block text-sm font-medium capitalize text-ink">{period}</span>
+                      <Input.TextArea
+                        rows={3}
+                        maxLength={1000}
+                        value={day[period]}
+                        onChange={(event) => updateEditingTripDay(index, period, event.target.value)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </section>
+            ))}
+            <label className="block border-t border-slate-200 pt-4">
+              <span className="mb-1 block text-sm font-medium text-ink">Travel notes</span>
+              <Input.TextArea
+                rows={5}
+                maxLength={10019}
+                value={editingTripPlanTips}
+                onChange={(event) => setEditingTripPlanTips(event.target.value)}
+                placeholder="One note per line"
+              />
+            </label>
+            {tripPlanEditError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {tripPlanEditError}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
       <Modal
         title="Import local data?"
         open={anonymousImportPromptOpen}
@@ -1977,6 +2157,23 @@ function PlanBlock({ title, value }: { title: string; value: string }) {
       <p className="text-sm font-medium text-trail">{title}</p>
       <p className="mt-1 text-sm leading-6 text-slate-700">{value}</p>
     </div>
+  );
+}
+
+function isTripPlanDraftValid(plan: TripPlanResponse, rawTips: string): boolean {
+  const tips = rawTips
+    .split('\n')
+    .map((tip) => tip.trim())
+    .filter(Boolean);
+  return (
+    Boolean(plan.title.trim()) &&
+    Boolean(plan.summary.trim()) &&
+    plan.days.length > 0 &&
+    plan.days.every((day) =>
+      [day.theme, day.morning, day.afternoon, day.evening].every((value) => Boolean(value.trim())),
+    ) &&
+    tips.length <= 20 &&
+    tips.every((tip) => tip.length <= 500)
   );
 }
 
@@ -2623,9 +2820,12 @@ function downloadJsonFile(data: unknown, filename: string) {
 }
 
 function slugify(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug || 'trip-plan';
+  const filename = value
+    .normalize('NFKC')
+    .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[.\-\s]+|[.\-\s]+$/g, '')
+    .slice(0, 120);
+  return filename || 'trip-plan';
 }

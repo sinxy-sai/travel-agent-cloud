@@ -173,7 +173,9 @@ class TripPlanRecord(Base):
     interests: Mapped[str] = mapped_column(String(300), default="")
     plan: Mapped[dict] = mapped_column(JSON)
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class UserProfileRecord(Base):

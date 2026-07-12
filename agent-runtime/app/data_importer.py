@@ -228,7 +228,9 @@ def _upsert_trip_plan_record(
     record.interests = trip_plan.interests
     record.plan = trip_plan.plan.model_dump(mode="json", by_alias=True)
     record.is_favorite = trip_plan.favorite
+    record.version = trip_plan.version
     record.created_at = trip_plan.created_at
+    record.updated_at = trip_plan.updated_at or trip_plan.created_at
 
 
 def _now() -> datetime:

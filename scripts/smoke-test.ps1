@@ -361,6 +361,31 @@ if (-not $tripPlans.data -or $tripPlans.data.Count -eq 0) {
   throw "Trip plan history did not return a saved plan"
 }
 
+Write-Host "Checking trip plan content update and version conflict API"
+$savedTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)" -Headers $headers
+$initialTripPlanVersion = [int]$savedTripPlan.version
+$editedTripTitle = -join ([char[]](0x0033, 0x5929, 0x6210, 0x90FD, 0x4E4B, 0x65C5))
+$savedTripPlan.plan.title = $editedTripTitle
+$tripPlanUpdateBody = @{
+  plan = $savedTripPlan.plan
+  expectedVersion = $initialTripPlanVersion
+} | ConvertTo-Json -Depth 10
+$editedTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)" -Method Patch -ContentType "application/json" -Headers $headers -Body $tripPlanUpdateBody
+if ($editedTripPlan.plan.title -ne $editedTripTitle) {
+  throw "Trip plan content update API did not persist the edited title"
+}
+if ([int]$editedTripPlan.version -ne ($initialTripPlanVersion + 1)) {
+  throw "Trip plan content update API did not increment the version"
+}
+try {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)" -Method Patch -ContentType "application/json" -Headers $headers -Body $tripPlanUpdateBody
+  throw "Trip plan content update API accepted a stale version"
+} catch {
+  if ($_.Exception.Response.StatusCode.value__ -ne 409) {
+    throw
+  }
+}
+
 Write-Host "Checking trip plan favorite API"
 $favoriteBody = @{
   favorite = $true

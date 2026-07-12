@@ -43,6 +43,11 @@ def _ensure_existing_schema(engine) -> None:
             trip_plan_columns = {column["name"] for column in inspector.get_columns("trip_plans")}
             if "is_favorite" not in trip_plan_columns:
                 connection.execute(text("ALTER TABLE trip_plans ADD COLUMN is_favorite BOOLEAN NOT NULL DEFAULT FALSE"))
+            if "version" not in trip_plan_columns:
+                connection.execute(text("ALTER TABLE trip_plans ADD COLUMN version INTEGER NOT NULL DEFAULT 1"))
+            if "updated_at" not in trip_plan_columns:
+                connection.execute(text("ALTER TABLE trip_plans ADD COLUMN updated_at TIMESTAMP NULL"))
+                connection.execute(text("UPDATE trip_plans SET updated_at = created_at WHERE updated_at IS NULL"))
             connection.execute(
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_trip_plans_user_favorite_created "

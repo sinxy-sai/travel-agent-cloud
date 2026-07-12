@@ -1,7 +1,7 @@
 import hmac
 import json
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
@@ -43,6 +43,7 @@ from app.conversations import (
     ConversationStore,
     DatabaseConversationStore,
     TripPlanNotFoundError,
+    TripPlanVersionConflictError,
 )
 from app.data_importer import UserDataImporter
 from app.db import maybe_create_session_factory
@@ -881,13 +882,31 @@ def update_trip_plan(
     user_id: str = Depends(get_user_id),
 ) -> SavedTripPlan:
     try:
-        trip_plan = conversation_store.update_trip_plan_favorite(user_id, trip_plan_id, request.favorite)
+        trip_plan = conversation_store.update_trip_plan(user_id, trip_plan_id, request)
     except TripPlanNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+    except TripPlanVersionConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TRIP_PLAN_VERSION_CONFLICT",
+                "message": "Trip plan was updated elsewhere; reload it before saving",
+            },
+        ) from exc
+    updated_fields = []
+    if request.favorite is not None:
+        updated_fields.append("favorite")
+    if request.plan is not None:
+        updated_fields.append("plan")
     event_publisher.publish(
         "trip.plan.updated",
         user_id,
-        {"tripPlanId": trip_plan_id, "updatedFields": ["favorite"], "favorite": trip_plan.favorite},
+        {
+            "tripPlanId": trip_plan_id,
+            "updatedFields": updated_fields,
+            "favorite": trip_plan.favorite,
+            "version": trip_plan.version,
+        },
     )
     return trip_plan
 
@@ -909,18 +928,23 @@ def export_trip_plan(trip_plan_id: str, user_id: str = Depends(get_user_id)) -> 
     except TripPlanNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
 
-    filename = _download_filename(saved_trip_plan.title)
     return PlainTextResponse(
         content=saved_trip_plan_to_markdown(saved_trip_plan),
         media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": _content_disposition_for_download(saved_trip_plan.title)},
     )
 
 
 def _download_filename(title: str) -> str:
-    safe_title = "".join(character if character.isalnum() else "-" for character in title.lower())
+    safe_title = "".join(character if character.isascii() and character.isalnum() else "-" for character in title.lower())
     safe_title = "-".join(part for part in safe_title.split("-") if part)
     return f"{safe_title or 'trip-plan'}.md"
+
+
+def _content_disposition_for_download(title: str) -> str:
+    ascii_filename = _download_filename(title)
+    utf8_filename = quote(f"{title.strip() or 'trip-plan'}.md")
+    return f"attachment; filename=\"{ascii_filename}\"; filename*=UTF-8''{utf8_filename}"
 
 
 def _updated_fields(fields: set[str]) -> list[str]:

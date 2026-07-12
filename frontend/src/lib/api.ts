@@ -35,7 +35,15 @@ export interface SavedTripPlan {
   interests: string;
   plan: TripPlanResponse;
   favorite: boolean;
+  version: number;
   createdAt: string;
+  updatedAt?: string | null;
+}
+
+export interface TripPlanUpdateRequest {
+  favorite?: boolean;
+  plan?: TripPlanResponse;
+  expectedVersion?: number;
 }
 
 export interface TripPlanListResponse {
@@ -527,8 +535,19 @@ export async function deleteTripPlan(tripPlanId: string): Promise<void> {
 }
 
 export async function updateTripPlanFavorite(tripPlanId: string, favorite: boolean): Promise<SavedTripPlan> {
-  const response = await api.patch<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}`, { favorite });
+  return updateTripPlan(tripPlanId, { favorite });
+}
+
+export async function updateTripPlan(
+  tripPlanId: string,
+  request: TripPlanUpdateRequest,
+): Promise<SavedTripPlan> {
+  const response = await api.patch<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}`, request);
   return response.data;
+}
+
+export function isApiErrorStatus(error: unknown, status: number): boolean {
+  return axios.isAxiosError(error) && error.response?.status === status;
 }
 
 export async function exportTripPlanMarkdown(tripPlanId: string): Promise<string> {
