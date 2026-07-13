@@ -1376,6 +1376,7 @@ export default function App() {
         days: editingTripPlan.days.map((day) => ({
           ...day,
           theme: day.theme.trim(),
+          date: day.date?.trim() || null,
           morning: day.morning.trim(),
           afternoon: day.afternoon.trim(),
           evening: day.evening.trim(),
@@ -2136,6 +2137,39 @@ export default function App() {
                       maxLength={1000}
                       value={day.theme}
                       onChange={(event) => updateEditingTripDay(index, 'theme', event.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium text-ink">Date</span>
+                    <Input
+                      type="date"
+                      value={day.date ?? ''}
+                      onChange={(event) => updateEditingTripDay(index, 'date', event.target.value)}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium text-ink">Transportation</span>
+                    <Input
+                      maxLength={80}
+                      value={day.transportation ?? ''}
+                      onChange={(event) => updateEditingTripDay(index, 'transportation', event.target.value)}
+                    />
+                  </label>
+                  <label className="block md:col-span-2">
+                    <span className="mb-1 block text-sm font-medium text-ink">Accommodation</span>
+                    <Input
+                      maxLength={80}
+                      value={day.accommodation ?? ''}
+                      onChange={(event) => updateEditingTripDay(index, 'accommodation', event.target.value)}
+                    />
+                  </label>
+                  <label className="block md:col-span-2">
+                    <span className="mb-1 block text-sm font-medium text-ink">Description</span>
+                    <Input.TextArea
+                      rows={2}
+                      maxLength={1000}
+                      value={day.description ?? ''}
+                      onChange={(event) => updateEditingTripDay(index, 'description', event.target.value)}
                     />
                   </label>
                   {(['morning', 'afternoon', 'evening'] as const).map((period) => (
