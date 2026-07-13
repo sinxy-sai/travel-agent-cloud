@@ -1190,6 +1190,7 @@ export default function App() {
         })),
       ),
       weatherInfo: (plan.weatherInfo ?? []).map((weather) => ({ ...weather })),
+      preferences: [...(plan.preferences ?? [])],
       tips: [...plan.tips],
     });
     setEditingTripPlanTips(plan.tips.join('\n'));
@@ -1472,6 +1473,12 @@ export default function App() {
         ...editingTripPlan,
         title: editingTripPlan.title.trim(),
         summary: editingTripPlan.summary.trim(),
+        startDate: editingTripPlan.startDate?.trim() || null,
+        endDate: editingTripPlan.endDate?.trim() || null,
+        transportation: editingTripPlan.transportation?.trim() ?? '',
+        accommodation: editingTripPlan.accommodation?.trim() ?? '',
+        preferences: normalizeTextList(editingTripPlan.preferences ?? [], 12),
+        freeTextInput: editingTripPlan.freeTextInput?.trim() ?? '',
         days: normalizedDays,
         weatherInfo: normalizeWeatherInfo(editingTripPlan.weatherInfo ?? []),
         overallSuggestions: editingTripPlan.overallSuggestions?.trim() ?? '',
@@ -2220,12 +2227,73 @@ export default function App() {
                 onChange={(event) => setEditingTripPlan({ ...editingTripPlan, summary: event.target.value })}
               />
             </label>
+            <section className="grid gap-3 border-t border-slate-200 pt-4 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-ink">Start date</span>
+                <Input
+                  type="date"
+                  value={editingTripPlan.startDate ?? ''}
+                  onChange={(event) => setEditingTripPlan({ ...editingTripPlan, startDate: event.target.value })}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-ink">End date</span>
+                <Input
+                  type="date"
+                  value={editingTripPlan.endDate ?? ''}
+                  onChange={(event) => setEditingTripPlan({ ...editingTripPlan, endDate: event.target.value })}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-ink">Trip transportation</span>
+                <Input
+                  maxLength={80}
+                  value={editingTripPlan.transportation ?? ''}
+                  onChange={(event) => setEditingTripPlan({ ...editingTripPlan, transportation: event.target.value })}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-ink">Trip accommodation</span>
+                <Input
+                  maxLength={80}
+                  value={editingTripPlan.accommodation ?? ''}
+                  onChange={(event) => setEditingTripPlan({ ...editingTripPlan, accommodation: event.target.value })}
+                />
+              </label>
+              <label className="block md:col-span-2">
+                <span className="mb-1 block text-sm font-medium text-ink">Preferences</span>
+                <Select
+                  mode="tags"
+                  value={editingTripPlan.preferences ?? []}
+                  onChange={(values) =>
+                    setEditingTripPlan({ ...editingTripPlan, preferences: normalizeTextList(values, 12) })
+                  }
+                  options={interestOptions.map((item) => ({ value: item, label: item }))}
+                  maxTagCount="responsive"
+                  className="w-full"
+                />
+              </label>
+              <label className="block md:col-span-2">
+                <span className="mb-1 block text-sm font-medium text-ink">Original request</span>
+                <Input.TextArea
+                  rows={3}
+                  maxLength={1000}
+                  value={editingTripPlan.freeTextInput ?? ''}
+                  onChange={(event) => setEditingTripPlan({ ...editingTripPlan, freeTextInput: event.target.value })}
+                />
+              </label>
+            </section>
             <div className="flex items-center justify-between gap-3 border-t border-slate-200 pt-4">
               <div>
                 <h3 className="font-semibold text-ink">Daily itinerary</h3>
                 <p className="mt-1 text-xs text-slate-500">Add, remove, or reorder days before saving.</p>
               </div>
-              <Button size="small" icon={<PlusOutlined />} onClick={addEditingTripDay}>
+              <Button
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={addEditingTripDay}
+                disabled={editingTripPlan.days.length >= 30}
+              >
                 Add day
               </Button>
             </div>
@@ -3431,6 +3499,23 @@ function normalizeWeatherInfo(weatherInfo: WeatherInfo[]): WeatherInfo[] {
     }))
     .filter((weather) => weather.date.length > 0)
     .slice(0, 30);
+}
+
+function normalizeTextList(values: string[], limit: number): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  values.forEach((value) => {
+    const item = value.trim();
+    const key = item.toLowerCase();
+    if (!item || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    normalized.push(item);
+  });
+
+  return normalized.slice(0, limit);
 }
 
 function normalizeTripPlanDays(days: TripPlanResponse['days']): TripPlanResponse['days'] {
