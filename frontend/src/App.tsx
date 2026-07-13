@@ -71,6 +71,7 @@ import {
   type ConversationSummaryJob,
   type HealthResponse,
   type Attraction,
+  type Budget,
   type Hotel,
   type Meal,
   type SavedTripPlan,
@@ -1203,6 +1204,22 @@ export default function App() {
     });
   };
 
+  const updateEditingBudgetTransportation = (value: number | string | null) => {
+    const numericValue = typeof value === 'string' ? Number(value) : value;
+    setEditingTripPlan((current) => {
+      if (!current?.budget) {
+        return current;
+      }
+      return {
+        ...current,
+        budget: {
+          ...current.budget,
+          totalTransportation: numericValue ?? 0,
+        },
+      };
+    });
+  };
+
   const updateEditingDayHotel = (dayIndex: number, updater: (hotel: Hotel | null, dayNumber: number) => Hotel | null) => {
     setEditingTripPlan((current) => {
       if (!current) {
@@ -1367,26 +1384,15 @@ export default function App() {
     if (!selectedTripPlanId || !editingTripPlan || !isTripPlanDraftValid(editingTripPlan, editingTripPlanTips)) {
       return;
     }
+    const normalizedDays = normalizeTripPlanDays(editingTripPlan.days);
     updateTripPlanMutation.mutate({
       tripPlanId: selectedTripPlanId,
       editedPlan: {
         ...editingTripPlan,
         title: editingTripPlan.title.trim(),
         summary: editingTripPlan.summary.trim(),
-        days: editingTripPlan.days.map((day) => ({
-          ...day,
-          theme: day.theme.trim(),
-          date: day.date?.trim() || null,
-          morning: day.morning.trim(),
-          afternoon: day.afternoon.trim(),
-          evening: day.evening.trim(),
-          description: day.description?.trim() ?? '',
-          transportation: day.transportation?.trim() ?? '',
-          accommodation: day.accommodation?.trim() ?? '',
-          hotel: normalizeHotel(day.hotel ?? null),
-          attractions: normalizeAttractions(day.attractions ?? []),
-          meals: normalizeMeals(day.meals ?? []),
-        })),
+        days: normalizedDays,
+        budget: recalculateBudget(editingTripPlan.budget, normalizedDays),
         tips: editingTripPlanTips
           .split('\n')
           .map((tip) => tip.trim())
@@ -1395,6 +1401,10 @@ export default function App() {
       expectedVersion: selectedTripPlanVersion,
     });
   };
+
+  const editingBudgetPreview = editingTripPlan?.budget
+    ? recalculateBudget(editingTripPlan.budget, normalizeTripPlanDays(editingTripPlan.days))
+    : null;
 
   const openTripDayRegenerator = (day: number) => {
     setRegeneratingTripDay(day);
@@ -2483,6 +2493,46 @@ export default function App() {
                 </div>
               </section>
             ))}
+            {editingBudgetPreview && (
+              <section className="border-t border-slate-200 pt-4">
+                <h3 className="mb-3 font-semibold text-ink">Budget</h3>
+                <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-4">
+                  <div className="rounded-md bg-white p-3">
+                    <span className="block text-xs font-medium text-slate-500">Attractions</span>
+                    <span className="mt-1 block text-base font-semibold text-ink">
+                      {formatCost(editingBudgetPreview.totalAttractions)}
+                    </span>
+                  </div>
+                  <div className="rounded-md bg-white p-3">
+                    <span className="block text-xs font-medium text-slate-500">Hotels</span>
+                    <span className="mt-1 block text-base font-semibold text-ink">
+                      {formatCost(editingBudgetPreview.totalHotels)}
+                    </span>
+                  </div>
+                  <div className="rounded-md bg-white p-3">
+                    <span className="block text-xs font-medium text-slate-500">Meals</span>
+                    <span className="mt-1 block text-base font-semibold text-ink">
+                      {formatCost(editingBudgetPreview.totalMeals)}
+                    </span>
+                  </div>
+                  <label className="block rounded-md bg-white p-3">
+                    <span className="mb-1 block text-xs font-medium text-slate-500">Transportation</span>
+                    <InputNumber
+                      min={0}
+                      max={100000}
+                      value={editingTripPlan.budget?.totalTransportation ?? 0}
+                      onChange={updateEditingBudgetTransportation}
+                      addonAfter="CNY"
+                      className="w-full"
+                    />
+                  </label>
+                  <div className="rounded-md bg-ink p-3 text-white md:col-span-4">
+                    <span className="block text-xs font-medium text-white/70">Estimated total</span>
+                    <span className="mt-1 block text-xl font-semibold">{formatCost(editingBudgetPreview.total)}</span>
+                  </div>
+                </div>
+              </section>
+            )}
             <label className="block border-t border-slate-200 pt-4">
               <span className="mb-1 block text-sm font-medium text-ink">Travel notes</span>
               <Input.TextArea
@@ -3104,6 +3154,49 @@ function normalizeMeals(meals: Meal[]): Meal[] {
     }))
     .filter((meal) => meal.name.length > 0)
     .slice(0, 8);
+}
+
+function normalizeTripPlanDays(days: TripPlanResponse['days']): TripPlanResponse['days'] {
+  return days.map((day) => ({
+    ...day,
+    theme: day.theme.trim(),
+    date: day.date?.trim() || null,
+    morning: day.morning.trim(),
+    afternoon: day.afternoon.trim(),
+    evening: day.evening.trim(),
+    description: day.description?.trim() ?? '',
+    transportation: day.transportation?.trim() ?? '',
+    accommodation: day.accommodation?.trim() ?? '',
+    hotel: normalizeHotel(day.hotel ?? null),
+    attractions: normalizeAttractions(day.attractions ?? []),
+    meals: normalizeMeals(day.meals ?? []),
+  }));
+}
+
+function recalculateBudget(currentBudget: Budget | null | undefined, days: TripPlanResponse['days']): Budget | null {
+  if (!currentBudget) {
+    return null;
+  }
+
+  const totalAttractions = days.reduce(
+    (sum, day) =>
+      sum + (day.attractions ?? []).reduce((daySum, attraction) => daySum + attraction.ticketPrice, 0),
+    0,
+  );
+  const totalHotels = days.reduce((sum, day) => sum + (day.hotel?.estimatedCost ?? 0), 0);
+  const totalMeals = days.reduce(
+    (sum, day) => sum + (day.meals ?? []).reduce((daySum, meal) => daySum + meal.estimatedCost, 0),
+    0,
+  );
+  const totalTransportation = clampInteger(currentBudget.totalTransportation, 0, 100000);
+
+  return {
+    ...currentBudget,
+    totalAttractions,
+    totalHotels,
+    totalMeals,
+    total: totalAttractions + totalHotels + totalMeals + totalTransportation,
+  };
 }
 
 function clampInteger(value: number, min: number, max: number): number {
