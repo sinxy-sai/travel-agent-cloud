@@ -76,6 +76,7 @@ import {
   type Meal,
   type SavedTripPlan,
   type TripPlanResponse,
+  type WeatherInfo,
   type UserProfile,
   type UserExportFile,
   type UserSecurityEvent,
@@ -104,6 +105,7 @@ type ConversationSummaryJobUiStatus = 'IDLE' | 'POLLING' | 'FAILED' | 'TIMEOUT';
 type AttractionTextField = 'name' | 'address' | 'description' | 'category';
 type HotelTextField = 'name' | 'address' | 'priceRange' | 'rating' | 'distance' | 'type';
 type MealTextField = 'type' | 'name' | 'address' | 'description';
+type WeatherTextField = 'date' | 'dayWeather' | 'nightWeather' | 'windDirection' | 'windPower';
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -1185,6 +1187,7 @@ export default function App() {
           location: meal.location ? { ...meal.location } : meal.location,
         })),
       })),
+      weatherInfo: (plan.weatherInfo ?? []).map((weather) => ({ ...weather })),
       tips: [...plan.tips],
     });
     setEditingTripPlanTips(plan.tips.join('\n'));
@@ -1218,6 +1221,39 @@ export default function App() {
         },
       };
     });
+  };
+
+  const updateEditingWeatherInfo = (updater: (weatherInfo: WeatherInfo[]) => WeatherInfo[]) => {
+    setEditingTripPlan((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        weatherInfo: updater([...(current.weatherInfo ?? [])]),
+      };
+    });
+  };
+
+  const updateEditingWeatherText = (weatherIndex: number, field: WeatherTextField, value: string) => {
+    updateEditingWeatherInfo((weatherInfo) =>
+      weatherInfo.map((weather, index) => (index === weatherIndex ? { ...weather, [field]: value } : weather)),
+    );
+  };
+
+  const updateEditingWeatherTemp = (weatherIndex: number, field: 'dayTemp' | 'nightTemp', value: number | string | null) => {
+    const numericValue = typeof value === 'string' ? Number(value) : value;
+    updateEditingWeatherInfo((weatherInfo) =>
+      weatherInfo.map((weather, index) => (index === weatherIndex ? { ...weather, [field]: numericValue ?? 0 } : weather)),
+    );
+  };
+
+  const addEditingWeather = () => {
+    updateEditingWeatherInfo((weatherInfo) => [...weatherInfo, createDraftWeather(weatherInfo.length + 1)]);
+  };
+
+  const deleteEditingWeather = (weatherIndex: number) => {
+    updateEditingWeatherInfo((weatherInfo) => weatherInfo.filter((_weather, index) => index !== weatherIndex));
   };
 
   const updateEditingDayHotel = (dayIndex: number, updater: (hotel: Hotel | null, dayNumber: number) => Hotel | null) => {
@@ -1392,6 +1428,8 @@ export default function App() {
         title: editingTripPlan.title.trim(),
         summary: editingTripPlan.summary.trim(),
         days: normalizedDays,
+        weatherInfo: normalizeWeatherInfo(editingTripPlan.weatherInfo ?? []),
+        overallSuggestions: editingTripPlan.overallSuggestions?.trim() ?? '',
         budget: recalculateBudget(editingTripPlan.budget, normalizedDays),
         tips: editingTripPlanTips
           .split('\n')
@@ -2493,6 +2531,112 @@ export default function App() {
                 </div>
               </section>
             ))}
+            <section className="border-t border-slate-200 pt-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-ink">Weather and planning notes</h3>
+                  <p className="mt-1 text-xs text-slate-500">Edit weather context and cross-day guidance.</p>
+                </div>
+                <Button size="small" icon={<PlusOutlined />} onClick={addEditingWeather}>
+                  Add weather
+                </Button>
+              </div>
+              {(editingTripPlan.weatherInfo?.length ?? 0) > 0 ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {(editingTripPlan.weatherInfo ?? []).map((weather, weatherIndex) => (
+                    <section key={`${weather.date}-${weatherIndex}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <h4 className="text-sm font-semibold text-ink">Weather {weatherIndex + 1}</h4>
+                        <Popconfirm title="Delete this weather entry?" onConfirm={() => deleteEditingWeather(weatherIndex)}>
+                          <Button size="small" danger icon={<DeleteOutlined />} />
+                        </Popconfirm>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="block md:col-span-2">
+                          <span className="mb-1 block text-xs font-medium text-slate-600">Date</span>
+                          <Input
+                            maxLength={20}
+                            value={weather.date}
+                            onChange={(event) => updateEditingWeatherText(weatherIndex, 'date', event.target.value)}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium text-slate-600">Day weather</span>
+                          <Input
+                            maxLength={80}
+                            value={weather.dayWeather}
+                            onChange={(event) => updateEditingWeatherText(weatherIndex, 'dayWeather', event.target.value)}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium text-slate-600">Night weather</span>
+                          <Input
+                            maxLength={80}
+                            value={weather.nightWeather}
+                            onChange={(event) => updateEditingWeatherText(weatherIndex, 'nightWeather', event.target.value)}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium text-slate-600">Day temp</span>
+                          <InputNumber
+                            min={-80}
+                            max={80}
+                            value={weather.dayTemp}
+                            onChange={(value) => updateEditingWeatherTemp(weatherIndex, 'dayTemp', value)}
+                            addonAfter="C"
+                            className="w-full"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium text-slate-600">Night temp</span>
+                          <InputNumber
+                            min={-80}
+                            max={80}
+                            value={weather.nightTemp}
+                            onChange={(value) => updateEditingWeatherTemp(weatherIndex, 'nightTemp', value)}
+                            addonAfter="C"
+                            className="w-full"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium text-slate-600">Wind direction</span>
+                          <Input
+                            maxLength={80}
+                            value={weather.windDirection}
+                            onChange={(event) =>
+                              updateEditingWeatherText(weatherIndex, 'windDirection', event.target.value)
+                            }
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium text-slate-600">Wind power</span>
+                          <Input
+                            maxLength={80}
+                            value={weather.windPower}
+                            onChange={(event) => updateEditingWeatherText(weatherIndex, 'windPower', event.target.value)}
+                          />
+                        </label>
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-500">
+                  No weather entries yet.
+                </div>
+              )}
+              <label className="mt-3 block">
+                <span className="mb-1 block text-sm font-medium text-ink">Overall suggestions</span>
+                <Input.TextArea
+                  rows={4}
+                  maxLength={4000}
+                  value={editingTripPlan.overallSuggestions ?? ''}
+                  onChange={(event) =>
+                    setEditingTripPlan({ ...editingTripPlan, overallSuggestions: event.target.value })
+                  }
+                />
+              </label>
+            </section>
             {editingBudgetPreview && (
               <section className="border-t border-slate-200 pt-4">
                 <h3 className="mb-3 font-semibold text-ink">Budget</h3>
@@ -3111,6 +3255,18 @@ function createDraftMeal(day: number, index: number): Meal {
   };
 }
 
+function createDraftWeather(index: number): WeatherInfo {
+  return {
+    date: `Day ${index}`,
+    dayWeather: '',
+    nightWeather: '',
+    dayTemp: 0,
+    nightTemp: 0,
+    windDirection: '',
+    windPower: '',
+  };
+}
+
 function normalizeHotel(hotel: Hotel | null): Hotel | null {
   if (!hotel || !hotel.name.trim()) {
     return null;
@@ -3154,6 +3310,22 @@ function normalizeMeals(meals: Meal[]): Meal[] {
     }))
     .filter((meal) => meal.name.length > 0)
     .slice(0, 8);
+}
+
+function normalizeWeatherInfo(weatherInfo: WeatherInfo[]): WeatherInfo[] {
+  return weatherInfo
+    .map((weather) => ({
+      ...weather,
+      date: weather.date.trim(),
+      dayWeather: weather.dayWeather.trim(),
+      nightWeather: weather.nightWeather.trim(),
+      dayTemp: clampInteger(weather.dayTemp, -80, 80),
+      nightTemp: clampInteger(weather.nightTemp, -80, 80),
+      windDirection: weather.windDirection.trim(),
+      windPower: weather.windPower.trim(),
+    }))
+    .filter((weather) => weather.date.length > 0)
+    .slice(0, 30);
 }
 
 function normalizeTripPlanDays(days: TripPlanResponse['days']): TripPlanResponse['days'] {
