@@ -3624,6 +3624,7 @@ function RuntimeStatus({
   const capabilities = agentStatus?.capabilities ?? health?.agentEngineCapabilities;
   const workflowNodes = capabilities?.workflowNodes ?? [];
   const completedNodes = agentStatus?.lastRunTrace?.completedNodes ?? [];
+  const recentRunTraces = agentStatus?.recentRunTraces?.slice(0, 3) ?? [];
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -3681,6 +3682,16 @@ function RuntimeStatus({
               {agentStatus.lastRunTrace.durationMs} ms
               {agentStatus.lastRunTrace.fallbackUsed ? ' with fallback' : ''}
             </p>
+          )}
+          {recentRunTraces.length > 1 && (
+            <div className="mt-2 grid gap-1">
+              {recentRunTraces.slice(1).map((trace) => (
+                <p key={trace.runId} className="text-[11px] text-slate-400">
+                  {formatAgentOperation(trace.operation)} / {trace.durationMs} ms
+                  {trace.fallbackUsed ? ' / fallback' : ''}
+                </p>
+              ))}
+            </div>
           )}
         </div>
       )}

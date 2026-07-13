@@ -63,6 +63,10 @@ class TravelAgentEngine(Protocol):
     def last_run_trace(self) -> TravelAgentRunTrace | None:
         ...
 
+    @property
+    def recent_run_traces(self) -> tuple[TravelAgentRunTrace, ...]:
+        ...
+
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         ...
 

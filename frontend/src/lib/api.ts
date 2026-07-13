@@ -244,6 +244,7 @@ export interface AgentStatusResponse {
   llmEnabled: boolean;
   capabilities: AgentEngineCapabilities;
   lastRunTrace?: AgentRunTrace | null;
+  recentRunTraces: AgentRunTrace[];
 }
 
 export interface UserProfile {

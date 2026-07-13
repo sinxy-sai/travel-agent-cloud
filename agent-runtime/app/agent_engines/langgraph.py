@@ -10,6 +10,8 @@ from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, Trip
 from app.settings import Settings
 from app.travel_tools import TravelToolProvider
 
+MAX_TRACE_HISTORY = 10
+
 
 @dataclass
 class ChatWorkflowState:
@@ -50,6 +52,7 @@ class LangGraphTravelAgentEngine:
         self._llm_client = LLMClient(settings)
         self._travel_tools = travel_tools
         self._last_run_trace: TravelAgentRunTrace | None = None
+        self._recent_run_traces: list[TravelAgentRunTrace] = []
 
     @property
     def llm_enabled(self) -> bool:
@@ -77,6 +80,10 @@ class LangGraphTravelAgentEngine:
     def last_run_trace(self) -> TravelAgentRunTrace | None:
         return self._last_run_trace
 
+    @property
+    def recent_run_traces(self) -> tuple[TravelAgentRunTrace, ...]:
+        return tuple(self._recent_run_traces)
+
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         started_at = _utc_timestamp()
         started = perf_counter()
@@ -84,13 +91,13 @@ class LangGraphTravelAgentEngine:
         state = self._chat_llm_node(state)
         state = self._chat_fallback_node(state)
         response = state.response or _build_rule_based_reply(request)
-        self._last_run_trace = self._build_trace(
+        self._record_trace(self._build_trace(
             operation="chat",
             completed_nodes=("chat_llm", "chat_fallback"),
             fallback_used=state.fallback_used,
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
-        )
+        ))
         return response
 
     def generate_trip_plan(self, request: TripPlanRequest) -> TripPlanResponse:
@@ -101,13 +108,13 @@ class LangGraphTravelAgentEngine:
         state = self._trip_enrichment_node(state)
         state = self._trip_validation_node(state)
         response = state.final_plan or build_mock_trip_plan(request, self._travel_tools)
-        self._last_run_trace = self._build_trace(
+        self._record_trace(self._build_trace(
             operation="trip_plan",
             completed_nodes=("trip_draft", "trip_enrichment", "trip_validation"),
             fallback_used=state.fallback_used,
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
-        )
+        ))
         return response
 
     def regenerate_trip_day(self, saved_trip_plan: SavedTripPlan, day: int, instruction: str) -> TripDay:
@@ -121,13 +128,13 @@ class LangGraphTravelAgentEngine:
         state = self._day_regeneration_node(state)
         state = self._day_fallback_node(state)
         response = state.regenerated_day or build_mock_regenerated_trip_day(saved_trip_plan, day, instruction)
-        self._last_run_trace = self._build_trace(
+        self._record_trace(self._build_trace(
             operation="day_regeneration",
             completed_nodes=("day_regeneration", "day_fallback"),
             fallback_used=state.fallback_used,
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
-        )
+        ))
         return response
 
     def _chat_llm_node(self, state: ChatWorkflowState) -> ChatWorkflowState:
@@ -197,6 +204,11 @@ class LangGraphTravelAgentEngine:
             ),
             fallback_used=True,
         )
+
+    def _record_trace(self, trace: TravelAgentRunTrace) -> None:
+        self._last_run_trace = trace
+        self._recent_run_traces.insert(0, trace)
+        del self._recent_run_traces[MAX_TRACE_HISTORY:]
 
     def _build_trace(
         self,

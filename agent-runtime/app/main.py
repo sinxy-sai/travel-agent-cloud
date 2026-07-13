@@ -194,6 +194,7 @@ def agent_status() -> dict[str, str | bool | dict[str, bool | str | list[str]] |
         "llmEnabled": travel_agent_service.llm_enabled,
         "capabilities": travel_agent_service.engine_capabilities.to_dict(),
         "lastRunTrace": last_run_trace.to_dict() if last_run_trace else None,
+        "recentRunTraces": [trace.to_dict() for trace in travel_agent_service.recent_run_traces],
     }
 
 

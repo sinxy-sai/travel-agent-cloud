@@ -26,6 +26,10 @@ class TravelAgentService:
         return self._engine.last_run_trace
 
     @property
+    def recent_run_traces(self) -> tuple[TravelAgentRunTrace, ...]:
+        return self._engine.recent_run_traces
+
+    @property
     def llm_enabled(self) -> bool:
         return self._engine.llm_enabled
 

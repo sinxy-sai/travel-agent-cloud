@@ -9,6 +9,8 @@ from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, Trip
 from app.settings import Settings
 from app.travel_tools import TravelToolProvider
 
+MAX_TRACE_HISTORY = 10
+
 
 class BasicTravelAgentEngine:
     def __init__(self, settings: Settings, travel_tools: TravelToolProvider, name: str = "basic") -> None:
@@ -16,6 +18,7 @@ class BasicTravelAgentEngine:
         self._llm_client = LLMClient(settings)
         self._travel_tools = travel_tools
         self._last_run_trace: TravelAgentRunTrace | None = None
+        self._recent_run_traces: list[TravelAgentRunTrace] = []
 
     @property
     def llm_enabled(self) -> bool:
@@ -35,19 +38,23 @@ class BasicTravelAgentEngine:
     def last_run_trace(self) -> TravelAgentRunTrace | None:
         return self._last_run_trace
 
+    @property
+    def recent_run_traces(self) -> tuple[TravelAgentRunTrace, ...]:
+        return tuple(self._recent_run_traces)
+
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         started_at = _utc_timestamp()
         started = perf_counter()
         llm_response = self._llm_client.generate_chat_reply(messages, request.mode)
         fallback_used = not bool(llm_response)
         response = llm_response or _build_rule_based_reply(request)
-        self._last_run_trace = self._build_trace(
+        self._record_trace(self._build_trace(
             operation="chat",
             completed_nodes=("llm_call", "mock_fallback") if fallback_used else ("llm_call",),
             fallback_used=fallback_used,
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
-        )
+        ))
         return response
 
     def generate_trip_plan(self, request: TripPlanRequest) -> TripPlanResponse:
@@ -56,22 +63,22 @@ class BasicTravelAgentEngine:
         llm_response = self._llm_client.generate_trip_plan(request)
         if llm_response:
             response = enrich_trip_plan_response(llm_response, request, self._travel_tools)
-            self._last_run_trace = self._build_trace(
+            self._record_trace(self._build_trace(
                 operation="trip_plan",
                 completed_nodes=("llm_call", "tool_enrichment"),
                 fallback_used=False,
                 started_at=started_at,
                 duration_ms=_elapsed_ms(started),
-            )
+            ))
             return response
         response = build_mock_trip_plan(request, self._travel_tools)
-        self._last_run_trace = self._build_trace(
+        self._record_trace(self._build_trace(
             operation="trip_plan",
             completed_nodes=("llm_call", "mock_fallback"),
             fallback_used=True,
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
-        )
+        ))
         return response
 
     def regenerate_trip_day(self, saved_trip_plan: SavedTripPlan, day: int, instruction: str) -> TripDay:
@@ -84,14 +91,19 @@ class BasicTravelAgentEngine:
         )
         fallback_used = regenerated_day is None
         response = regenerated_day or build_mock_regenerated_trip_day(saved_trip_plan, day, instruction)
-        self._last_run_trace = self._build_trace(
+        self._record_trace(self._build_trace(
             operation="day_regeneration",
             completed_nodes=("llm_call", "mock_fallback") if fallback_used else ("llm_call",),
             fallback_used=fallback_used,
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
-        )
+        ))
         return response
+
+    def _record_trace(self, trace: TravelAgentRunTrace) -> None:
+        self._last_run_trace = trace
+        self._recent_run_traces.insert(0, trace)
+        del self._recent_run_traces[MAX_TRACE_HISTORY:]
 
     def _build_trace(
         self,
