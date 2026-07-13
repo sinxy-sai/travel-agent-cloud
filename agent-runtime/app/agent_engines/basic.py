@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from time import perf_counter
 from uuid import uuid4
 
-from app.agent_engines.types import TravelAgentEngineCapabilities, TravelAgentRunTrace
+from app.agent_engines.types import TravelAgentEngineCapabilities, TravelAgentNodeEvent, TravelAgentRunTrace
 from app.llm import LLMClient
 from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
@@ -52,6 +52,14 @@ class BasicTravelAgentEngine:
             operation="chat",
             completed_nodes=("llm_call", "mock_fallback") if fallback_used else ("llm_call",),
             fallback_used=fallback_used,
+            node_events=(
+                _node_event("llm_call", "SKIPPED", "llm_disabled_or_empty_response")
+                if fallback_used
+                else _node_event("llm_call", "SUCCEEDED", "chat_reply_generated"),
+                _node_event("mock_fallback", "FALLBACK", "rule_based_reply")
+                if fallback_used
+                else _node_event("mock_fallback", "SKIPPED", "llm_response_available"),
+            ),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -67,6 +75,11 @@ class BasicTravelAgentEngine:
                 operation="trip_plan",
                 completed_nodes=("llm_call", "tool_enrichment"),
                 fallback_used=False,
+                node_events=(
+                    _node_event("llm_call", "SUCCEEDED", "trip_plan_json_generated"),
+                    _node_event("tool_enrichment", "SUCCEEDED", "travel_tools_applied"),
+                    _node_event("mock_fallback", "SKIPPED", "llm_plan_available"),
+                ),
                 started_at=started_at,
                 duration_ms=_elapsed_ms(started),
             ))
@@ -76,6 +89,11 @@ class BasicTravelAgentEngine:
             operation="trip_plan",
             completed_nodes=("llm_call", "mock_fallback"),
             fallback_used=True,
+            node_events=(
+                _node_event("llm_call", "SKIPPED", "llm_disabled_or_invalid_response"),
+                _node_event("tool_enrichment", "SKIPPED", "no_llm_plan_to_enrich"),
+                _node_event("mock_fallback", "FALLBACK", "mock_trip_plan_generated"),
+            ),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -95,6 +113,14 @@ class BasicTravelAgentEngine:
             operation="day_regeneration",
             completed_nodes=("llm_call", "mock_fallback") if fallback_used else ("llm_call",),
             fallback_used=fallback_used,
+            node_events=(
+                _node_event("llm_call", "SKIPPED", "llm_disabled_or_invalid_response")
+                if fallback_used
+                else _node_event("llm_call", "SUCCEEDED", "day_json_generated"),
+                _node_event("mock_fallback", "FALLBACK", "mock_day_generated")
+                if fallback_used
+                else _node_event("mock_fallback", "SKIPPED", "llm_day_available"),
+            ),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -110,6 +136,7 @@ class BasicTravelAgentEngine:
         operation: str,
         completed_nodes: tuple[str, ...],
         fallback_used: bool,
+        node_events: tuple[TravelAgentNodeEvent, ...],
         started_at: str,
         duration_ms: int,
     ) -> TravelAgentRunTrace:
@@ -123,6 +150,7 @@ class BasicTravelAgentEngine:
             completed_nodes=completed_nodes,
             fallback_used=fallback_used,
             llm_enabled=self.llm_enabled,
+            node_events=node_events,
         )
 
 
@@ -148,3 +176,7 @@ def _utc_timestamp() -> str:
 
 def _elapsed_ms(started: float) -> int:
     return max(0, round((perf_counter() - started) * 1000))
+
+
+def _node_event(node_name: str, status: str, detail: str) -> TravelAgentNodeEvent:
+    return TravelAgentNodeEvent(node_name=node_name, status=status, detail=detail)

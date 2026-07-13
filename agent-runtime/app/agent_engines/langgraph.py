@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from time import perf_counter
 from uuid import uuid4
 
-from app.agent_engines.types import TravelAgentEngineCapabilities, TravelAgentRunTrace
+from app.agent_engines.types import TravelAgentEngineCapabilities, TravelAgentNodeEvent, TravelAgentRunTrace
 from app.llm import LLMClient
 from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
@@ -95,6 +95,7 @@ class LangGraphTravelAgentEngine:
             operation="chat",
             completed_nodes=("chat_llm", "chat_fallback"),
             fallback_used=state.fallback_used,
+            node_events=_chat_node_events(state),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -112,6 +113,7 @@ class LangGraphTravelAgentEngine:
             operation="trip_plan",
             completed_nodes=("trip_draft", "trip_enrichment", "trip_validation"),
             fallback_used=state.fallback_used,
+            node_events=_trip_node_events(state),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -132,6 +134,7 @@ class LangGraphTravelAgentEngine:
             operation="day_regeneration",
             completed_nodes=("day_regeneration", "day_fallback"),
             fallback_used=state.fallback_used,
+            node_events=_day_node_events(state),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -215,6 +218,7 @@ class LangGraphTravelAgentEngine:
         operation: str,
         completed_nodes: tuple[str, ...],
         fallback_used: bool,
+        node_events: tuple[TravelAgentNodeEvent, ...],
         started_at: str,
         duration_ms: int,
     ) -> TravelAgentRunTrace:
@@ -228,6 +232,7 @@ class LangGraphTravelAgentEngine:
             completed_nodes=completed_nodes,
             fallback_used=fallback_used,
             llm_enabled=self.llm_enabled,
+            node_events=node_events,
         )
 
 
@@ -253,3 +258,54 @@ def _utc_timestamp() -> str:
 
 def _elapsed_ms(started: float) -> int:
     return max(0, round((perf_counter() - started) * 1000))
+
+
+def _chat_node_events(state: ChatWorkflowState) -> tuple[TravelAgentNodeEvent, ...]:
+    llm_event = (
+        _node_event("chat_llm", "SKIPPED", "llm_disabled_or_empty_response")
+        if state.fallback_used
+        else _node_event("chat_llm", "SUCCEEDED", "chat_reply_generated")
+    )
+    fallback_event = (
+        _node_event("chat_fallback", "FALLBACK", "rule_based_reply")
+        if state.fallback_used
+        else _node_event("chat_fallback", "SKIPPED", "llm_response_available")
+    )
+    return (llm_event, fallback_event)
+
+
+def _trip_node_events(state: TripPlanningWorkflowState) -> tuple[TravelAgentNodeEvent, ...]:
+    draft_event = (
+        _node_event("trip_draft", "SKIPPED", "llm_disabled_or_invalid_response")
+        if state.draft_plan is None
+        else _node_event("trip_draft", "SUCCEEDED", "draft_plan_generated")
+    )
+    enrichment_event = (
+        _node_event("trip_enrichment", "SUCCEEDED", "travel_tools_applied")
+        if state.final_plan is not None and state.draft_plan is not None
+        else _node_event("trip_enrichment", "SKIPPED", "no_draft_plan_to_enrich")
+    )
+    validation_event = (
+        _node_event("trip_validation", "FALLBACK", "mock_trip_plan_generated")
+        if state.fallback_used
+        else _node_event("trip_validation", "SUCCEEDED", "plan_has_days")
+    )
+    return (draft_event, enrichment_event, validation_event)
+
+
+def _day_node_events(state: DayRegenerationWorkflowState) -> tuple[TravelAgentNodeEvent, ...]:
+    generation_event = (
+        _node_event("day_regeneration", "SKIPPED", "llm_disabled_or_invalid_response")
+        if state.fallback_used
+        else _node_event("day_regeneration", "SUCCEEDED", "day_json_generated")
+    )
+    fallback_event = (
+        _node_event("day_fallback", "FALLBACK", "mock_day_generated")
+        if state.fallback_used
+        else _node_event("day_fallback", "SKIPPED", "llm_day_available")
+    )
+    return (generation_event, fallback_event)
+
+
+def _node_event(node_name: str, status: str, detail: str) -> TravelAgentNodeEvent:
+    return TravelAgentNodeEvent(node_name=node_name, status=status, detail=detail)

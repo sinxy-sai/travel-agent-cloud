@@ -23,6 +23,20 @@ class TravelAgentEngineCapabilities:
 
 
 @dataclass(frozen=True)
+class TravelAgentNodeEvent:
+    node_name: str
+    status: str
+    detail: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "nodeName": self.node_name,
+            "status": self.status,
+            "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True)
 class TravelAgentRunTrace:
     run_id: str
     operation: str
@@ -33,8 +47,9 @@ class TravelAgentRunTrace:
     completed_nodes: tuple[str, ...]
     fallback_used: bool
     llm_enabled: bool
+    node_events: tuple[TravelAgentNodeEvent, ...] = ()
 
-    def to_dict(self) -> dict[str, bool | int | str | list[str]]:
+    def to_dict(self) -> dict[str, bool | int | str | list[str] | list[dict[str, str]]]:
         return {
             "runId": self.run_id,
             "operation": self.operation,
@@ -45,6 +60,7 @@ class TravelAgentRunTrace:
             "completedNodes": list(self.completed_nodes),
             "fallbackUsed": self.fallback_used,
             "llmEnabled": self.llm_enabled,
+            "nodeEvents": [event.to_dict() for event in self.node_events],
         }
 
 

@@ -3624,6 +3624,7 @@ function RuntimeStatus({
   const capabilities = agentStatus?.capabilities ?? health?.agentEngineCapabilities;
   const workflowNodes = capabilities?.workflowNodes ?? [];
   const completedNodes = agentStatus?.lastRunTrace?.completedNodes ?? [];
+  const nodeEvents = agentStatus?.lastRunTrace?.nodeEvents ?? [];
   const recentRunTraces = agentStatus?.recentRunTraces?.slice(0, 3) ?? [];
   const runSummary = agentStatus?.runSummary;
   const operationSummary = Object.entries(runSummary?.operationCounts ?? {}).slice(0, 3);
@@ -3684,6 +3685,22 @@ function RuntimeStatus({
               {agentStatus.lastRunTrace.durationMs} ms
               {agentStatus.lastRunTrace.fallbackUsed ? ' with fallback' : ''}
             </p>
+          )}
+          {nodeEvents.length > 0 && (
+            <div className="mt-2 grid gap-1">
+              {nodeEvents.map((event) => (
+                <p
+                  key={event.nodeName}
+                  className="flex items-center justify-between gap-2 text-[11px]"
+                  title={event.detail}
+                >
+                  <span className="truncate text-slate-500">{event.nodeName}</span>
+                  <span className={`shrink-0 rounded px-1.5 py-0.5 ${agentNodeStatusClass(event.status)}`}>
+                    {formatAgentOperation(event.status)}
+                  </span>
+                </p>
+              ))}
+            </div>
           )}
           {runSummary && runSummary.totalRuns > 0 && (
             <div className="mt-2 rounded border border-slate-200 bg-white px-2 py-1.5">
@@ -4260,6 +4277,16 @@ function formatSummaryJobStatus(status?: ConversationSummaryJob['status']): stri
 
 function formatAgentOperation(value: string): string {
   return value.replace(/_/g, ' ');
+}
+
+function agentNodeStatusClass(status: string): string {
+  if (status === 'SUCCEEDED') {
+    return 'bg-emerald-50 text-emerald-700';
+  }
+  if (status === 'FALLBACK') {
+    return 'bg-amber-50 text-amber-700';
+  }
+  return 'bg-slate-100 text-slate-500';
 }
 
 function splitInterests(value: string): string[] {

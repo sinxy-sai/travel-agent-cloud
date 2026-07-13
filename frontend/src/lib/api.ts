@@ -237,6 +237,13 @@ export interface AgentRunTrace {
   completedNodes: string[];
   fallbackUsed: boolean;
   llmEnabled: boolean;
+  nodeEvents?: AgentNodeEvent[];
+}
+
+export interface AgentNodeEvent {
+  nodeName: string;
+  status: string;
+  detail: string;
 }
 
 export interface AgentRunSummary {
