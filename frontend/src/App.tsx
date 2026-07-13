@@ -1170,23 +1170,25 @@ export default function App() {
     }
     setEditingTripPlan({
       ...plan,
-      days: plan.days.map((day) => ({
-        ...day,
-        hotel: day.hotel
-          ? {
-              ...day.hotel,
-              location: day.hotel.location ? { ...day.hotel.location } : day.hotel.location,
-            }
-          : day.hotel,
-        attractions: (day.attractions ?? []).map((attraction) => ({
-          ...attraction,
-          location: attraction.location ? { ...attraction.location } : attraction.location,
+      days: renumberTripDays(
+        plan.days.map((day) => ({
+          ...day,
+          hotel: day.hotel
+            ? {
+                ...day.hotel,
+                location: day.hotel.location ? { ...day.hotel.location } : day.hotel.location,
+              }
+            : day.hotel,
+          attractions: (day.attractions ?? []).map((attraction) => ({
+            ...attraction,
+            location: attraction.location ? { ...attraction.location } : attraction.location,
+          })),
+          meals: (day.meals ?? []).map((meal) => ({
+            ...meal,
+            location: meal.location ? { ...meal.location } : meal.location,
+          })),
         })),
-        meals: (day.meals ?? []).map((meal) => ({
-          ...meal,
-          location: meal.location ? { ...meal.location } : meal.location,
-        })),
-      })),
+      ),
       weatherInfo: (plan.weatherInfo ?? []).map((weather) => ({ ...weather })),
       tips: [...plan.tips],
     });
@@ -1203,6 +1205,49 @@ export default function App() {
       return {
         ...current,
         days: current.days.map((day, dayIndex) => (dayIndex === index ? { ...day, [field]: value } : day)),
+      };
+    });
+  };
+
+  const addEditingTripDay = () => {
+    setEditingTripPlan((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        days: renumberTripDays([...current.days, createDraftTripDay(current.days.length + 1)]),
+      };
+    });
+  };
+
+  const deleteEditingTripDay = (dayIndex: number) => {
+    setEditingTripPlan((current) => {
+      if (!current || current.days.length <= 1) {
+        return current;
+      }
+      return {
+        ...current,
+        days: renumberTripDays(current.days.filter((_day, index) => index !== dayIndex)),
+      };
+    });
+  };
+
+  const moveEditingTripDay = (dayIndex: number, direction: -1 | 1) => {
+    setEditingTripPlan((current) => {
+      if (!current) {
+        return current;
+      }
+      const nextIndex = dayIndex + direction;
+      if (nextIndex < 0 || nextIndex >= current.days.length) {
+        return current;
+      }
+      const reorderedDays = [...current.days];
+      const [day] = reorderedDays.splice(dayIndex, 1);
+      reorderedDays.splice(nextIndex, 0, day);
+      return {
+        ...current,
+        days: renumberTripDays(reorderedDays),
       };
     });
   };
@@ -2175,9 +2220,52 @@ export default function App() {
                 onChange={(event) => setEditingTripPlan({ ...editingTripPlan, summary: event.target.value })}
               />
             </label>
+            <div className="flex items-center justify-between gap-3 border-t border-slate-200 pt-4">
+              <div>
+                <h3 className="font-semibold text-ink">Daily itinerary</h3>
+                <p className="mt-1 text-xs text-slate-500">Add, remove, or reorder days before saving.</p>
+              </div>
+              <Button size="small" icon={<PlusOutlined />} onClick={addEditingTripDay}>
+                Add day
+              </Button>
+            </div>
             {editingTripPlan.days.map((day, index) => (
               <section key={day.day} className="border-t border-slate-200 pt-4">
-                <h3 className="mb-3 font-semibold text-ink">Day {day.day}</h3>
+                <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <h3 className="font-semibold text-ink">Day {day.day}</h3>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="small"
+                      icon={<ArrowUpOutlined />}
+                      onClick={() => moveEditingTripDay(index, -1)}
+                      disabled={index === 0}
+                    >
+                      Up
+                    </Button>
+                    <Button
+                      size="small"
+                      icon={<ArrowDownOutlined />}
+                      onClick={() => moveEditingTripDay(index, 1)}
+                      disabled={index === editingTripPlan.days.length - 1}
+                    >
+                      Down
+                    </Button>
+                    <Popconfirm
+                      title="Delete this day?"
+                      onConfirm={() => deleteEditingTripDay(index)}
+                      disabled={editingTripPlan.days.length <= 1}
+                    >
+                      <Button
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        disabled={editingTripPlan.days.length <= 1}
+                      >
+                        Delete
+                      </Button>
+                    </Popconfirm>
+                  </div>
+                </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <label className="block md:col-span-2">
                     <span className="mb-1 block text-sm font-medium text-ink">Theme</span>
@@ -3217,6 +3305,23 @@ function PlanCost({ label, value }: { label: string; value: number }) {
   );
 }
 
+function createDraftTripDay(day: number): TripPlanResponse['days'][number] {
+  return {
+    day,
+    theme: `Day ${day} highlights`,
+    morning: 'Plan a focused morning route.',
+    afternoon: 'Continue with nearby attractions and flexible rest time.',
+    evening: 'Choose dinner and review the next day with the travel agent.',
+    date: null,
+    description: '',
+    transportation: '',
+    accommodation: '',
+    hotel: null,
+    attractions: [],
+    meals: [],
+  };
+}
+
 function createDraftHotel(day: number): Hotel {
   return {
     name: `Day ${day} hotel`,
@@ -3329,7 +3434,7 @@ function normalizeWeatherInfo(weatherInfo: WeatherInfo[]): WeatherInfo[] {
 }
 
 function normalizeTripPlanDays(days: TripPlanResponse['days']): TripPlanResponse['days'] {
-  return days.map((day) => ({
+  return renumberTripDays(days).map((day) => ({
     ...day,
     theme: day.theme.trim(),
     date: day.date?.trim() || null,
@@ -3342,6 +3447,13 @@ function normalizeTripPlanDays(days: TripPlanResponse['days']): TripPlanResponse
     hotel: normalizeHotel(day.hotel ?? null),
     attractions: normalizeAttractions(day.attractions ?? []),
     meals: normalizeMeals(day.meals ?? []),
+  }));
+}
+
+function renumberTripDays(days: TripPlanResponse['days']): TripPlanResponse['days'] {
+  return days.map((day, index) => ({
+    ...day,
+    day: index + 1,
   }));
 }
 
