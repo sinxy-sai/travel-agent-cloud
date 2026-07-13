@@ -214,7 +214,33 @@ export interface HealthResponse {
   redisRateLimitEnabled: boolean;
   objectStorageEnabled: boolean;
   githubOAuthEnabled: boolean;
+  agentEngine: string;
+  agentEngineCapabilities: AgentEngineCapabilities;
   travelToolsProvider: string;
+}
+
+export interface AgentEngineCapabilities {
+  supportsChat: boolean;
+  supportsTripPlanning: boolean;
+  supportsDayRegeneration: boolean;
+  workflowNodes: string[];
+  dependencyMode: string;
+}
+
+export interface AgentRunTrace {
+  operation: string;
+  engineName: string;
+  workflowNodes: string[];
+  completedNodes: string[];
+  fallbackUsed: boolean;
+  llmEnabled: boolean;
+}
+
+export interface AgentStatusResponse {
+  engine: string;
+  llmEnabled: boolean;
+  capabilities: AgentEngineCapabilities;
+  lastRunTrace?: AgentRunTrace | null;
 }
 
 export interface UserProfile {
@@ -396,6 +422,11 @@ export async function createTripPlan(request: TripPlanRequest): Promise<TripPlan
 
 export async function getHealth(): Promise<HealthResponse> {
   const response = await api.get<HealthResponse>('/health');
+  return response.data;
+}
+
+export async function getAgentStatus(): Promise<AgentStatusResponse> {
+  const response = await api.get<AgentStatusResponse>('/api/v1/agent/status');
   return response.data;
 }
 

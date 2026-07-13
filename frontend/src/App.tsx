@@ -29,6 +29,7 @@ import {
   downloadCurrentUserExportFile,
   exportCurrentUserData,
   exportTripPlanMarkdown,
+  getAgentStatus,
   getConversation,
   getConversationSummary,
   getCurrentAuthUser,
@@ -70,6 +71,7 @@ import {
   type ConversationSummary,
   type ConversationSummaryJob,
   type HealthResponse,
+  type AgentStatusResponse,
   type Attraction,
   type Budget,
   type Hotel,
@@ -216,6 +218,13 @@ export default function App() {
   const healthQuery = useQuery({
     queryKey: ['health'],
     queryFn: getHealth,
+    refetchInterval: 30000,
+    retry: 1,
+  });
+
+  const agentStatusQuery = useQuery({
+    queryKey: ['agent-status'],
+    queryFn: getAgentStatus,
     refetchInterval: 30000,
     retry: 1,
   });
@@ -496,6 +505,7 @@ export default function App() {
       setTripPlanPage(1);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+      queryClient.invalidateQueries({ queryKey: ['agent-status'] });
     },
   });
 
@@ -507,6 +517,7 @@ export default function App() {
       setChatSuggestions(response.suggestions);
       setConversationPage(1);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['agent-status'] });
     },
   });
 
@@ -688,6 +699,7 @@ export default function App() {
       setTripDayRegenerateInstruction('');
       setTripDayRegenerateError('');
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+      queryClient.invalidateQueries({ queryKey: ['agent-status'] });
       if (savedTripPlan.conversationId) {
         queryClient.invalidateQueries({ queryKey: ['conversations'] });
       }
@@ -1525,7 +1537,12 @@ export default function App() {
             <h1 className="mt-2 text-3xl font-semibold text-ink">Trip planner workspace</h1>
           </div>
 
-          <RuntimeStatus health={healthQuery.data} loading={healthQuery.isLoading} error={healthQuery.isError} />
+          <RuntimeStatus
+            health={healthQuery.data}
+            agentStatus={agentStatusQuery.data}
+            loading={healthQuery.isLoading || agentStatusQuery.isLoading}
+            error={healthQuery.isError}
+          />
           <AccountStatus
             user={authUserQuery.data}
             authIdentities={authIdentitiesQuery.data?.data ?? []}
@@ -3594,14 +3611,19 @@ function isTripPlanDraftValid(plan: TripPlanResponse, rawTips: string): boolean 
 
 function RuntimeStatus({
   health,
+  agentStatus,
   loading,
   error,
 }: {
   health?: HealthResponse;
+  agentStatus?: AgentStatusResponse;
   loading: boolean;
   error: boolean;
 }) {
   const runtimeOnline = Boolean(health && health.status === 'ok' && !error);
+  const capabilities = agentStatus?.capabilities ?? health?.agentEngineCapabilities;
+  const workflowNodes = capabilities?.workflowNodes ?? [];
+  const completedNodes = agentStatus?.lastRunTrace?.completedNodes ?? [];
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -3620,11 +3642,46 @@ function RuntimeStatus({
         <StatusRow label="Redis rate limit" active={Boolean(health?.redisRateLimitEnabled)} muted={!runtimeOnline || loading} />
         <StatusRow label="Object storage" active={Boolean(health?.objectStorageEnabled)} muted={!runtimeOnline || loading} />
         <StatusRow
+          label={`Agent engine: ${agentStatus?.engine ?? health?.agentEngine ?? 'basic'}`}
+          active={runtimeOnline}
+          muted={!runtimeOnline || loading}
+        />
+        <StatusRow
+          label={`Agent mode: ${capabilities?.dependencyMode ?? 'builtin'}`}
+          active={runtimeOnline}
+          muted={!runtimeOnline || loading}
+        />
+        <StatusRow
           label={`Travel tools: ${health?.travelToolsProvider ?? 'mock'}`}
           active={runtimeOnline}
           muted={!runtimeOnline || loading}
         />
       </div>
+      {workflowNodes.length > 0 && (
+        <div className="mt-3 border-t border-slate-200 pt-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Agent workflow</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {workflowNodes.map((node) => (
+              <span
+                key={node}
+                className={`rounded border px-2 py-1 text-[11px] ${
+                  completedNodes.includes(node)
+                    ? 'border-trail bg-trail/10 text-trail'
+                    : 'border-slate-200 bg-white text-slate-600'
+                }`}
+              >
+                {node}
+              </span>
+            ))}
+          </div>
+          {agentStatus?.lastRunTrace && (
+            <p className="mt-2 text-xs text-slate-500">
+              Last run: {formatAgentOperation(agentStatus.lastRunTrace.operation)}
+              {agentStatus.lastRunTrace.fallbackUsed ? ' with fallback' : ''}
+            </p>
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -4169,6 +4226,10 @@ function formatSecurityEventType(value: string): string {
 
 function formatSummaryJobStatus(status?: ConversationSummaryJob['status']): string {
   return status ? status.toLowerCase().replace('_', ' ') : 'queued';
+}
+
+function formatAgentOperation(value: string): string {
+  return value.replace(/_/g, ' ');
 }
 
 function splitInterests(value: string): string[] {
