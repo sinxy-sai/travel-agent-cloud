@@ -24,17 +24,23 @@ class TravelAgentEngineCapabilities:
 
 @dataclass(frozen=True)
 class TravelAgentRunTrace:
+    run_id: str
     operation: str
     engine_name: str
+    started_at: str
+    duration_ms: int
     workflow_nodes: tuple[str, ...]
     completed_nodes: tuple[str, ...]
     fallback_used: bool
     llm_enabled: bool
 
-    def to_dict(self) -> dict[str, bool | str | list[str]]:
+    def to_dict(self) -> dict[str, bool | int | str | list[str]]:
         return {
+            "runId": self.run_id,
             "operation": self.operation,
             "engineName": self.engine_name,
+            "startedAt": self.started_at,
+            "durationMs": self.duration_ms,
             "workflowNodes": list(self.workflow_nodes),
             "completedNodes": list(self.completed_nodes),
             "fallbackUsed": self.fallback_used,

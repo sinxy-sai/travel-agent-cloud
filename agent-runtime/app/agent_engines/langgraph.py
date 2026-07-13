@@ -1,4 +1,7 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from time import perf_counter
+from uuid import uuid4
 
 from app.agent_engines.types import TravelAgentEngineCapabilities, TravelAgentRunTrace
 from app.llm import LLMClient
@@ -75,29 +78,41 @@ class LangGraphTravelAgentEngine:
         return self._last_run_trace
 
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
+        started_at = _utc_timestamp()
+        started = perf_counter()
         state = ChatWorkflowState(request=request, messages=messages)
         state = self._chat_llm_node(state)
         state = self._chat_fallback_node(state)
+        response = state.response or _build_rule_based_reply(request)
         self._last_run_trace = self._build_trace(
             operation="chat",
             completed_nodes=("chat_llm", "chat_fallback"),
             fallback_used=state.fallback_used,
+            started_at=started_at,
+            duration_ms=_elapsed_ms(started),
         )
-        return state.response or _build_rule_based_reply(request)
+        return response
 
     def generate_trip_plan(self, request: TripPlanRequest) -> TripPlanResponse:
+        started_at = _utc_timestamp()
+        started = perf_counter()
         state = TripPlanningWorkflowState(request=request)
         state = self._trip_draft_node(state)
         state = self._trip_enrichment_node(state)
         state = self._trip_validation_node(state)
+        response = state.final_plan or build_mock_trip_plan(request, self._travel_tools)
         self._last_run_trace = self._build_trace(
             operation="trip_plan",
             completed_nodes=("trip_draft", "trip_enrichment", "trip_validation"),
             fallback_used=state.fallback_used,
+            started_at=started_at,
+            duration_ms=_elapsed_ms(started),
         )
-        return state.final_plan or build_mock_trip_plan(request, self._travel_tools)
+        return response
 
     def regenerate_trip_day(self, saved_trip_plan: SavedTripPlan, day: int, instruction: str) -> TripDay:
+        started_at = _utc_timestamp()
+        started = perf_counter()
         state = DayRegenerationWorkflowState(
             saved_trip_plan=saved_trip_plan,
             day=day,
@@ -105,12 +120,15 @@ class LangGraphTravelAgentEngine:
         )
         state = self._day_regeneration_node(state)
         state = self._day_fallback_node(state)
+        response = state.regenerated_day or build_mock_regenerated_trip_day(saved_trip_plan, day, instruction)
         self._last_run_trace = self._build_trace(
             operation="day_regeneration",
             completed_nodes=("day_regeneration", "day_fallback"),
             fallback_used=state.fallback_used,
+            started_at=started_at,
+            duration_ms=_elapsed_ms(started),
         )
-        return state.regenerated_day or build_mock_regenerated_trip_day(saved_trip_plan, day, instruction)
+        return response
 
     def _chat_llm_node(self, state: ChatWorkflowState) -> ChatWorkflowState:
         response = self._llm_client.generate_chat_reply(state.messages, state.request.mode)
@@ -185,10 +203,15 @@ class LangGraphTravelAgentEngine:
         operation: str,
         completed_nodes: tuple[str, ...],
         fallback_used: bool,
+        started_at: str,
+        duration_ms: int,
     ) -> TravelAgentRunTrace:
         return TravelAgentRunTrace(
+            run_id=str(uuid4()),
             operation=operation,
             engine_name=self.name,
+            started_at=started_at,
+            duration_ms=duration_ms,
             workflow_nodes=self.capabilities.workflow_nodes,
             completed_nodes=completed_nodes,
             fallback_used=fallback_used,
@@ -210,3 +233,11 @@ def _build_rule_based_reply(request: ChatRequest) -> str:
         f"You said: {message}. "
         "The current runtime is rule-based; LLM planning and tool calls will be added behind this contract."
     )
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _elapsed_ms(started: float) -> int:
+    return max(0, round((perf_counter() - started) * 1000))

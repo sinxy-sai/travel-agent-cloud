@@ -228,8 +228,11 @@ export interface AgentEngineCapabilities {
 }
 
 export interface AgentRunTrace {
+  runId: string;
   operation: string;
   engineName: string;
+  startedAt: string;
+  durationMs: number;
   workflowNodes: string[];
   completedNodes: string[];
   fallbackUsed: boolean;

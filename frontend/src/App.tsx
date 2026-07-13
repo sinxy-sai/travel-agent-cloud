@@ -3677,6 +3677,8 @@ function RuntimeStatus({
           {agentStatus?.lastRunTrace && (
             <p className="mt-2 text-xs text-slate-500">
               Last run: {formatAgentOperation(agentStatus.lastRunTrace.operation)}
+              {' / '}
+              {agentStatus.lastRunTrace.durationMs} ms
               {agentStatus.lastRunTrace.fallbackUsed ? ' with fallback' : ''}
             </p>
           )}
