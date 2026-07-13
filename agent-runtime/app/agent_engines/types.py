@@ -48,6 +48,41 @@ class TravelAgentRunTrace:
         }
 
 
+@dataclass(frozen=True)
+class TravelAgentRunSummary:
+    window_size: int
+    total_runs: int
+    fallback_runs: int
+    average_duration_ms: int
+    operation_counts: dict[str, int]
+
+    @classmethod
+    def from_traces(cls, traces: tuple[TravelAgentRunTrace, ...]) -> "TravelAgentRunSummary":
+        total_runs = len(traces)
+        fallback_runs = sum(1 for trace in traces if trace.fallback_used)
+        total_duration_ms = sum(trace.duration_ms for trace in traces)
+        operation_counts: dict[str, int] = {}
+        for trace in traces:
+            operation_counts[trace.operation] = operation_counts.get(trace.operation, 0) + 1
+
+        return cls(
+            window_size=total_runs,
+            total_runs=total_runs,
+            fallback_runs=fallback_runs,
+            average_duration_ms=round(total_duration_ms / total_runs) if total_runs else 0,
+            operation_counts=operation_counts,
+        )
+
+    def to_dict(self) -> dict[str, int | dict[str, int]]:
+        return {
+            "windowSize": self.window_size,
+            "totalRuns": self.total_runs,
+            "fallbackRuns": self.fallback_runs,
+            "averageDurationMs": self.average_duration_ms,
+            "operationCounts": self.operation_counts,
+        }
+
+
 class TravelAgentEngine(Protocol):
     name: str
 

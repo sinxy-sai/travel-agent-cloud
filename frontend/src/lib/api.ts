@@ -239,12 +239,21 @@ export interface AgentRunTrace {
   llmEnabled: boolean;
 }
 
+export interface AgentRunSummary {
+  windowSize: number;
+  totalRuns: number;
+  fallbackRuns: number;
+  averageDurationMs: number;
+  operationCounts: Record<string, number>;
+}
+
 export interface AgentStatusResponse {
   engine: string;
   llmEnabled: boolean;
   capabilities: AgentEngineCapabilities;
   lastRunTrace?: AgentRunTrace | null;
   recentRunTraces: AgentRunTrace[];
+  runSummary?: AgentRunSummary;
 }
 
 export interface UserProfile {

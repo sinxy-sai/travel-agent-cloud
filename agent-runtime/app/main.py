@@ -187,7 +187,7 @@ def health() -> dict[str, str | bool | dict[str, bool | str | list[str]]]:
 
 
 @app.get("/api/v1/agent/status")
-def agent_status() -> dict[str, str | bool | dict[str, bool | str | list[str]] | None]:
+def agent_status() -> dict[str, object]:
     last_run_trace = travel_agent_service.last_run_trace
     return {
         "engine": travel_agent_service.engine_name,
@@ -195,6 +195,7 @@ def agent_status() -> dict[str, str | bool | dict[str, bool | str | list[str]] |
         "capabilities": travel_agent_service.engine_capabilities.to_dict(),
         "lastRunTrace": last_run_trace.to_dict() if last_run_trace else None,
         "recentRunTraces": [trace.to_dict() for trace in travel_agent_service.recent_run_traces],
+        "runSummary": travel_agent_service.run_summary.to_dict(),
     }
 
 

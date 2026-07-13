@@ -3625,6 +3625,8 @@ function RuntimeStatus({
   const workflowNodes = capabilities?.workflowNodes ?? [];
   const completedNodes = agentStatus?.lastRunTrace?.completedNodes ?? [];
   const recentRunTraces = agentStatus?.recentRunTraces?.slice(0, 3) ?? [];
+  const runSummary = agentStatus?.runSummary;
+  const operationSummary = Object.entries(runSummary?.operationCounts ?? {}).slice(0, 3);
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -3682,6 +3684,21 @@ function RuntimeStatus({
               {agentStatus.lastRunTrace.durationMs} ms
               {agentStatus.lastRunTrace.fallbackUsed ? ' with fallback' : ''}
             </p>
+          )}
+          {runSummary && runSummary.totalRuns > 0 && (
+            <div className="mt-2 rounded border border-slate-200 bg-white px-2 py-1.5">
+              <p className="text-[11px] text-slate-500">
+                Recent runs: {runSummary.totalRuns} / fallback {runSummary.fallbackRuns} / avg{' '}
+                {runSummary.averageDurationMs} ms
+              </p>
+              {operationSummary.length > 0 && (
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {operationSummary
+                    .map(([operation, count]) => `${formatAgentOperation(operation)} ${count}`)
+                    .join(' / ')}
+                </p>
+              )}
+            </div>
           )}
           {recentRunTraces.length > 1 && (
             <div className="mt-2 grid gap-1">
