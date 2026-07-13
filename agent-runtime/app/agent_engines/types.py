@@ -22,6 +22,26 @@ class TravelAgentEngineCapabilities:
         }
 
 
+@dataclass(frozen=True)
+class TravelAgentRunTrace:
+    operation: str
+    engine_name: str
+    workflow_nodes: tuple[str, ...]
+    completed_nodes: tuple[str, ...]
+    fallback_used: bool
+    llm_enabled: bool
+
+    def to_dict(self) -> dict[str, bool | str | list[str]]:
+        return {
+            "operation": self.operation,
+            "engineName": self.engine_name,
+            "workflowNodes": list(self.workflow_nodes),
+            "completedNodes": list(self.completed_nodes),
+            "fallbackUsed": self.fallback_used,
+            "llmEnabled": self.llm_enabled,
+        }
+
+
 class TravelAgentEngine(Protocol):
     name: str
 
@@ -31,6 +51,10 @@ class TravelAgentEngine(Protocol):
 
     @property
     def capabilities(self) -> TravelAgentEngineCapabilities:
+        ...
+
+    @property
+    def last_run_trace(self) -> TravelAgentRunTrace | None:
         ...
 
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:

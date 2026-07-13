@@ -1,5 +1,5 @@
 from app.agent_engines import create_travel_agent_engine
-from app.agent_engines.types import TravelAgentEngine, TravelAgentEngineCapabilities
+from app.agent_engines.types import TravelAgentEngine, TravelAgentEngineCapabilities, TravelAgentRunTrace
 from app.schemas import ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
 from app.travel_tools import TravelToolProvider
@@ -20,6 +20,10 @@ class TravelAgentService:
     @property
     def engine_capabilities(self) -> TravelAgentEngineCapabilities:
         return self._engine.capabilities
+
+    @property
+    def last_run_trace(self) -> TravelAgentRunTrace | None:
+        return self._engine.last_run_trace
 
     @property
     def llm_enabled(self) -> bool:

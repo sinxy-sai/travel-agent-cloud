@@ -59,6 +59,12 @@ if [ "${HAS_TRAVEL_TOOLS_PROVIDER_FIELD}" != "yes" ]; then
   echo "Health API did not return travelToolsProvider" >&2
   exit 1
 fi
+AGENT_STATUS_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/status")"
+HAS_AGENT_STATUS_ENGINE="$(printf '%s' "${AGENT_STATUS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); print("yes" if data.get("engine") and data.get("capabilities") else "no")')"
+if [ "${HAS_AGENT_STATUS_ENGINE}" != "yes" ]; then
+  echo "Agent status API did not return engine capabilities" >&2
+  exit 1
+fi
 echo
 
 echo "Preparing anonymous local data"

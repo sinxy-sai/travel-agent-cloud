@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from app.agent_engines.types import TravelAgentEngineCapabilities
+from app.agent_engines.types import TravelAgentEngineCapabilities, TravelAgentRunTrace
 from app.llm import LLMClient
 from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
@@ -13,6 +13,7 @@ class ChatWorkflowState:
     request: ChatRequest
     messages: list[ChatMessage]
     response: str | None = None
+    fallback_used: bool = False
 
 
 @dataclass
@@ -20,6 +21,7 @@ class TripPlanningWorkflowState:
     request: TripPlanRequest
     draft_plan: TripPlanResponse | None = None
     final_plan: TripPlanResponse | None = None
+    fallback_used: bool = False
 
 
 @dataclass
@@ -28,6 +30,7 @@ class DayRegenerationWorkflowState:
     day: int
     instruction: str
     regenerated_day: TripDay | None = None
+    fallback_used: bool = False
 
 
 class LangGraphTravelAgentEngine:
@@ -43,6 +46,7 @@ class LangGraphTravelAgentEngine:
     def __init__(self, settings: Settings, travel_tools: TravelToolProvider) -> None:
         self._llm_client = LLMClient(settings)
         self._travel_tools = travel_tools
+        self._last_run_trace: TravelAgentRunTrace | None = None
 
     @property
     def llm_enabled(self) -> bool:
@@ -66,10 +70,19 @@ class LangGraphTravelAgentEngine:
             dependency_mode="dependency-free-skeleton",
         )
 
+    @property
+    def last_run_trace(self) -> TravelAgentRunTrace | None:
+        return self._last_run_trace
+
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         state = ChatWorkflowState(request=request, messages=messages)
         state = self._chat_llm_node(state)
         state = self._chat_fallback_node(state)
+        self._last_run_trace = self._build_trace(
+            operation="chat",
+            completed_nodes=("chat_llm", "chat_fallback"),
+            fallback_used=state.fallback_used,
+        )
         return state.response or _build_rule_based_reply(request)
 
     def generate_trip_plan(self, request: TripPlanRequest) -> TripPlanResponse:
@@ -77,6 +90,11 @@ class LangGraphTravelAgentEngine:
         state = self._trip_draft_node(state)
         state = self._trip_enrichment_node(state)
         state = self._trip_validation_node(state)
+        self._last_run_trace = self._build_trace(
+            operation="trip_plan",
+            completed_nodes=("trip_draft", "trip_enrichment", "trip_validation"),
+            fallback_used=state.fallback_used,
+        )
         return state.final_plan or build_mock_trip_plan(request, self._travel_tools)
 
     def regenerate_trip_day(self, saved_trip_plan: SavedTripPlan, day: int, instruction: str) -> TripDay:
@@ -87,6 +105,11 @@ class LangGraphTravelAgentEngine:
         )
         state = self._day_regeneration_node(state)
         state = self._day_fallback_node(state)
+        self._last_run_trace = self._build_trace(
+            operation="day_regeneration",
+            completed_nodes=("day_regeneration", "day_fallback"),
+            fallback_used=state.fallback_used,
+        )
         return state.regenerated_day or build_mock_regenerated_trip_day(saved_trip_plan, day, instruction)
 
     def _chat_llm_node(self, state: ChatWorkflowState) -> ChatWorkflowState:
@@ -100,6 +123,7 @@ class LangGraphTravelAgentEngine:
             request=state.request,
             messages=state.messages,
             response=_build_rule_based_reply(state.request),
+            fallback_used=True,
         )
 
     def _trip_draft_node(self, state: TripPlanningWorkflowState) -> TripPlanningWorkflowState:
@@ -114,6 +138,7 @@ class LangGraphTravelAgentEngine:
             request=state.request,
             draft_plan=state.draft_plan,
             final_plan=final_plan,
+            fallback_used=state.fallback_used,
         )
 
     def _trip_validation_node(self, state: TripPlanningWorkflowState) -> TripPlanningWorkflowState:
@@ -123,6 +148,7 @@ class LangGraphTravelAgentEngine:
                 request=state.request,
                 draft_plan=state.draft_plan,
                 final_plan=fallback_plan,
+                fallback_used=True,
             )
         return state
 
@@ -151,6 +177,22 @@ class LangGraphTravelAgentEngine:
                 state.day,
                 state.instruction,
             ),
+            fallback_used=True,
+        )
+
+    def _build_trace(
+        self,
+        operation: str,
+        completed_nodes: tuple[str, ...],
+        fallback_used: bool,
+    ) -> TravelAgentRunTrace:
+        return TravelAgentRunTrace(
+            operation=operation,
+            engine_name=self.name,
+            workflow_nodes=self.capabilities.workflow_nodes,
+            completed_nodes=completed_nodes,
+            fallback_used=fallback_used,
+            llm_enabled=self.llm_enabled,
         )
 
 

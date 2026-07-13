@@ -186,6 +186,17 @@ def health() -> dict[str, str | bool | dict[str, bool | str | list[str]]]:
     }
 
 
+@app.get("/api/v1/agent/status")
+def agent_status() -> dict[str, str | bool | dict[str, bool | str | list[str]] | None]:
+    last_run_trace = travel_agent_service.last_run_trace
+    return {
+        "engine": travel_agent_service.engine_name,
+        "llmEnabled": travel_agent_service.llm_enabled,
+        "capabilities": travel_agent_service.engine_capabilities.to_dict(),
+        "lastRunTrace": last_run_trace.to_dict() if last_run_trace else None,
+    }
+
+
 @app.post("/api/v1/auth/register", response_model=AuthSession, status_code=status.HTTP_201_CREATED)
 def register(request: Request, payload: AuthRegisterRequest, response: Response) -> AuthSession:
     _check_auth_rate_limit(request, "register", payload.email)

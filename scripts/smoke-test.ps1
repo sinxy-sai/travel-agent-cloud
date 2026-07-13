@@ -41,6 +41,10 @@ if (-not ($health.PSObject.Properties.Name -contains "agentEngineCapabilities"))
 if (-not ($health.PSObject.Properties.Name -contains "travelToolsProvider")) {
   throw "Health API did not return travelToolsProvider"
 }
+$agentStatus = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/status"
+if (-not $agentStatus.engine -or -not $agentStatus.capabilities) {
+  throw "Agent status API did not return engine capabilities"
+}
 
 Write-Host "Preparing anonymous local data"
 $anonymousUserId = "smoke-anon-$([guid]::NewGuid().ToString('N'))"
