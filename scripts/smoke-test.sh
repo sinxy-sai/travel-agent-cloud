@@ -517,15 +517,118 @@ SAVED_TRIP_PLAN_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}
   -H "X-User-Id: ${USER_ID}")"
 INITIAL_TRIP_PLAN_VERSION="$(printf '%s' "${SAVED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("version", 0))')"
 EDITED_TRIP_PLAN_TITLE_EXPECTED="$(python3 -c 'print("3\u5929\u6210\u90fd\u4e4b\u65c5")')"
-TRIP_PLAN_UPDATE_JSON="$(printf '%s' "${SAVED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; saved = json.load(sys.stdin); plan = saved["plan"]; plan["title"] = "3\u5929\u6210\u90fd\u4e4b\u65c5"; print(json.dumps({"plan": plan, "expectedVersion": saved["version"]}, separators=(",", ":")))')"
+TRIP_PLAN_UPDATE_JSON="$(printf '%s' "${SAVED_TRIP_PLAN_JSON}" | python3 -c '
+import json
+import sys
+
+saved = json.load(sys.stdin)
+plan = saved["plan"]
+days = list(plan.get("days") or [])
+if len(days) < 3:
+    raise SystemExit("Trip plan update setup expected at least 3 days")
+extra_day = {
+    "day": 4,
+    "theme": "Slow departure day",
+    "morning": "Pack and visit a neighborhood breakfast shop.",
+    "afternoon": "Take a short walk near the station before departure.",
+    "evening": "Depart Chengdu.",
+    "date": "2026-08-05",
+    "description": "A lighter added day created by the itinerary editor.",
+    "transportation": "taxi and metro",
+    "accommodation": "checkout day",
+    "hotel": None,
+    "attractions": [
+        {
+            "name": "People'\''s Park tea house",
+            "address": "Chengdu",
+            "location": None,
+            "visitDuration": 90,
+            "description": "Classic relaxed tea house stop.",
+            "category": "tea house",
+            "rating": None,
+            "imageUrl": None,
+            "ticketPrice": 0,
+        }
+    ],
+    "meals": [
+        {
+            "type": "breakfast",
+            "name": "Neighborhood noodle breakfast",
+            "address": "Chengdu",
+            "location": None,
+            "description": "Simple local breakfast before checkout.",
+            "estimatedCost": 30,
+        }
+    ],
+}
+reordered_days = [days[1], days[0], days[2], extra_day]
+for index, item in enumerate(reordered_days, start=1):
+    item["day"] = index
+plan.update(
+    {
+        "title": "3\u5929\u6210\u90fd\u4e4b\u65c5",
+        "startDate": "2026-08-02",
+        "endDate": "2026-08-05",
+        "transportation": "metro, walking, and taxi",
+        "accommodation": "boutique hotel near transit",
+        "preferences": ["local food", "city walk", "tea house"],
+        "freeTextInput": "Keep the plan editable and leave room for a slow afternoon.",
+        "overallSuggestions": "Carry an umbrella and reserve dinner before peak hours.",
+        "days": reordered_days,
+        "weatherInfo": [
+            {
+                "date": "2026-08-05",
+                "dayWeather": "Cloudy",
+                "nightWeather": "Light rain",
+                "dayTemp": 28,
+                "nightTemp": 22,
+                "windDirection": "NE",
+                "windPower": "2",
+            }
+        ],
+        "budget": {
+            "totalAttractions": 0,
+            "totalHotels": 0,
+            "totalMeals": 30,
+            "totalTransportation": 180,
+            "total": 210,
+        },
+    }
+)
+print(json.dumps({"plan": plan, "expectedVersion": saved["version"]}, separators=(",", ":")))
+')"
 EDITED_TRIP_PLAN_JSON="$(curl -fsS -X PATCH "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: ${USER_ID}" \
   -d "${TRIP_PLAN_UPDATE_JSON}")"
 EDITED_TRIP_PLAN_TITLE="$(printf '%s' "${EDITED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("plan", {}).get("title", ""))')"
 EDITED_TRIP_PLAN_VERSION="$(printf '%s' "${EDITED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("version", 0))')"
+EDITED_TRIP_PLAN_RICH_UPDATE_VALID="$(printf '%s' "${EDITED_TRIP_PLAN_JSON}" | python3 -c '
+import json
+import sys
+
+saved = json.load(sys.stdin)
+plan = saved.get("plan", {})
+days = plan.get("days", [])
+valid = (
+    saved.get("days") == 4
+    and len(days) == 4
+    and [item.get("day") for item in days] == [1, 2, 3, 4]
+    and plan.get("startDate") == "2026-08-02"
+    and plan.get("endDate") == "2026-08-05"
+    and "tea house" in plan.get("preferences", [])
+    and len(plan.get("weatherInfo", [])) == 1
+    and plan.get("weatherInfo", [{}])[0].get("dayWeather") == "Cloudy"
+    and plan.get("budget", {}).get("total") == 210
+)
+print("yes" if valid else "no")
+')"
 if [ "${EDITED_TRIP_PLAN_TITLE}" != "${EDITED_TRIP_PLAN_TITLE_EXPECTED}" ]; then
   echo "Trip plan content update API did not persist the edited title" >&2
+  exit 1
+fi
+if [ "${EDITED_TRIP_PLAN_RICH_UPDATE_VALID}" != "yes" ]; then
+  echo "Trip plan content update API did not persist rich itinerary edits" >&2
   exit 1
 fi
 if [ "${EDITED_TRIP_PLAN_VERSION}" -ne "$((INITIAL_TRIP_PLAN_VERSION + 1))" ]; then

@@ -387,13 +387,101 @@ $savedTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTr
 $initialTripPlanVersion = [int]$savedTripPlan.version
 $editedTripTitle = -join ([char[]](0x0033, 0x5929, 0x6210, 0x90FD, 0x4E4B, 0x65C5))
 $savedTripPlan.plan.title = $editedTripTitle
+$savedTripPlan.plan.startDate = "2026-08-02"
+$savedTripPlan.plan.endDate = "2026-08-05"
+$savedTripPlan.plan.transportation = "metro, walking, and taxi"
+$savedTripPlan.plan.accommodation = "boutique hotel near transit"
+$savedTripPlan.plan.preferences = @("local food", "city walk", "tea house")
+$savedTripPlan.plan.freeTextInput = "Keep the plan editable and leave room for a slow afternoon."
+$savedTripPlan.plan.overallSuggestions = "Carry an umbrella and reserve dinner before peak hours."
+
+$editedDays = @($savedTripPlan.plan.days)
+if ($editedDays.Count -lt 3) {
+  throw "Trip plan update setup expected at least 3 days"
+}
+$extraDay = [pscustomobject]@{
+  day = 4
+  theme = "Slow departure day"
+  morning = "Pack and visit a neighborhood breakfast shop."
+  afternoon = "Take a short walk near the station before departure."
+  evening = "Depart Chengdu."
+  date = "2026-08-05"
+  description = "A lighter added day created by the itinerary editor."
+  transportation = "taxi and metro"
+  accommodation = "checkout day"
+  hotel = $null
+  attractions = @(
+    [pscustomobject]@{
+      name = "People's Park tea house"
+      address = "Chengdu"
+      location = $null
+      visitDuration = 90
+      description = "Classic relaxed tea house stop."
+      category = "tea house"
+      rating = $null
+      imageUrl = $null
+      ticketPrice = 0
+    }
+  )
+  meals = @(
+    [pscustomobject]@{
+      type = "breakfast"
+      name = "Neighborhood noodle breakfast"
+      address = "Chengdu"
+      location = $null
+      description = "Simple local breakfast before checkout."
+      estimatedCost = 30
+    }
+  )
+}
+$reorderedDays = @($editedDays[1], $editedDays[0], $editedDays[2], $extraDay)
+for ($i = 0; $i -lt $reorderedDays.Count; $i++) {
+  $reorderedDays[$i].day = $i + 1
+}
+$savedTripPlan.plan.days = $reorderedDays
+$savedTripPlan.plan.weatherInfo = @(
+  [pscustomobject]@{
+    date = "2026-08-05"
+    dayWeather = "Cloudy"
+    nightWeather = "Light rain"
+    dayTemp = 28
+    nightTemp = 22
+    windDirection = "NE"
+    windPower = "2"
+  }
+)
+$savedTripPlan.plan.budget.totalAttractions = 0
+$savedTripPlan.plan.budget.totalHotels = 0
+$savedTripPlan.plan.budget.totalMeals = 30
+$savedTripPlan.plan.budget.totalTransportation = 180
+$savedTripPlan.plan.budget.total = 210
 $tripPlanUpdateBody = @{
   plan = $savedTripPlan.plan
   expectedVersion = $initialTripPlanVersion
-} | ConvertTo-Json -Depth 10
+} | ConvertTo-Json -Depth 40
 $editedTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)" -Method Patch -ContentType "application/json" -Headers $headers -Body $tripPlanUpdateBody
 if ($editedTripPlan.plan.title -ne $editedTripTitle) {
   throw "Trip plan content update API did not persist the edited title"
+}
+if ($editedTripPlan.days -ne 4 -or $editedTripPlan.plan.days.Count -ne 4) {
+  throw "Trip plan content update API did not persist edited day count"
+}
+for ($i = 0; $i -lt $editedTripPlan.plan.days.Count; $i++) {
+  if ($editedTripPlan.plan.days[$i].day -ne ($i + 1)) {
+    throw "Trip plan content update API did not preserve sequential day numbers"
+  }
+}
+if ($editedTripPlan.plan.startDate -ne "2026-08-02" -or $editedTripPlan.plan.endDate -ne "2026-08-05") {
+  throw "Trip plan content update API did not persist edited dates"
+}
+if ($editedTripPlan.plan.preferences.Count -ne 3 -or -not ($editedTripPlan.plan.preferences -contains "tea house")) {
+  throw "Trip plan content update API did not persist edited preferences"
+}
+if ($editedTripPlan.plan.weatherInfo.Count -ne 1 -or $editedTripPlan.plan.weatherInfo[0].dayWeather -ne "Cloudy") {
+  throw "Trip plan content update API did not persist edited weatherInfo"
+}
+if ($editedTripPlan.plan.budget.total -ne 210) {
+  throw "Trip plan content update API did not persist edited budget"
 }
 if ([int]$editedTripPlan.version -ne ($initialTripPlanVersion + 1)) {
   throw "Trip plan content update API did not increment the version"
