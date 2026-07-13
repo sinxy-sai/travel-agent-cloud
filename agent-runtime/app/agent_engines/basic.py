@@ -3,6 +3,7 @@ from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, e
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
 from app.travel_tools import TravelToolProvider
+from app.agent_engines.types import TravelAgentEngineCapabilities
 
 
 class BasicTravelAgentEngine:
@@ -14,6 +15,16 @@ class BasicTravelAgentEngine:
     @property
     def llm_enabled(self) -> bool:
         return self._llm_client.enabled
+
+    @property
+    def capabilities(self) -> TravelAgentEngineCapabilities:
+        return TravelAgentEngineCapabilities(
+            supports_chat=True,
+            supports_trip_planning=True,
+            supports_day_regeneration=True,
+            workflow_nodes=("llm_call", "tool_enrichment", "mock_fallback"),
+            dependency_mode="builtin",
+        )
 
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         return self._llm_client.generate_chat_reply(messages, request.mode) or _build_rule_based_reply(request)

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from app.agent_engines.types import TravelAgentEngineCapabilities
 from app.llm import LLMClient
 from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
@@ -46,6 +47,24 @@ class LangGraphTravelAgentEngine:
     @property
     def llm_enabled(self) -> bool:
         return self._llm_client.enabled
+
+    @property
+    def capabilities(self) -> TravelAgentEngineCapabilities:
+        return TravelAgentEngineCapabilities(
+            supports_chat=True,
+            supports_trip_planning=True,
+            supports_day_regeneration=True,
+            workflow_nodes=(
+                "chat_llm",
+                "chat_fallback",
+                "trip_draft",
+                "trip_enrichment",
+                "trip_validation",
+                "day_regeneration",
+                "day_fallback",
+            ),
+            dependency_mode="dependency-free-skeleton",
+        )
 
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         state = ChatWorkflowState(request=request, messages=messages)

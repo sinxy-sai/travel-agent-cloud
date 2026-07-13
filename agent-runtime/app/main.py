@@ -169,7 +169,7 @@ app.add_middleware(
 
 
 @app.get("/health")
-def health() -> dict[str, str | bool]:
+def health() -> dict[str, str | bool | dict[str, bool | str | list[str]]]:
     return {
         "status": "ok",
         "service": settings.app_name,
@@ -181,6 +181,7 @@ def health() -> dict[str, str | bool]:
         "objectStorageEnabled": object_storage.enabled,
         "githubOAuthEnabled": github_oauth_client.enabled,
         "agentEngine": travel_agent_service.engine_name,
+        "agentEngineCapabilities": travel_agent_service.engine_capabilities.to_dict(),
         "travelToolsProvider": travel_tool_provider.name,
     }
 

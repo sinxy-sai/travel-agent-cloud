@@ -35,6 +35,9 @@ if (-not ($health.PSObject.Properties.Name -contains "objectStorageEnabled")) {
 if (-not ($health.PSObject.Properties.Name -contains "agentEngine")) {
   throw "Health API did not return agentEngine"
 }
+if (-not ($health.PSObject.Properties.Name -contains "agentEngineCapabilities")) {
+  throw "Health API did not return agentEngineCapabilities"
+}
 if (-not ($health.PSObject.Properties.Name -contains "travelToolsProvider")) {
   throw "Health API did not return travelToolsProvider"
 }
