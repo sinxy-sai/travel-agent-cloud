@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Empty, Input, InputNumber, Modal, Pagination, Popconfirm, Segmented, Select, Spin } from 'antd';
 import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
@@ -68,6 +70,7 @@ import {
   type ConversationSummary,
   type ConversationSummaryJob,
   type HealthResponse,
+  type Attraction,
   type SavedTripPlan,
   type TripPlanResponse,
   type UserProfile,
@@ -95,6 +98,7 @@ const historyPageSize = 8;
 const summaryJobPollingIntervalMs = 2000;
 const summaryJobPollingTimeoutMs = 30000;
 type ConversationSummaryJobUiStatus = 'IDLE' | 'POLLING' | 'FAILED' | 'TIMEOUT';
+type AttractionTextField = 'name' | 'address' | 'description' | 'category';
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -1159,7 +1163,23 @@ export default function App() {
     }
     setEditingTripPlan({
       ...plan,
-      days: plan.days.map((day) => ({ ...day })),
+      days: plan.days.map((day) => ({
+        ...day,
+        hotel: day.hotel
+          ? {
+              ...day.hotel,
+              location: day.hotel.location ? { ...day.hotel.location } : day.hotel.location,
+            }
+          : day.hotel,
+        attractions: (day.attractions ?? []).map((attraction) => ({
+          ...attraction,
+          location: attraction.location ? { ...attraction.location } : attraction.location,
+        })),
+        meals: (day.meals ?? []).map((meal) => ({
+          ...meal,
+          location: meal.location ? { ...meal.location } : meal.location,
+        })),
+      })),
       tips: [...plan.tips],
     });
     setEditingTripPlanTips(plan.tips.join('\n'));
@@ -1179,6 +1199,81 @@ export default function App() {
     });
   };
 
+  const updateEditingDayAttractions = (
+    dayIndex: number,
+    updater: (attractions: Attraction[], dayNumber: number) => Attraction[],
+  ) => {
+    setEditingTripPlan((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        days: current.days.map((day, index) =>
+          index === dayIndex
+            ? {
+                ...day,
+                attractions: updater([...(day.attractions ?? [])], day.day),
+              }
+            : day,
+        ),
+      };
+    });
+  };
+
+  const updateEditingAttractionText = (
+    dayIndex: number,
+    attractionIndex: number,
+    field: AttractionTextField,
+    value: string,
+  ) => {
+    updateEditingDayAttractions(dayIndex, (attractions) =>
+      attractions.map((attraction, index) =>
+        index === attractionIndex ? { ...attraction, [field]: value } : attraction,
+      ),
+    );
+  };
+
+  const updateEditingAttractionNumber = (
+    dayIndex: number,
+    attractionIndex: number,
+    field: 'visitDuration' | 'ticketPrice',
+    value: number | string | null,
+  ) => {
+    const numericValue = typeof value === 'string' ? Number(value) : value;
+    updateEditingDayAttractions(dayIndex, (attractions) =>
+      attractions.map((attraction, index) =>
+        index === attractionIndex ? { ...attraction, [field]: numericValue ?? 0 } : attraction,
+      ),
+    );
+  };
+
+  const addEditingAttraction = (dayIndex: number) => {
+    updateEditingDayAttractions(dayIndex, (attractions, dayNumber) => [
+      ...attractions,
+      createDraftAttraction(dayNumber, attractions.length + 1),
+    ]);
+  };
+
+  const deleteEditingAttraction = (dayIndex: number, attractionIndex: number) => {
+    updateEditingDayAttractions(dayIndex, (attractions) =>
+      attractions.filter((_attraction, index) => index !== attractionIndex),
+    );
+  };
+
+  const moveEditingAttraction = (dayIndex: number, attractionIndex: number, direction: -1 | 1) => {
+    updateEditingDayAttractions(dayIndex, (attractions) => {
+      const nextIndex = attractionIndex + direction;
+      if (nextIndex < 0 || nextIndex >= attractions.length) {
+        return attractions;
+      }
+      const reordered = [...attractions];
+      const [item] = reordered.splice(attractionIndex, 1);
+      reordered.splice(nextIndex, 0, item);
+      return reordered;
+    });
+  };
+
   const submitTripPlanEdit = () => {
     if (!selectedTripPlanId || !editingTripPlan || !isTripPlanDraftValid(editingTripPlan, editingTripPlanTips)) {
       return;
@@ -1195,6 +1290,10 @@ export default function App() {
           morning: day.morning.trim(),
           afternoon: day.afternoon.trim(),
           evening: day.evening.trim(),
+          description: day.description?.trim() ?? '',
+          transportation: day.transportation?.trim() ?? '',
+          accommodation: day.accommodation?.trim() ?? '',
+          attractions: normalizeAttractions(day.attractions ?? []),
         })),
         tips: editingTripPlanTips
           .split('\n')
@@ -1960,6 +2059,130 @@ export default function App() {
                     </label>
                   ))}
                 </div>
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-ink">Attractions</h4>
+                      <p className="mt-1 text-xs text-slate-500">Edit route stops, order, visit time, and notes.</p>
+                    </div>
+                    <Button
+                      size="small"
+                      icon={<PlusOutlined />}
+                      disabled={(day.attractions?.length ?? 0) >= 8}
+                      onClick={() => addEditingAttraction(index)}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  {(day.attractions ?? []).length === 0 ? (
+                    <div className="rounded-md border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
+                      No attractions yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {(day.attractions ?? []).map((attraction, attractionIndex) => (
+                        <section key={`${day.day}-${attractionIndex}`} className="rounded-md bg-white p-3">
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-ink">Stop {attractionIndex + 1}</p>
+                            <div className="flex gap-2">
+                              <Button
+                                size="small"
+                                icon={<ArrowUpOutlined />}
+                                disabled={attractionIndex === 0}
+                                onClick={() => moveEditingAttraction(index, attractionIndex, -1)}
+                                aria-label="Move attraction up"
+                              />
+                              <Button
+                                size="small"
+                                icon={<ArrowDownOutlined />}
+                                disabled={attractionIndex === (day.attractions?.length ?? 0) - 1}
+                                onClick={() => moveEditingAttraction(index, attractionIndex, 1)}
+                                aria-label="Move attraction down"
+                              />
+                              <Popconfirm
+                                title="Delete this attraction?"
+                                onConfirm={() => deleteEditingAttraction(index, attractionIndex)}
+                              >
+                                <Button size="small" danger icon={<DeleteOutlined />} aria-label="Delete attraction" />
+                              </Popconfirm>
+                            </div>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Name</span>
+                              <Input
+                                maxLength={160}
+                                value={attraction.name}
+                                onChange={(event) =>
+                                  updateEditingAttractionText(index, attractionIndex, 'name', event.target.value)
+                                }
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Category</span>
+                              <Input
+                                maxLength={80}
+                                value={attraction.category}
+                                onChange={(event) =>
+                                  updateEditingAttractionText(index, attractionIndex, 'category', event.target.value)
+                                }
+                              />
+                            </label>
+                            <label className="block md:col-span-2">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Address</span>
+                              <Input
+                                maxLength={240}
+                                value={attraction.address}
+                                onChange={(event) =>
+                                  updateEditingAttractionText(index, attractionIndex, 'address', event.target.value)
+                                }
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">
+                                Visit duration
+                              </span>
+                              <InputNumber
+                                min={10}
+                                max={480}
+                                value={attraction.visitDuration}
+                                onChange={(value) =>
+                                  updateEditingAttractionNumber(index, attractionIndex, 'visitDuration', value)
+                                }
+                                addonAfter="min"
+                                className="w-full"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Ticket price</span>
+                              <InputNumber
+                                min={0}
+                                max={100000}
+                                value={attraction.ticketPrice}
+                                onChange={(value) =>
+                                  updateEditingAttractionNumber(index, attractionIndex, 'ticketPrice', value)
+                                }
+                                addonAfter="CNY"
+                                className="w-full"
+                              />
+                            </label>
+                            <label className="block md:col-span-2">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Description</span>
+                              <Input.TextArea
+                                rows={2}
+                                maxLength={1000}
+                                value={attraction.description}
+                                onChange={(event) =>
+                                  updateEditingAttractionText(index, attractionIndex, 'description', event.target.value)
+                                }
+                              />
+                            </label>
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </section>
             ))}
             <label className="block border-t border-slate-200 pt-4">
@@ -2500,6 +2723,42 @@ function PlanCost({ label, value }: { label: string; value: number }) {
       <span className="font-medium text-ink">{formatCost(value)}</span>
     </div>
   );
+}
+
+function createDraftAttraction(day: number, index: number): Attraction {
+  return {
+    name: `New attraction ${day}-${index}`,
+    address: '',
+    location: null,
+    visitDuration: 90,
+    description: '',
+    category: 'attraction',
+    rating: null,
+    imageUrl: null,
+    ticketPrice: 0,
+  };
+}
+
+function normalizeAttractions(attractions: Attraction[]): Attraction[] {
+  return attractions
+    .map((attraction) => ({
+      ...attraction,
+      name: attraction.name.trim(),
+      address: attraction.address.trim(),
+      description: attraction.description.trim(),
+      category: attraction.category.trim(),
+      visitDuration: clampInteger(attraction.visitDuration, 10, 480),
+      ticketPrice: clampInteger(attraction.ticketPrice, 0, 100000),
+    }))
+    .filter((attraction) => attraction.name.length > 0)
+    .slice(0, 8);
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.min(max, Math.max(min, Math.round(value)));
 }
 
 function isTripPlanDraftValid(plan: TripPlanResponse, rawTips: string): boolean {
