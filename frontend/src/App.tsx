@@ -103,6 +103,11 @@ export default function App() {
   const [days, setDays] = useState(3);
   const [budget, setBudget] = useState('moderate');
   const [interests, setInterests] = useState<string[]>(['local food', 'city walk']);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [transportation, setTransportation] = useState('public transit');
+  const [accommodation, setAccommodation] = useState('comfortable hotel');
+  const [freeTextInput, setFreeTextInput] = useState('');
   const [plan, setPlan] = useState<TripPlanResponse | null>(null);
   const [selectedTripPlanId, setSelectedTripPlanId] = useState<string | undefined>();
   const [selectedTripPlanFavorite, setSelectedTripPlanFavorite] = useState(false);
@@ -528,6 +533,11 @@ export default function App() {
       setDays(savedTripPlan.days);
       setBudget(savedTripPlan.budget);
       setInterests(splitInterests(savedTripPlan.interests));
+      setStartDate(savedTripPlan.plan.startDate ?? '');
+      setEndDate(savedTripPlan.plan.endDate ?? '');
+      setTransportation(savedTripPlan.plan.transportation || 'public transit');
+      setAccommodation(savedTripPlan.plan.accommodation || 'comfortable hotel');
+      setFreeTextInput(savedTripPlan.plan.freeTextInput ?? '');
       setRegeneratingTripDay(null);
       setTripDayRegenerateInstruction('');
       setTripDayRegenerateError('');
@@ -693,14 +703,23 @@ export default function App() {
             days,
             budget,
             interests: interests.join(', '),
+            startDate,
+            endDate,
+            transportation,
+            accommodation,
+            freeTextInput,
           });
       downloadTextFile(markdown, `${slugify(plan.title)}.md`);
     },
   });
 
   const requestPreview = useMemo(
-    () => `${days} days in ${destination}, ${budget} budget, focused on ${interests.join(', ')}`,
-    [budget, days, destination, interests],
+    () => {
+      const dateRange = startDate && endDate ? ` from ${startDate} to ${endDate}` : '';
+      const focus = interests.length > 0 ? `, focused on ${interests.join(', ')}` : '';
+      return `${days} days in ${destination}${dateRange}, ${budget} budget, ${transportation}, ${accommodation}${focus}`;
+    },
+    [accommodation, budget, days, destination, endDate, interests, startDate, transportation],
   );
   const conversations = conversationsQuery.data?.data ?? [];
   const tripPlans = tripPlansQuery.data?.data ?? [];
@@ -1104,6 +1123,15 @@ export default function App() {
     }
   }
 
+  const updateDateRange = (nextStartDate: string, nextEndDate: string) => {
+    setStartDate(nextStartDate);
+    setEndDate(nextEndDate);
+    const derivedDays = calculateInclusiveDays(nextStartDate, nextEndDate);
+    if (derivedDays !== null) {
+      setDays(derivedDays);
+    }
+  };
+
   const openRenameConversation = (conversation: Conversation) => {
     setRenameConversation(conversation);
     setRenameConversationTitle(conversation.title);
@@ -1302,8 +1330,27 @@ export default function App() {
 
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-ink">Days</span>
-              <InputNumber min={1} max={14} value={days} onChange={(value) => setDays(value ?? 1)} className="w-full" />
+              <InputNumber min={1} max={30} value={days} onChange={(value) => setDays(value ?? 1)} className="w-full" />
             </label>
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-ink">Start date</span>
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => updateDateRange(event.target.value, endDate)}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-ink">End date</span>
+                <Input
+                  type="date"
+                  value={endDate}
+                  onChange={(event) => updateDateRange(startDate, event.target.value)}
+                />
+              </label>
+            </div>
 
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-ink">Budget</span>
@@ -1320,6 +1367,36 @@ export default function App() {
             </label>
 
             <label className="block">
+              <span className="mb-2 block text-sm font-medium text-ink">Transportation</span>
+              <Select
+                value={transportation}
+                onChange={setTransportation}
+                className="w-full"
+                options={[
+                  { value: 'public transit', label: 'Public transit' },
+                  { value: 'walking and metro', label: 'Walking and metro' },
+                  { value: 'taxi / ride hailing', label: 'Taxi / ride hailing' },
+                  { value: 'self drive', label: 'Self drive' },
+                ]}
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-ink">Accommodation</span>
+              <Select
+                value={accommodation}
+                onChange={setAccommodation}
+                className="w-full"
+                options={[
+                  { value: 'budget hostel', label: 'Budget hostel' },
+                  { value: 'comfortable hotel', label: 'Comfortable hotel' },
+                  { value: 'boutique hotel', label: 'Boutique hotel' },
+                  { value: 'premium hotel', label: 'Premium hotel' },
+                ]}
+              />
+            </label>
+
+            <label className="block">
               <span className="mb-2 block text-sm font-medium text-ink">Interests</span>
               <Select
                 mode="multiple"
@@ -1327,6 +1404,17 @@ export default function App() {
                 onChange={setInterests}
                 className="w-full"
                 options={interestOptions.map((value) => ({ value, label: value }))}
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-ink">Additional constraints</span>
+              <Input.TextArea
+                rows={3}
+                maxLength={1000}
+                value={freeTextInput}
+                onChange={(event) => setFreeTextInput(event.target.value)}
+                placeholder="No early mornings, avoid stairs, include spicy food..."
               />
             </label>
 
@@ -1340,6 +1428,12 @@ export default function App() {
                   days,
                   budget,
                   interests: interests.join(', '),
+                  startDate: startDate || undefined,
+                  endDate: endDate || undefined,
+                  transportation,
+                  accommodation,
+                  preferences: interests,
+                  freeTextInput,
                   conversationId,
                 })
               }
@@ -1524,11 +1618,67 @@ export default function App() {
                 </div>
               </div>
 
+              <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <PlanMeta label="Dates" value={formatDateRange(plan.startDate, plan.endDate)} />
+                <PlanMeta label="Transportation" value={plan.transportation || transportation} />
+                <PlanMeta label="Accommodation" value={plan.accommodation || accommodation} />
+                <PlanMeta label="Preferences" value={(plan.preferences?.length ? plan.preferences : interests).join(', ')} />
+              </div>
+
+              {(plan.budget || (plan.weatherInfo?.length ?? 0) > 0 || plan.overallSuggestions) && (
+                <div className="mb-5 grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+                  {plan.budget && (
+                    <section className="rounded-lg border border-slate-200 p-4">
+                      <h3 className="font-semibold text-ink">Budget estimate</h3>
+                      <div className="mt-3 grid gap-2 text-sm text-slate-600">
+                        <PlanCost label="Attractions" value={plan.budget.totalAttractions} />
+                        <PlanCost label="Hotels" value={plan.budget.totalHotels} />
+                        <PlanCost label="Meals" value={plan.budget.totalMeals} />
+                        <PlanCost label="Transportation" value={plan.budget.totalTransportation} />
+                        <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2 font-semibold text-ink">
+                          <span>Total</span>
+                          <span>{formatCost(plan.budget.total)}</span>
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  <section className="rounded-lg border border-slate-200 p-4">
+                    <h3 className="font-semibold text-ink">Weather and planning notes</h3>
+                    {plan.weatherInfo?.length ? (
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                        {plan.weatherInfo.map((weather) => (
+                          <div key={weather.date} className="rounded-md bg-slate-50 p-3 text-sm text-slate-600">
+                            <p className="font-medium text-ink">{weather.date}</p>
+                            <p className="mt-1">
+                              {weather.dayWeather || 'Unknown'} / {weather.nightWeather || 'Unknown'}
+                            </p>
+                            <p>
+                              {weather.dayTemp}C / {weather.nightTemp}C, {weather.windDirection} {weather.windPower}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm text-slate-500">Weather data will appear after tool enrichment.</p>
+                    )}
+                    {plan.overallSuggestions && (
+                      <p className="mt-3 rounded-md bg-mist p-3 text-sm leading-6 text-slate-700">
+                        {plan.overallSuggestions}
+                      </p>
+                    )}
+                  </section>
+                </div>
+              )}
+
               <div className="grid gap-4">
                 {(plan.days ?? []).map((day) => (
                   <article key={day.day} className="rounded-lg border border-slate-200 p-4">
                     <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                      <h3 className="text-lg font-semibold text-ink">Day {day.day}</h3>
+                      <div>
+                        <h3 className="text-lg font-semibold text-ink">Day {day.day}</h3>
+                        {day.date && <p className="text-sm text-slate-500">{day.date}</p>}
+                      </div>
                       <div className="flex flex-wrap items-center gap-2 md:justify-end">
                         <span className="rounded-full bg-trail px-3 py-1 text-sm text-white">{day.theme}</span>
                         {selectedTripPlanId && (
@@ -1543,6 +1693,67 @@ export default function App() {
                         )}
                       </div>
                     </div>
+                    {day.description && <p className="mb-3 text-sm leading-6 text-slate-600">{day.description}</p>}
+                    <div className="mb-3 grid gap-3 md:grid-cols-3">
+                      {day.transportation && <PlanMeta label="Transit" value={day.transportation} />}
+                      {day.accommodation && <PlanMeta label="Stay type" value={day.accommodation} />}
+                      {day.hotel && (
+                        <PlanMeta
+                          label="Hotel"
+                          value={`${day.hotel.name}${day.hotel.estimatedCost ? ` / ${formatCost(day.hotel.estimatedCost)}` : ''}`}
+                        />
+                      )}
+                    </div>
+                    {(day.attractions?.length ?? 0) > 0 && (
+                      <div className="mb-3">
+                        <h4 className="mb-2 text-sm font-semibold text-ink">Attractions</h4>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {day.attractions?.map((attraction) => (
+                            <div key={`${day.day}-${attraction.name}`} className="rounded-md bg-slate-50 p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-medium text-ink">{attraction.name}</p>
+                                  {attraction.address && (
+                                    <p className="mt-1 text-xs text-slate-500">{attraction.address}</p>
+                                  )}
+                                </div>
+                                {attraction.rating !== null && attraction.rating !== undefined && (
+                                  <span className="rounded-full bg-white px-2 py-1 text-xs text-trail">
+                                    {attraction.rating.toFixed(1)}
+                                  </span>
+                                )}
+                              </div>
+                              {attraction.description && (
+                                <p className="mt-2 text-sm leading-6 text-slate-600">{attraction.description}</p>
+                              )}
+                              <p className="mt-2 text-xs text-slate-500">
+                                {attraction.category || 'attraction'} / {attraction.visitDuration} min
+                                {attraction.ticketPrice ? ` / ${formatCost(attraction.ticketPrice)}` : ''}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {(day.meals?.length ?? 0) > 0 && (
+                      <div className="mb-3">
+                        <h4 className="mb-2 text-sm font-semibold text-ink">Meals</h4>
+                        <div className="grid gap-2 md:grid-cols-3">
+                          {day.meals?.map((meal) => (
+                            <div key={`${day.day}-${meal.type}-${meal.name}`} className="rounded-md bg-mist p-3">
+                              <p className="text-xs font-medium uppercase text-trail">{meal.type}</p>
+                              <p className="mt-1 text-sm font-medium text-ink">{meal.name}</p>
+                              {meal.description && (
+                                <p className="mt-1 text-xs leading-5 text-slate-600">{meal.description}</p>
+                              )}
+                              {meal.estimatedCost > 0 && (
+                                <p className="mt-2 text-xs text-slate-500">{formatCost(meal.estimatedCost)}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="grid gap-3 md:grid-cols-3">
                       <PlanBlock title="Morning" value={day.morning} />
                       <PlanBlock title="Afternoon" value={day.afternoon} />
@@ -2273,6 +2484,24 @@ function PlanBlock({ title, value }: { title: string; value: string }) {
   );
 }
 
+function PlanMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-slate-50 p-3">
+      <p className="text-xs font-medium uppercase text-slate-400">{label}</p>
+      <p className="mt-1 text-sm font-medium text-ink">{value || 'Not specified'}</p>
+    </div>
+  );
+}
+
+function PlanCost({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span>{label}</span>
+      <span className="font-medium text-ink">{formatCost(value)}</span>
+    </div>
+  );
+}
+
 function isTripPlanDraftValid(plan: TripPlanResponse, rawTips: string): boolean {
   const tips = rawTips
     .split('\n')
@@ -2871,9 +3100,46 @@ function splitInterests(value: string): string[] {
     .filter(Boolean);
 }
 
+function calculateInclusiveDays(startDate: string, endDate: string): number | null {
+  if (!startDate || !endDate) {
+    return null;
+  }
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return null;
+  }
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  return Math.min(30, Math.max(1, Math.round((end.getTime() - start.getTime()) / oneDayMs) + 1));
+}
+
+function formatDateRange(startDate?: string | null, endDate?: string | null): string {
+  if (startDate && endDate) {
+    return `${startDate} to ${endDate}`;
+  }
+  return startDate || endDate || '';
+}
+
+function formatCost(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '-';
+  }
+  return `CNY ${value}`;
+}
+
 function tripPlanToMarkdown(
   plan: TripPlanResponse,
-  request: { destination: string; days: number; budget: string; interests: string },
+  request: {
+    destination: string;
+    days: number;
+    budget: string;
+    interests: string;
+    startDate?: string;
+    endDate?: string;
+    transportation?: string;
+    accommodation?: string;
+    freeTextInput?: string;
+  },
 ): string {
   const header = [
     `# ${plan.title}`,
@@ -2883,25 +3149,111 @@ function tripPlanToMarkdown(
     `- Budget: ${request.budget}`,
   ];
 
+  const startDate = plan.startDate ?? request.startDate;
+  const endDate = plan.endDate ?? request.endDate;
+  const transportation = plan.transportation ?? request.transportation;
+  const accommodation = plan.accommodation ?? request.accommodation;
+  const freeTextInput = plan.freeTextInput ?? request.freeTextInput;
+
+  if (startDate) {
+    header.push(`- Start date: ${startDate}`);
+  }
+  if (endDate) {
+    header.push(`- End date: ${endDate}`);
+  }
+  if (transportation) {
+    header.push(`- Transportation: ${transportation}`);
+  }
+  if (accommodation) {
+    header.push(`- Accommodation: ${accommodation}`);
+  }
   if (request.interests) {
     header.push(`- Interests: ${request.interests}`);
+  }
+  if (freeTextInput) {
+    header.push(`- Constraints: ${freeTextInput}`);
   }
 
   const body = [
     '',
     plan.summary,
     '',
-    '## Itinerary',
-    '',
-    ...(plan.days ?? []).flatMap((day) => [
-      `### Day ${day.day}: ${day.theme}`,
+  ];
+
+  if (plan.budget) {
+    body.push(
+      '## Budget',
+      '',
+      `- Attractions: ${plan.budget.totalAttractions}`,
+      `- Hotels: ${plan.budget.totalHotels}`,
+      `- Meals: ${plan.budget.totalMeals}`,
+      `- Transportation: ${plan.budget.totalTransportation}`,
+      `- Total: ${plan.budget.total}`,
+      '',
+    );
+  }
+
+  if (plan.weatherInfo?.length) {
+    body.push('## Weather', '');
+    plan.weatherInfo.forEach((weather) => {
+      body.push(
+        `- ${weather.date}: ${weather.dayWeather} / ${weather.nightWeather}, ${weather.dayTemp}C / ${weather.nightTemp}C, ${weather.windDirection} wind ${weather.windPower}`,
+      );
+    });
+    body.push('');
+  }
+
+  if (plan.overallSuggestions) {
+    body.push('## Overall suggestions', '', plan.overallSuggestions, '');
+  }
+
+  body.push('## Itinerary', '');
+  (plan.days ?? []).forEach((day) => {
+    body.push(`### Day ${day.day}: ${day.theme}${day.date ? ` (${day.date})` : ''}`, '');
+    if (day.description) {
+      body.push(day.description, '');
+    }
+    if (day.transportation) {
+      body.push(`- Transportation: ${day.transportation}`);
+    }
+    if (day.accommodation) {
+      body.push(`- Accommodation: ${day.accommodation}`);
+    }
+    if (day.hotel) {
+      body.push(`- Hotel: ${day.hotel.name}${day.hotel.estimatedCost ? ` (${day.hotel.estimatedCost})` : ''}`);
+    }
+    if (day.transportation || day.accommodation || day.hotel) {
+      body.push('');
+    }
+    if (day.attractions?.length) {
+      body.push('#### Attractions', '');
+      day.attractions.forEach((attraction) => {
+        body.push(`- ${attraction.name}`);
+        if (attraction.address) {
+          body.push(`  - Address: ${attraction.address}`);
+        }
+        if (attraction.description) {
+          body.push(`  - Notes: ${attraction.description}`);
+        }
+      });
+      body.push('');
+    }
+    if (day.meals?.length) {
+      body.push('#### Meals', '');
+      day.meals.forEach((meal) => {
+        body.push(`- ${meal.type}: ${meal.name}${meal.estimatedCost ? ` (${meal.estimatedCost})` : ''}`);
+      });
+      body.push('');
+    }
+    body.push(
+      '#### Daily rhythm',
       '',
       `- Morning: ${day.morning}`,
       `- Afternoon: ${day.afternoon}`,
       `- Evening: ${day.evening}`,
       '',
-    ]),
-  ];
+    );
+  });
 
   const tips = plan.tips ?? [];
   if (tips.length > 0) {

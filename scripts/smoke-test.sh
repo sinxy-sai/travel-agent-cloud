@@ -379,7 +379,7 @@ echo "Checking trip plan API"
 CREATED_TRIP_PLAN_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/trip-plan" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: ${USER_ID}" \
-  -d "{\"destination\":\"Chengdu\",\"days\":3,\"budget\":\"moderate\",\"interests\":\"local food, city walk\",\"conversationId\":\"${CHAT_CONVERSATION_ID}\"}")"
+  -d "{\"destination\":\"Chengdu\",\"days\":3,\"budget\":\"moderate\",\"interests\":\"local food, city walk\",\"startDate\":\"2026-08-01\",\"endDate\":\"2026-08-03\",\"transportation\":\"walking and metro\",\"accommodation\":\"comfortable hotel\",\"preferences\":[\"local food\",\"city walk\"],\"freeTextInput\":\"Keep mornings relaxed and avoid packed schedules.\",\"conversationId\":\"${CHAT_CONVERSATION_ID}\"}")"
 echo "${CREATED_TRIP_PLAN_JSON}"
 CREATED_TRIP_PLAN_ID="$(printf '%s' "${CREATED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("savedTripPlanId", ""))')"
 if [ -z "${CREATED_TRIP_PLAN_ID}" ]; then
@@ -389,6 +389,11 @@ fi
 CREATED_CONVERSATION_ID="$(printf '%s' "${CREATED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("conversationId", ""))')"
 if [ "${CREATED_CONVERSATION_ID}" != "${CHAT_CONVERSATION_ID}" ]; then
   echo "Trip plan API did not bind to the active conversation" >&2
+  exit 1
+fi
+CREATED_TRIP_PLAN_RICH_VALID="$(printf '%s' "${CREATED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; plan=json.load(sys.stdin); first=(plan.get("days") or [{}])[0]; print("yes" if plan.get("weatherInfo") and plan.get("budget", {}).get("total", 0) > 0 and first.get("attractions") and first.get("meals") else "no")')"
+if [ "${CREATED_TRIP_PLAN_RICH_VALID}" != "yes" ]; then
+  echo "Trip plan API did not return rich itinerary fields" >&2
   exit 1
 fi
 echo
@@ -592,6 +597,13 @@ case "${MARKDOWN}" in
   \#*) ;;
   *)
     echo "Trip plan export did not return markdown" >&2
+    exit 1
+    ;;
+esac
+case "${MARKDOWN}" in
+  *"## Budget"*"#### Attractions"*) ;;
+  *)
+    echo "Trip plan export did not include rich itinerary sections" >&2
     exit 1
     ;;
 esac

@@ -5,7 +5,68 @@ export interface TripPlanRequest {
   days: number;
   budget: string;
   interests: string;
+  startDate?: string;
+  endDate?: string;
+  transportation?: string;
+  accommodation?: string;
+  preferences?: string[];
+  freeTextInput?: string;
   conversationId?: string;
+}
+
+export interface Location {
+  longitude: number;
+  latitude: number;
+}
+
+export interface Attraction {
+  name: string;
+  address: string;
+  location?: Location | null;
+  visitDuration: number;
+  description: string;
+  category: string;
+  rating?: number | null;
+  imageUrl?: string | null;
+  ticketPrice: number;
+}
+
+export interface Meal {
+  type: string;
+  name: string;
+  address: string;
+  location?: Location | null;
+  description: string;
+  estimatedCost: number;
+}
+
+export interface Hotel {
+  name: string;
+  address: string;
+  location?: Location | null;
+  priceRange: string;
+  rating: string;
+  distance: string;
+  type: string;
+  estimatedCost: number;
+}
+
+export interface Budget {
+  totalAttractions: number;
+  totalHotels: number;
+  totalMeals: number;
+  totalTransportation: number;
+  total: number;
+}
+
+export interface WeatherInfo {
+  date: string;
+  dayWeather: string;
+  nightWeather: string;
+  dayTemp: number;
+  nightTemp: number;
+  windDirection: string;
+  windPower: string;
 }
 
 export interface TripDay {
@@ -14,6 +75,13 @@ export interface TripDay {
   morning: string;
   afternoon: string;
   evening: string;
+  date?: string | null;
+  description?: string;
+  transportation?: string;
+  accommodation?: string;
+  hotel?: Hotel | null;
+  attractions?: Attraction[];
+  meals?: Meal[];
 }
 
 export interface TripPlanResponse {
@@ -21,6 +89,15 @@ export interface TripPlanResponse {
   summary: string;
   days: TripDay[];
   tips: string[];
+  startDate?: string | null;
+  endDate?: string | null;
+  transportation?: string;
+  accommodation?: string;
+  preferences?: string[];
+  freeTextInput?: string;
+  weatherInfo?: WeatherInfo[];
+  overallSuggestions?: string;
+  budget?: Budget | null;
   savedTripPlanId?: string;
   conversationId?: string;
 }

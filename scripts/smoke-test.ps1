@@ -286,6 +286,12 @@ $tripBody = @{
   days = 3
   budget = "moderate"
   interests = "local food, city walk"
+  startDate = "2026-08-01"
+  endDate = "2026-08-03"
+  transportation = "walking and metro"
+  accommodation = "comfortable hotel"
+  preferences = @("local food", "city walk")
+  freeTextInput = "Keep mornings relaxed and avoid packed schedules."
   conversationId = $chatResponse.conversationId
 } | ConvertTo-Json
 $createdTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plan" -Method Post -ContentType "application/json" -Headers $headers -Body $tripBody
@@ -294,6 +300,18 @@ if (-not $createdTripPlan.savedTripPlanId) {
 }
 if ($createdTripPlan.conversationId -ne $chatResponse.conversationId) {
   throw "Trip plan API did not bind to the active conversation"
+}
+if (-not $createdTripPlan.weatherInfo -or $createdTripPlan.weatherInfo.Count -lt 1) {
+  throw "Trip plan API did not return weatherInfo"
+}
+if (-not $createdTripPlan.budget -or $createdTripPlan.budget.total -lt 1) {
+  throw "Trip plan API did not return budget totals"
+}
+if (-not $createdTripPlan.days[0].attractions -or $createdTripPlan.days[0].attractions.Count -lt 1) {
+  throw "Trip plan API did not return day attractions"
+}
+if (-not $createdTripPlan.days[0].meals -or $createdTripPlan.days[0].meals.Count -lt 1) {
+  throw "Trip plan API did not return day meals"
 }
 
 Write-Host "Checking conversation list API"
@@ -425,6 +443,9 @@ Write-Host "Checking trip plan export API"
 $markdown = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/export" -Headers $headers
 if (-not ($markdown -like "# *")) {
   throw "Trip plan export did not return markdown"
+}
+if (-not ($markdown -like "*## Budget*") -or -not ($markdown -like "*#### Attractions*")) {
+  throw "Trip plan export did not include rich itinerary sections"
 }
 
 Write-Host "Checking trip plan delete API"

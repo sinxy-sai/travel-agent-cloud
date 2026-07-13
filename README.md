@@ -9,7 +9,7 @@
 ## 技术栈
 
 - Frontend: React, Vite, TypeScript, Tailwind CSS, Ant Design, TanStack Query, Zustand
-- Agent Runtime: Python, FastAPI, OpenAI-compatible LLM API
+- Agent Runtime: Python, FastAPI, OpenAI-compatible LLM API, LangChain/LangGraph planned for agent orchestration, FastMCP planned for tool access, DeepAgent planned for advanced agent workflows
 - Backend Services: Java 17, Spring Boot, Spring Cloud, Spring Cloud Gateway
 - RPC / Service Calls: Spring Cloud OpenFeign for Java service-to-service calls; REST between Gateway and Agent Runtime; gRPC reserved for future low-latency streaming needs
 - Message Queue: RabbitMQ for domain events and async jobs

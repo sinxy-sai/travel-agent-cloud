@@ -64,15 +64,70 @@ class LLMClient:
         schema_hint = {
             "title": "3-day Chengdu itinerary",
             "summary": "Short overview",
+            "startDate": "2026-08-01",
+            "endDate": "2026-08-03",
+            "transportation": "mixed transit",
+            "accommodation": "comfortable hotel",
+            "preferences": ["local food", "city walk"],
             "days": [
                 {
                     "day": 1,
+                    "date": "2026-08-01",
                     "theme": "Arrival and food walk",
+                    "description": "Day overview",
+                    "transportation": "mixed transit",
+                    "accommodation": "comfortable hotel",
                     "morning": "Plan text",
                     "afternoon": "Plan text",
                     "evening": "Plan text",
+                    "hotel": {
+                        "name": "Hotel name",
+                        "address": "Hotel address",
+                        "location": {"longitude": 104.0668, "latitude": 30.5728},
+                        "priceRange": "400-700",
+                        "rating": "4.5",
+                        "distance": "Near the route",
+                        "type": "comfortable hotel",
+                        "estimatedCost": 520,
+                    },
+                    "attractions": [
+                        {
+                            "name": "Attraction name",
+                            "address": "Attraction address",
+                            "location": {"longitude": 104.0668, "latitude": 30.5728},
+                            "visitDuration": 120,
+                            "description": "Why to visit",
+                            "category": "attraction",
+                            "rating": 4.5,
+                            "ticketPrice": 60,
+                        }
+                    ],
+                    "meals": [
+                        {"type": "breakfast", "name": "Breakfast option", "description": "Local breakfast", "estimatedCost": 25},
+                        {"type": "lunch", "name": "Lunch option", "description": "Local lunch", "estimatedCost": 55},
+                        {"type": "dinner", "name": "Dinner option", "description": "Local dinner", "estimatedCost": 90},
+                    ],
                 }
             ],
+            "weatherInfo": [
+                {
+                    "date": "2026-08-01",
+                    "dayWeather": "Cloudy",
+                    "nightWeather": "Clear",
+                    "dayTemp": 26,
+                    "nightTemp": 18,
+                    "windDirection": "East",
+                    "windPower": "1-3",
+                }
+            ],
+            "overallSuggestions": "Practical route notes",
+            "budget": {
+                "totalAttractions": 180,
+                "totalHotels": 1200,
+                "totalMeals": 480,
+                "totalTransportation": 200,
+                "total": 2060,
+            },
             "tips": ["Practical tip"],
         }
         messages = [
@@ -88,6 +143,12 @@ class LLMClient:
                 "content": (
                     f"Create a {request.days}-day itinerary for {request.destination}. "
                     f"Budget: {request.budget}. Interests: {request.interests or 'local culture'}. "
+                    f"Dates: {request.start_date or 'not specified'} to {request.end_date or 'not specified'}. "
+                    f"Transportation: {request.transportation or 'not specified'}. "
+                    f"Accommodation: {request.accommodation or 'not specified'}. "
+                    f"Preferences: {', '.join(request.preferences) if request.preferences else 'not specified'}. "
+                    f"Additional constraints: {request.free_text_input or 'none'}. "
+                    "Include hotel, attractions, meals, weatherInfo, overallSuggestions, and budget when possible. "
                     f"JSON schema example: {json.dumps(schema_hint, ensure_ascii=False)}"
                 ),
             },
@@ -116,10 +177,17 @@ class LLMClient:
 
         schema_hint = {
             "day": day,
+            "date": "2026-08-01",
             "theme": "Updated day theme",
+            "description": "Updated day overview",
+            "transportation": "mixed transit",
+            "accommodation": "comfortable hotel",
             "morning": "Updated morning plan",
             "afternoon": "Updated afternoon plan",
             "evening": "Updated evening plan",
+            "hotel": current_day.hotel.model_dump(mode="json", by_alias=True) if current_day.hotel else None,
+            "attractions": [item.model_dump(mode="json", by_alias=True) for item in current_day.attractions],
+            "meals": [item.model_dump(mode="json", by_alias=True) for item in current_day.meals],
         }
         itinerary = saved_trip_plan.plan.model_dump(mode="json", by_alias=True)
         messages = [

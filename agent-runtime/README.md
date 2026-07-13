@@ -355,10 +355,22 @@ Create a structured trip plan:
 ```bash
 curl -X POST http://localhost:8000/api/v1/trip-plan \
   -H "Content-Type: application/json" \
-  -d '{"destination":"Chengdu","days":3,"budget":"moderate","interests":"local food, city walk"}'
+  -d '{
+    "destination": "Chengdu",
+    "days": 3,
+    "budget": "moderate",
+    "interests": "local food, city walk",
+    "startDate": "2026-08-01",
+    "endDate": "2026-08-03",
+    "transportation": "walking and metro",
+    "accommodation": "comfortable hotel",
+    "preferences": ["local food", "city walk"],
+    "freeTextInput": "Keep mornings relaxed and avoid packed schedules."
+  }'
 ```
 
 The response includes `savedTripPlanId`, which can be used immediately with the saved trip plan APIs.
+The trip plan contract is additive and still accepts the original `destination`, `days`, `budget`, and `interests` fields. New responses may also include `weatherInfo`, `budget`, per-day `hotel`, `attractions`, and `meals`; these are currently mock/LLM-enriched fields and are reserved for later LangChain/LangGraph/FastMCP tool orchestration.
 Pass `conversationId` in the request body to attach the generated trip plan to an existing planning conversation.
 
 Send a chat message:

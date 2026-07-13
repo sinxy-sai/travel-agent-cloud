@@ -15,10 +15,86 @@ class APIModel(BaseModel):
 
 class TripPlanRequest(APIModel):
     destination: str = Field(min_length=1, max_length=80)
-    days: int = Field(ge=1, le=14)
+    days: int = Field(ge=1, le=30)
     budget: str = Field(min_length=1, max_length=40)
     interests: str = Field(default="", max_length=300)
+    start_date: str | None = Field(default=None, max_length=20)
+    end_date: str | None = Field(default=None, max_length=20)
+    transportation: str = Field(default="", max_length=80)
+    accommodation: str = Field(default="", max_length=80)
+    preferences: list[str] = Field(default_factory=list, max_length=12)
+    free_text_input: str = Field(default="", max_length=1000)
     conversation_id: str | None = Field(default=None, max_length=80)
+
+    @field_validator("preferences")
+    @classmethod
+    def validate_preferences(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            preference = item.strip()
+            if not preference or len(preference) > 40:
+                continue
+            key = preference.lower()
+            if key not in seen:
+                normalized.append(preference)
+                seen.add(key)
+        return normalized[:12]
+
+
+class Location(APIModel):
+    longitude: float
+    latitude: float
+
+
+class Attraction(APIModel):
+    name: str = Field(min_length=1, max_length=160)
+    address: str = Field(default="", max_length=240)
+    location: Location | None = None
+    visit_duration: int = Field(default=120, ge=10, le=480)
+    description: str = Field(default="", max_length=1000)
+    category: str = Field(default="", max_length=80)
+    rating: float | None = Field(default=None, ge=0, le=5)
+    image_url: str | None = Field(default=None, max_length=500)
+    ticket_price: int = Field(default=0, ge=0, le=100000)
+
+
+class Meal(APIModel):
+    type: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=160)
+    address: str = Field(default="", max_length=240)
+    location: Location | None = None
+    description: str = Field(default="", max_length=1000)
+    estimated_cost: int = Field(default=0, ge=0, le=100000)
+
+
+class Hotel(APIModel):
+    name: str = Field(min_length=1, max_length=160)
+    address: str = Field(default="", max_length=240)
+    location: Location | None = None
+    price_range: str = Field(default="", max_length=80)
+    rating: str = Field(default="", max_length=40)
+    distance: str = Field(default="", max_length=120)
+    type: str = Field(default="", max_length=80)
+    estimated_cost: int = Field(default=0, ge=0, le=100000)
+
+
+class Budget(APIModel):
+    total_attractions: int = Field(default=0, ge=0, le=10000000)
+    total_hotels: int = Field(default=0, ge=0, le=10000000)
+    total_meals: int = Field(default=0, ge=0, le=10000000)
+    total_transportation: int = Field(default=0, ge=0, le=10000000)
+    total: int = Field(default=0, ge=0, le=10000000)
+
+
+class WeatherInfo(APIModel):
+    date: str = Field(min_length=1, max_length=20)
+    day_weather: str = Field(default="", max_length=80)
+    night_weather: str = Field(default="", max_length=80)
+    day_temp: int = Field(default=0, ge=-80, le=80)
+    night_temp: int = Field(default=0, ge=-80, le=80)
+    wind_direction: str = Field(default="", max_length=80)
+    wind_power: str = Field(default="", max_length=80)
 
 
 class TripDay(APIModel):
@@ -27,6 +103,13 @@ class TripDay(APIModel):
     morning: str
     afternoon: str
     evening: str
+    date: str | None = Field(default=None, max_length=20)
+    description: str = Field(default="", max_length=1000)
+    transportation: str = Field(default="", max_length=80)
+    accommodation: str = Field(default="", max_length=80)
+    hotel: Hotel | None = None
+    attractions: list[Attraction] = Field(default_factory=list, max_length=8)
+    meals: list[Meal] = Field(default_factory=list, max_length=8)
 
 
 class TripPlanResponse(APIModel):
@@ -34,6 +117,15 @@ class TripPlanResponse(APIModel):
     summary: str
     days: list[TripDay]
     tips: list[str]
+    start_date: str | None = Field(default=None, max_length=20)
+    end_date: str | None = Field(default=None, max_length=20)
+    transportation: str = Field(default="", max_length=80)
+    accommodation: str = Field(default="", max_length=80)
+    preferences: list[str] = Field(default_factory=list, max_length=12)
+    free_text_input: str = Field(default="", max_length=1000)
+    weather_info: list[WeatherInfo] = Field(default_factory=list, max_length=30)
+    overall_suggestions: str = Field(default="", max_length=4000)
+    budget: Budget | None = None
     saved_trip_plan_id: str | None = None
     conversation_id: str | None = None
 
@@ -70,8 +162,8 @@ class TripPlanUpdateRequest(APIModel):
             raise ValueError("Plan title must be between 1 and 160 characters")
         if not self.plan.summary.strip() or len(self.plan.summary) > 4000:
             raise ValueError("Plan summary must be between 1 and 4000 characters")
-        if not 1 <= len(self.plan.days) <= 14:
-            raise ValueError("Plan must contain between 1 and 14 days")
+        if not 1 <= len(self.plan.days) <= 30:
+            raise ValueError("Plan must contain between 1 and 30 days")
         expected_days = list(range(1, len(self.plan.days) + 1))
         if [day.day for day in self.plan.days] != expected_days:
             raise ValueError("Plan day numbers must be sequential")
