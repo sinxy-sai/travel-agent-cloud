@@ -27,6 +27,8 @@ spec:
               value: INFO
             - name: RPC_TIMEOUT_SECONDS
               value: "5"
+            - name: AGENT_ENGINE
+              value: basic
             - name: WORKER_RECONNECT_INITIAL_SECONDS
               value: "2"
             - name: WORKER_RECONNECT_MAX_SECONDS

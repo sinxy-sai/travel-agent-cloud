@@ -50,7 +50,6 @@ from app.data_importer import UserDataImporter
 from app.db import maybe_create_session_factory
 from app.events import CONVERSATION_SUMMARY_REQUESTED_EVENT, create_event_publisher
 from app.exporter import saved_trip_plan_to_markdown
-from app.llm import LLMClient
 from app.mailer import Mailer
 from app.observability import RequestLoggingMiddleware, configure_logging
 from app.object_storage import MinioObjectStorage, ObjectStorageError, ObjectStorageNotFoundError
@@ -66,7 +65,6 @@ from app.oauth import (
     create_oauth_state,
     verify_oauth_state,
 )
-from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
 from app.profiles import DatabaseUserProfileStore, UserProfileStore
 from app.schemas import (
     AuthAccountDeleteRequest,
@@ -121,6 +119,7 @@ from app.summary_jobs import (
     ConversationSummaryJobStore,
     DatabaseConversationSummaryJobStore,
 )
+from app.travel_agent_service import TravelAgentService
 from app.travel_tools import create_travel_tool_provider
 from app.users import DEFAULT_USER_ID, USER_ID_PATTERN, get_user_id
 from app.workers.conversation_summarizer import ConversationSummarizerWorker, SummarizeConversationCommand
@@ -148,6 +147,7 @@ user_data_importer = UserDataImporter(session_factory, conversation_store, profi
 github_oauth_client = GitHubOAuthClient(settings)
 object_storage = MinioObjectStorage(settings)
 travel_tool_provider = create_travel_tool_provider(settings)
+travel_agent_service = TravelAgentService(settings, travel_tool_provider)
 auth_rate_limiter = create_auth_rate_limiter(
     redis_url=settings.redis_url,
     max_attempts=settings.auth_rate_limit_max_attempts,
@@ -174,12 +174,13 @@ def health() -> dict[str, str | bool]:
         "status": "ok",
         "service": settings.app_name,
         "env": settings.app_env,
-        "llmEnabled": LLMClient(settings).enabled,
+        "llmEnabled": travel_agent_service.llm_enabled,
         "databaseEnabled": session_factory is not None,
         "messageQueueEnabled": event_publisher.enabled,
         "redisRateLimitEnabled": auth_rate_limiter.distributed,
         "objectStorageEnabled": object_storage.enabled,
         "githubOAuthEnabled": github_oauth_client.enabled,
+        "agentEngine": travel_agent_service.engine_name,
         "travelToolsProvider": travel_tool_provider.name,
     }
 
@@ -671,12 +672,7 @@ def logout(request: Request, response: Response) -> Response:
 
 @app.post("/api/v1/trip-plan", response_model=TripPlanResponse)
 def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_id)) -> TripPlanResponse:
-    llm_response = LLMClient(settings).generate_trip_plan(request)
-    response = (
-        enrich_trip_plan_response(llm_response, request, travel_tool_provider)
-        if llm_response
-        else build_mock_trip_plan(request, travel_tool_provider)
-    )
+    response = travel_agent_service.generate_trip_plan(request)
     try:
         conversation = conversation_store.get_or_create(
             user_id=user_id,
@@ -711,7 +707,7 @@ def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_i
 @app.post("/api/v1/chat", response_model=ChatResponse)
 def chat(request: ChatRequest, user_id: str = Depends(get_user_id)) -> ChatResponse:
     try:
-        return handle_chat(user_id, request, conversation_store, settings)
+        return handle_chat(user_id, request, conversation_store, travel_agent_service)
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
 
@@ -939,11 +935,7 @@ def regenerate_trip_plan_day(
             detail={"code": "TRIP_PLAN_DAY_NOT_FOUND", "message": "Trip plan day not found"},
         )
 
-    regenerated_day = LLMClient(settings).regenerate_trip_day(
-        saved_trip_plan,
-        day,
-        request.instruction,
-    ) or build_mock_regenerated_trip_day(saved_trip_plan, day, request.instruction)
+    regenerated_day = travel_agent_service.regenerate_trip_day(saved_trip_plan, day, request.instruction)
     updated_plan = saved_trip_plan.plan.model_copy(
         update={
             "days": [regenerated_day if item.day == day else item for item in saved_trip_plan.plan.days],
