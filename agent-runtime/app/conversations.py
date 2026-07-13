@@ -9,6 +9,7 @@ from app.db import session_scope
 from app.models import ConversationRecord, MessageRecord, TripPlanRecord
 from app.schemas import (
     AgentMode,
+    Budget,
     ChatMessage,
     Conversation,
     ConversationListResponse,
@@ -197,11 +198,10 @@ class ConversationStore:
         if request.plan is not None:
             if request.expected_version != trip_plan.version:
                 raise TripPlanVersionConflictError(trip_plan_id)
-            trip_plan.plan = request.plan.model_copy(
-                update={
-                    "saved_trip_plan_id": trip_plan.id,
-                    "conversation_id": trip_plan.conversation_id,
-                }
+            trip_plan.plan = _canonicalize_trip_plan(
+                request.plan,
+                saved_trip_plan_id=trip_plan.id,
+                conversation_id=trip_plan.conversation_id,
             )
             trip_plan.title = trip_plan.plan.title.strip()
             trip_plan.days = len(trip_plan.plan.days)
@@ -210,6 +210,40 @@ class ConversationStore:
         if request.favorite is not None:
             trip_plan.favorite = request.favorite
         return trip_plan
+
+
+def _canonicalize_trip_plan(
+    plan: TripPlanResponse,
+    *,
+    saved_trip_plan_id: str,
+    conversation_id: str | None,
+) -> TripPlanResponse:
+    return plan.model_copy(
+        update={
+            "saved_trip_plan_id": saved_trip_plan_id,
+            "conversation_id": conversation_id,
+            "budget": _recalculate_budget(plan),
+        }
+    )
+
+
+def _recalculate_budget(plan: TripPlanResponse) -> Budget | None:
+    if plan.budget is None:
+        return None
+
+    total_attractions = sum(
+        attraction.ticket_price for day in plan.days for attraction in (day.attractions or [])
+    )
+    total_hotels = sum(day.hotel.estimated_cost for day in plan.days if day.hotel is not None)
+    total_meals = sum(meal.estimated_cost for day in plan.days for meal in (day.meals or []))
+    total_transportation = plan.budget.total_transportation
+    return Budget(
+        total_attractions=total_attractions,
+        total_hotels=total_hotels,
+        total_meals=total_meals,
+        total_transportation=total_transportation,
+        total=total_attractions + total_hotels + total_meals + total_transportation,
+    )
 
 
 class DatabaseConversationStore:
@@ -421,11 +455,10 @@ class DatabaseConversationStore:
                 raise TripPlanNotFoundError(trip_plan_id)
 
             if request.plan is not None:
-                canonical_plan = request.plan.model_copy(
-                    update={
-                        "saved_trip_plan_id": record.id,
-                        "conversation_id": record.conversation_id,
-                    }
+                canonical_plan = _canonicalize_trip_plan(
+                    request.plan,
+                    saved_trip_plan_id=record.id,
+                    conversation_id=record.conversation_id,
                 )
                 values = {
                     "title": canonical_plan.title.strip(),

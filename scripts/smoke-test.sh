@@ -587,11 +587,11 @@ plan.update(
             }
         ],
         "budget": {
-            "totalAttractions": 0,
-            "totalHotels": 0,
-            "totalMeals": 30,
+            "totalAttractions": 1,
+            "totalHotels": 2,
+            "totalMeals": 3,
             "totalTransportation": 180,
-            "total": 210,
+            "total": 4,
         },
     }
 )
@@ -610,6 +610,23 @@ import sys
 saved = json.load(sys.stdin)
 plan = saved.get("plan", {})
 days = plan.get("days", [])
+budget = plan.get("budget", {})
+expected_attractions = sum(
+    attraction.get("ticketPrice", 0)
+    for day in days
+    for attraction in day.get("attractions", [])
+)
+expected_hotels = sum(
+    (day.get("hotel") or {}).get("estimatedCost", 0)
+    for day in days
+    if day.get("hotel")
+)
+expected_meals = sum(
+    meal.get("estimatedCost", 0)
+    for day in days
+    for meal in day.get("meals", [])
+)
+expected_total = expected_attractions + expected_hotels + expected_meals + 180
 valid = (
     saved.get("days") == 4
     and len(days) == 4
@@ -619,7 +636,11 @@ valid = (
     and "tea house" in plan.get("preferences", [])
     and len(plan.get("weatherInfo", [])) == 1
     and plan.get("weatherInfo", [{}])[0].get("dayWeather") == "Cloudy"
-    and plan.get("budget", {}).get("total") == 210
+    and budget.get("totalAttractions") == expected_attractions
+    and budget.get("totalHotels") == expected_hotels
+    and budget.get("totalMeals") == expected_meals
+    and budget.get("totalTransportation") == 180
+    and budget.get("total") == expected_total
 )
 print("yes" if valid else "no")
 ')"

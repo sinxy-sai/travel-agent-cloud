@@ -450,11 +450,11 @@ $savedTripPlan.plan.weatherInfo = @(
     windPower = "2"
   }
 )
-$savedTripPlan.plan.budget.totalAttractions = 0
-$savedTripPlan.plan.budget.totalHotels = 0
-$savedTripPlan.plan.budget.totalMeals = 30
+$savedTripPlan.plan.budget.totalAttractions = 1
+$savedTripPlan.plan.budget.totalHotels = 2
+$savedTripPlan.plan.budget.totalMeals = 3
 $savedTripPlan.plan.budget.totalTransportation = 180
-$savedTripPlan.plan.budget.total = 210
+$savedTripPlan.plan.budget.total = 4
 $tripPlanUpdateBody = @{
   plan = $savedTripPlan.plan
   expectedVersion = $initialTripPlanVersion
@@ -480,8 +480,33 @@ if ($editedTripPlan.plan.preferences.Count -ne 3 -or -not ($editedTripPlan.plan.
 if ($editedTripPlan.plan.weatherInfo.Count -ne 1 -or $editedTripPlan.plan.weatherInfo[0].dayWeather -ne "Cloudy") {
   throw "Trip plan content update API did not persist edited weatherInfo"
 }
-if ($editedTripPlan.plan.budget.total -ne 210) {
-  throw "Trip plan content update API did not persist edited budget"
+$expectedAttractions = 0
+$expectedHotels = 0
+$expectedMeals = 0
+foreach ($day in $editedTripPlan.plan.days) {
+  if ($day.attractions) {
+    foreach ($attraction in @($day.attractions)) {
+      $expectedAttractions += [int]$attraction.ticketPrice
+    }
+  }
+  if ($day.hotel) {
+    $expectedHotels += [int]$day.hotel.estimatedCost
+  }
+  if ($day.meals) {
+    foreach ($meal in @($day.meals)) {
+      $expectedMeals += [int]$meal.estimatedCost
+    }
+  }
+}
+$expectedTotal = $expectedAttractions + $expectedHotels + $expectedMeals + 180
+if (
+  $editedTripPlan.plan.budget.totalAttractions -ne $expectedAttractions -or
+  $editedTripPlan.plan.budget.totalHotels -ne $expectedHotels -or
+  $editedTripPlan.plan.budget.totalMeals -ne $expectedMeals -or
+  $editedTripPlan.plan.budget.totalTransportation -ne 180 -or
+  $editedTripPlan.plan.budget.total -ne $expectedTotal
+) {
+  throw "Trip plan content update API did not canonicalize edited budget from itinerary details"
 }
 if ([int]$editedTripPlan.version -ne ($initialTripPlanVersion + 1)) {
   throw "Trip plan content update API did not increment the version"
