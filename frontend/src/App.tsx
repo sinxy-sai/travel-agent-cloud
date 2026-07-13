@@ -71,6 +71,8 @@ import {
   type ConversationSummaryJob,
   type HealthResponse,
   type Attraction,
+  type Hotel,
+  type Meal,
   type SavedTripPlan,
   type TripPlanResponse,
   type UserProfile,
@@ -99,6 +101,8 @@ const summaryJobPollingIntervalMs = 2000;
 const summaryJobPollingTimeoutMs = 30000;
 type ConversationSummaryJobUiStatus = 'IDLE' | 'POLLING' | 'FAILED' | 'TIMEOUT';
 type AttractionTextField = 'name' | 'address' | 'description' | 'category';
+type HotelTextField = 'name' | 'address' | 'priceRange' | 'rating' | 'distance' | 'type';
+type MealTextField = 'type' | 'name' | 'address' | 'description';
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -1199,6 +1203,91 @@ export default function App() {
     });
   };
 
+  const updateEditingDayHotel = (dayIndex: number, updater: (hotel: Hotel | null, dayNumber: number) => Hotel | null) => {
+    setEditingTripPlan((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        days: current.days.map((day, index) =>
+          index === dayIndex
+            ? {
+                ...day,
+                hotel: updater(day.hotel ?? null, day.day),
+              }
+            : day,
+        ),
+      };
+    });
+  };
+
+  const updateEditingHotelText = (dayIndex: number, field: HotelTextField, value: string) => {
+    updateEditingDayHotel(dayIndex, (hotel, dayNumber) => ({
+      ...(hotel ?? createDraftHotel(dayNumber)),
+      [field]: value,
+    }));
+  };
+
+  const updateEditingHotelCost = (dayIndex: number, value: number | string | null) => {
+    const numericValue = typeof value === 'string' ? Number(value) : value;
+    updateEditingDayHotel(dayIndex, (hotel, dayNumber) => ({
+      ...(hotel ?? createDraftHotel(dayNumber)),
+      estimatedCost: numericValue ?? 0,
+    }));
+  };
+
+  const addEditingHotel = (dayIndex: number) => {
+    updateEditingDayHotel(dayIndex, (hotel, dayNumber) => hotel ?? createDraftHotel(dayNumber));
+  };
+
+  const clearEditingHotel = (dayIndex: number) => {
+    updateEditingDayHotel(dayIndex, () => null);
+  };
+
+  const updateEditingDayMeals = (
+    dayIndex: number,
+    updater: (meals: Meal[], dayNumber: number) => Meal[],
+  ) => {
+    setEditingTripPlan((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        days: current.days.map((day, index) =>
+          index === dayIndex
+            ? {
+                ...day,
+                meals: updater([...(day.meals ?? [])], day.day),
+              }
+            : day,
+        ),
+      };
+    });
+  };
+
+  const updateEditingMealText = (dayIndex: number, mealIndex: number, field: MealTextField, value: string) => {
+    updateEditingDayMeals(dayIndex, (meals) =>
+      meals.map((meal, index) => (index === mealIndex ? { ...meal, [field]: value } : meal)),
+    );
+  };
+
+  const updateEditingMealCost = (dayIndex: number, mealIndex: number, value: number | string | null) => {
+    const numericValue = typeof value === 'string' ? Number(value) : value;
+    updateEditingDayMeals(dayIndex, (meals) =>
+      meals.map((meal, index) => (index === mealIndex ? { ...meal, estimatedCost: numericValue ?? 0 } : meal)),
+    );
+  };
+
+  const addEditingMeal = (dayIndex: number) => {
+    updateEditingDayMeals(dayIndex, (meals, dayNumber) => [...meals, createDraftMeal(dayNumber, meals.length + 1)]);
+  };
+
+  const deleteEditingMeal = (dayIndex: number, mealIndex: number) => {
+    updateEditingDayMeals(dayIndex, (meals) => meals.filter((_meal, index) => index !== mealIndex));
+  };
+
   const updateEditingDayAttractions = (
     dayIndex: number,
     updater: (attractions: Attraction[], dayNumber: number) => Attraction[],
@@ -1293,7 +1382,9 @@ export default function App() {
           description: day.description?.trim() ?? '',
           transportation: day.transportation?.trim() ?? '',
           accommodation: day.accommodation?.trim() ?? '',
+          hotel: normalizeHotel(day.hotel ?? null),
           attractions: normalizeAttractions(day.attractions ?? []),
+          meals: normalizeMeals(day.meals ?? []),
         })),
         tips: editingTripPlanTips
           .split('\n')
@@ -2062,6 +2153,92 @@ export default function App() {
                 <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
+                      <h4 className="text-sm font-semibold text-ink">Hotel</h4>
+                      <p className="mt-1 text-xs text-slate-500">Edit the overnight stay for this day.</p>
+                    </div>
+                    {day.hotel ? (
+                      <Popconfirm title="Clear hotel for this day?" onConfirm={() => clearEditingHotel(index)}>
+                        <Button size="small" danger icon={<DeleteOutlined />}>
+                          Clear
+                        </Button>
+                      </Popconfirm>
+                    ) : (
+                      <Button size="small" icon={<PlusOutlined />} onClick={() => addEditingHotel(index)}>
+                        Add
+                      </Button>
+                    )}
+                  </div>
+                  {day.hotel ? (
+                    <div className="grid gap-3 rounded-md bg-white p-3 md:grid-cols-2">
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium text-slate-600">Name</span>
+                        <Input
+                          maxLength={160}
+                          value={day.hotel.name}
+                          onChange={(event) => updateEditingHotelText(index, 'name', event.target.value)}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium text-slate-600">Type</span>
+                        <Input
+                          maxLength={80}
+                          value={day.hotel.type}
+                          onChange={(event) => updateEditingHotelText(index, 'type', event.target.value)}
+                        />
+                      </label>
+                      <label className="block md:col-span-2">
+                        <span className="mb-1 block text-xs font-medium text-slate-600">Address</span>
+                        <Input
+                          maxLength={240}
+                          value={day.hotel.address}
+                          onChange={(event) => updateEditingHotelText(index, 'address', event.target.value)}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium text-slate-600">Price range</span>
+                        <Input
+                          maxLength={80}
+                          value={day.hotel.priceRange}
+                          onChange={(event) => updateEditingHotelText(index, 'priceRange', event.target.value)}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium text-slate-600">Rating</span>
+                        <Input
+                          maxLength={40}
+                          value={day.hotel.rating}
+                          onChange={(event) => updateEditingHotelText(index, 'rating', event.target.value)}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium text-slate-600">Distance</span>
+                        <Input
+                          maxLength={120}
+                          value={day.hotel.distance}
+                          onChange={(event) => updateEditingHotelText(index, 'distance', event.target.value)}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium text-slate-600">Estimated cost</span>
+                        <InputNumber
+                          min={0}
+                          max={100000}
+                          value={day.hotel.estimatedCost}
+                          onChange={(value) => updateEditingHotelCost(index, value)}
+                          addonAfter="CNY"
+                          className="w-full"
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
+                      No hotel selected for this day.
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
                       <h4 className="text-sm font-semibold text-ink">Attractions</h4>
                       <p className="mt-1 text-xs text-slate-500">Edit route stops, order, visit time, and notes.</p>
                     </div>
@@ -2174,6 +2351,93 @@ export default function App() {
                                 value={attraction.description}
                                 onChange={(event) =>
                                   updateEditingAttractionText(index, attractionIndex, 'description', event.target.value)
+                                }
+                              />
+                            </label>
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-ink">Meals</h4>
+                      <p className="mt-1 text-xs text-slate-500">Edit meal stops and estimated costs.</p>
+                    </div>
+                    <Button
+                      size="small"
+                      icon={<PlusOutlined />}
+                      disabled={(day.meals?.length ?? 0) >= 8}
+                      onClick={() => addEditingMeal(index)}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  {(day.meals ?? []).length === 0 ? (
+                    <div className="rounded-md border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
+                      No meals yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {(day.meals ?? []).map((meal, mealIndex) => (
+                        <section key={`${day.day}-meal-${mealIndex}`} className="rounded-md bg-white p-3">
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-ink">Meal {mealIndex + 1}</p>
+                            <Popconfirm
+                              title="Delete this meal?"
+                              onConfirm={() => deleteEditingMeal(index, mealIndex)}
+                            >
+                              <Button size="small" danger icon={<DeleteOutlined />} aria-label="Delete meal" />
+                            </Popconfirm>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Type</span>
+                              <Input
+                                maxLength={40}
+                                value={meal.type}
+                                onChange={(event) => updateEditingMealText(index, mealIndex, 'type', event.target.value)}
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Name</span>
+                              <Input
+                                maxLength={160}
+                                value={meal.name}
+                                onChange={(event) => updateEditingMealText(index, mealIndex, 'name', event.target.value)}
+                              />
+                            </label>
+                            <label className="block md:col-span-2">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Address</span>
+                              <Input
+                                maxLength={240}
+                                value={meal.address}
+                                onChange={(event) =>
+                                  updateEditingMealText(index, mealIndex, 'address', event.target.value)
+                                }
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Estimated cost</span>
+                              <InputNumber
+                                min={0}
+                                max={100000}
+                                value={meal.estimatedCost}
+                                onChange={(value) => updateEditingMealCost(index, mealIndex, value)}
+                                addonAfter="CNY"
+                                className="w-full"
+                              />
+                            </label>
+                            <label className="block md:col-span-2">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Description</span>
+                              <Input.TextArea
+                                rows={2}
+                                maxLength={1000}
+                                value={meal.description}
+                                onChange={(event) =>
+                                  updateEditingMealText(index, mealIndex, 'description', event.target.value)
                                 }
                               />
                             </label>
@@ -2725,6 +2989,19 @@ function PlanCost({ label, value }: { label: string; value: number }) {
   );
 }
 
+function createDraftHotel(day: number): Hotel {
+  return {
+    name: `Day ${day} hotel`,
+    address: '',
+    location: null,
+    priceRange: '',
+    rating: '',
+    distance: '',
+    type: 'comfortable hotel',
+    estimatedCost: 0,
+  };
+}
+
 function createDraftAttraction(day: number, index: number): Attraction {
   return {
     name: `New attraction ${day}-${index}`,
@@ -2736,6 +3013,33 @@ function createDraftAttraction(day: number, index: number): Attraction {
     rating: null,
     imageUrl: null,
     ticketPrice: 0,
+  };
+}
+
+function createDraftMeal(day: number, index: number): Meal {
+  return {
+    type: index === 1 ? 'breakfast' : index === 2 ? 'lunch' : index === 3 ? 'dinner' : 'meal',
+    name: `Day ${day} meal ${index}`,
+    address: '',
+    location: null,
+    description: '',
+    estimatedCost: 0,
+  };
+}
+
+function normalizeHotel(hotel: Hotel | null): Hotel | null {
+  if (!hotel || !hotel.name.trim()) {
+    return null;
+  }
+  return {
+    ...hotel,
+    name: hotel.name.trim(),
+    address: hotel.address.trim(),
+    priceRange: hotel.priceRange.trim(),
+    rating: hotel.rating.trim(),
+    distance: hotel.distance.trim(),
+    type: hotel.type.trim(),
+    estimatedCost: clampInteger(hotel.estimatedCost, 0, 100000),
   };
 }
 
@@ -2751,6 +3055,20 @@ function normalizeAttractions(attractions: Attraction[]): Attraction[] {
       ticketPrice: clampInteger(attraction.ticketPrice, 0, 100000),
     }))
     .filter((attraction) => attraction.name.length > 0)
+    .slice(0, 8);
+}
+
+function normalizeMeals(meals: Meal[]): Meal[] {
+  return meals
+    .map((meal) => ({
+      ...meal,
+      type: meal.type.trim() || 'meal',
+      name: meal.name.trim(),
+      address: meal.address.trim(),
+      description: meal.description.trim(),
+      estimatedCost: clampInteger(meal.estimatedCost, 0, 100000),
+    }))
+    .filter((meal) => meal.name.length > 0)
     .slice(0, 8);
 }
 
