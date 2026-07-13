@@ -64,7 +64,6 @@ services:
       MINIO_BUCKET: travel-agent-exports
       MINIO_SECURE: "false"
       RPC_TIMEOUT_SECONDS: 5
-      AGENT_ENGINE: basic
       WORKER_RECONNECT_INITIAL_SECONDS: 2
       WORKER_RECONNECT_MAX_SECONDS: 30
     depends_on:
@@ -87,7 +86,6 @@ services:
       REDIS_URL: redis://redis:6379/0
       REDIS_KEY_PREFIX: travel-agent-cloud
       RPC_TIMEOUT_SECONDS: 5
-      AGENT_ENGINE: basic
       WORKER_RECONNECT_INITIAL_SECONDS: 2
       WORKER_RECONNECT_MAX_SECONDS: 30
       LOG_LEVEL: INFO
