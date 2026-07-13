@@ -214,6 +214,7 @@ export interface HealthResponse {
   redisRateLimitEnabled: boolean;
   objectStorageEnabled: boolean;
   githubOAuthEnabled: boolean;
+  travelToolsProvider: string;
 }
 
 export interface UserProfile {

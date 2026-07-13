@@ -115,11 +115,12 @@ MESSAGE_QUEUE_URL=amqp://user:password@rabbitmq:5672/
 REDIS_URL=redis://redis:6379/0
 REDIS_KEY_PREFIX=travel-agent-cloud
 RPC_TIMEOUT_SECONDS=5
+TRAVEL_TOOL_PROVIDER=mock
 WORKER_RECONNECT_INITIAL_SECONDS=2
 WORKER_RECONNECT_MAX_SECONDS=30
 ```
 
-`MESSAGE_QUEUE_URL` enables RabbitMQ event publishing. `REDIS_URL` enables distributed auth rate limiting. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for queue and future runtime-to-service calls.
+`MESSAGE_QUEUE_URL` enables RabbitMQ event publishing. `REDIS_URL` enables distributed auth rate limiting. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for queue and future runtime-to-service calls. `TRAVEL_TOOL_PROVIDER=mock` enables the local deterministic POI, hotel, meal, weather, and budget provider. Later FastMCP-backed providers should implement the same travel tool interface without changing the public trip plan API.
 The worker reconnect settings control exponential backoff when PostgreSQL or RabbitMQ is not ready, or when the queue connection drops.
 
 When `MESSAGE_QUEUE_URL` is configured, the runtime publishes small domain events to the durable RabbitMQ topic exchange `travel.events`. Queue failures are logged but do not fail the user request.

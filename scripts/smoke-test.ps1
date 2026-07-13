@@ -32,6 +32,9 @@ if (-not ($health.PSObject.Properties.Name -contains "redisRateLimitEnabled")) {
 if (-not ($health.PSObject.Properties.Name -contains "objectStorageEnabled")) {
   throw "Health API did not return objectStorageEnabled"
 }
+if (-not ($health.PSObject.Properties.Name -contains "travelToolsProvider")) {
+  throw "Health API did not return travelToolsProvider"
+}
 
 Write-Host "Preparing anonymous local data"
 $anonymousUserId = "smoke-anon-$([guid]::NewGuid().ToString('N'))"

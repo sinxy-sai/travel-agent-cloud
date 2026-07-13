@@ -44,6 +44,11 @@ if [ "${HAS_OBJECT_STORAGE_FIELD}" != "yes" ]; then
   echo "Health API did not return objectStorageEnabled" >&2
   exit 1
 fi
+HAS_TRAVEL_TOOLS_PROVIDER_FIELD="$(printf '%s' "${HEALTH_JSON}" | python3 -c 'import json, sys; print("yes" if "travelToolsProvider" in json.load(sys.stdin) else "no")')"
+if [ "${HAS_TRAVEL_TOOLS_PROVIDER_FIELD}" != "yes" ]; then
+  echo "Health API did not return travelToolsProvider" >&2
+  exit 1
+fi
 echo
 
 echo "Preparing anonymous local data"

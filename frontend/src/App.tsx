@@ -2546,6 +2546,11 @@ function RuntimeStatus({
         <StatusRow label="RabbitMQ" active={Boolean(health?.messageQueueEnabled)} muted={!runtimeOnline || loading} />
         <StatusRow label="Redis rate limit" active={Boolean(health?.redisRateLimitEnabled)} muted={!runtimeOnline || loading} />
         <StatusRow label="Object storage" active={Boolean(health?.objectStorageEnabled)} muted={!runtimeOnline || loading} />
+        <StatusRow
+          label={`Travel tools: ${health?.travelToolsProvider ?? 'mock'}`}
+          active={runtimeOnline}
+          muted={!runtimeOnline || loading}
+        />
       </div>
     </section>
   );

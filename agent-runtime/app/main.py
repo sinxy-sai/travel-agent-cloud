@@ -66,7 +66,7 @@ from app.oauth import (
     create_oauth_state,
     verify_oauth_state,
 )
-from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan
+from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
 from app.profiles import DatabaseUserProfileStore, UserProfileStore
 from app.schemas import (
     AuthAccountDeleteRequest,
@@ -121,6 +121,7 @@ from app.summary_jobs import (
     ConversationSummaryJobStore,
     DatabaseConversationSummaryJobStore,
 )
+from app.travel_tools import create_travel_tool_provider
 from app.users import DEFAULT_USER_ID, USER_ID_PATTERN, get_user_id
 from app.workers.conversation_summarizer import ConversationSummarizerWorker, SummarizeConversationCommand
 
@@ -146,6 +147,7 @@ conversation_summarizer = ConversationSummarizerWorker(conversation_store, summa
 user_data_importer = UserDataImporter(session_factory, conversation_store, profile_store, summary_store)
 github_oauth_client = GitHubOAuthClient(settings)
 object_storage = MinioObjectStorage(settings)
+travel_tool_provider = create_travel_tool_provider(settings)
 auth_rate_limiter = create_auth_rate_limiter(
     redis_url=settings.redis_url,
     max_attempts=settings.auth_rate_limit_max_attempts,
@@ -178,6 +180,7 @@ def health() -> dict[str, str | bool]:
         "redisRateLimitEnabled": auth_rate_limiter.distributed,
         "objectStorageEnabled": object_storage.enabled,
         "githubOAuthEnabled": github_oauth_client.enabled,
+        "travelToolsProvider": travel_tool_provider.name,
     }
 
 
@@ -668,7 +671,12 @@ def logout(request: Request, response: Response) -> Response:
 
 @app.post("/api/v1/trip-plan", response_model=TripPlanResponse)
 def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_id)) -> TripPlanResponse:
-    response = LLMClient(settings).generate_trip_plan(request) or build_mock_trip_plan(request)
+    llm_response = LLMClient(settings).generate_trip_plan(request)
+    response = (
+        enrich_trip_plan_response(llm_response, request, travel_tool_provider)
+        if llm_response
+        else build_mock_trip_plan(request, travel_tool_provider)
+    )
     try:
         conversation = conversation_store.get_or_create(
             user_id=user_id,
@@ -917,7 +925,7 @@ def update_trip_plan(
 def regenerate_trip_plan_day(
     trip_plan_id: str,
     request: TripDayRegenerateRequest,
-    day: int = Path(ge=1, le=14),
+    day: int = Path(ge=1, le=30),
     user_id: str = Depends(get_user_id),
 ) -> SavedTripPlan:
     try:
