@@ -37,6 +37,20 @@ class TravelAgentNodeEvent:
 
 
 @dataclass(frozen=True)
+class TravelAgentToolCall:
+    tool_name: str
+    status: str
+    detail: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "toolName": self.tool_name,
+            "status": self.status,
+            "detail": self.detail,
+        }
+
+
+@dataclass(frozen=True)
 class TravelAgentRunTrace:
     run_id: str
     operation: str
@@ -48,6 +62,7 @@ class TravelAgentRunTrace:
     fallback_used: bool
     llm_enabled: bool
     node_events: tuple[TravelAgentNodeEvent, ...] = ()
+    tool_calls: tuple[TravelAgentToolCall, ...] = ()
 
     def to_dict(self) -> dict[str, bool | int | str | list[str] | list[dict[str, str]]]:
         return {
@@ -61,6 +76,7 @@ class TravelAgentRunTrace:
             "fallbackUsed": self.fallback_used,
             "llmEnabled": self.llm_enabled,
             "nodeEvents": [event.to_dict() for event in self.node_events],
+            "toolCalls": [tool_call.to_dict() for tool_call in self.tool_calls],
         }
 
 

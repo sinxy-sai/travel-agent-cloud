@@ -3,7 +3,13 @@ from datetime import UTC, datetime
 from time import perf_counter
 from uuid import uuid4
 
-from app.agent_engines.types import TravelAgentEngineCapabilities, TravelAgentNodeEvent, TravelAgentRunTrace
+from app.agent_engines.tool_tracing import TracingTravelToolProvider
+from app.agent_engines.types import (
+    TravelAgentEngineCapabilities,
+    TravelAgentNodeEvent,
+    TravelAgentRunTrace,
+    TravelAgentToolCall,
+)
 from app.llm import LLMClient
 from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
@@ -96,6 +102,7 @@ class LangGraphTravelAgentEngine:
             completed_nodes=("chat_llm", "chat_fallback"),
             fallback_used=state.fallback_used,
             node_events=_chat_node_events(state),
+            tool_calls=(),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -104,16 +111,19 @@ class LangGraphTravelAgentEngine:
     def generate_trip_plan(self, request: TripPlanRequest) -> TripPlanResponse:
         started_at = _utc_timestamp()
         started = perf_counter()
+        tool_calls: list[TravelAgentToolCall] = []
+        traced_tools = TracingTravelToolProvider(self._travel_tools, tool_calls)
         state = TripPlanningWorkflowState(request=request)
         state = self._trip_draft_node(state)
-        state = self._trip_enrichment_node(state)
-        state = self._trip_validation_node(state)
-        response = state.final_plan or build_mock_trip_plan(request, self._travel_tools)
+        state = self._trip_enrichment_node(state, traced_tools)
+        state = self._trip_validation_node(state, traced_tools)
+        response = state.final_plan or build_mock_trip_plan(request, traced_tools)
         self._record_trace(self._build_trace(
             operation="trip_plan",
             completed_nodes=("trip_draft", "trip_enrichment", "trip_validation"),
             fallback_used=state.fallback_used,
             node_events=_trip_node_events(state),
+            tool_calls=tuple(tool_calls),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -135,6 +145,7 @@ class LangGraphTravelAgentEngine:
             completed_nodes=("day_regeneration", "day_fallback"),
             fallback_used=state.fallback_used,
             node_events=_day_node_events(state),
+            tool_calls=(),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -158,10 +169,14 @@ class LangGraphTravelAgentEngine:
         draft_plan = self._llm_client.generate_trip_plan(state.request)
         return TripPlanningWorkflowState(request=state.request, draft_plan=draft_plan)
 
-    def _trip_enrichment_node(self, state: TripPlanningWorkflowState) -> TripPlanningWorkflowState:
+    def _trip_enrichment_node(
+        self,
+        state: TripPlanningWorkflowState,
+        travel_tools: TravelToolProvider,
+    ) -> TripPlanningWorkflowState:
         if not state.draft_plan:
             return state
-        final_plan = enrich_trip_plan_response(state.draft_plan, state.request, self._travel_tools)
+        final_plan = enrich_trip_plan_response(state.draft_plan, state.request, travel_tools)
         return TripPlanningWorkflowState(
             request=state.request,
             draft_plan=state.draft_plan,
@@ -169,9 +184,13 @@ class LangGraphTravelAgentEngine:
             fallback_used=state.fallback_used,
         )
 
-    def _trip_validation_node(self, state: TripPlanningWorkflowState) -> TripPlanningWorkflowState:
+    def _trip_validation_node(
+        self,
+        state: TripPlanningWorkflowState,
+        travel_tools: TravelToolProvider,
+    ) -> TripPlanningWorkflowState:
         if not state.final_plan or not state.final_plan.days:
-            fallback_plan = build_mock_trip_plan(state.request, self._travel_tools)
+            fallback_plan = build_mock_trip_plan(state.request, travel_tools)
             return TripPlanningWorkflowState(
                 request=state.request,
                 draft_plan=state.draft_plan,
@@ -219,6 +238,7 @@ class LangGraphTravelAgentEngine:
         completed_nodes: tuple[str, ...],
         fallback_used: bool,
         node_events: tuple[TravelAgentNodeEvent, ...],
+        tool_calls: tuple[TravelAgentToolCall, ...],
         started_at: str,
         duration_ms: int,
     ) -> TravelAgentRunTrace:
@@ -233,6 +253,7 @@ class LangGraphTravelAgentEngine:
             fallback_used=fallback_used,
             llm_enabled=self.llm_enabled,
             node_events=node_events,
+            tool_calls=tool_calls,
         )
 
 

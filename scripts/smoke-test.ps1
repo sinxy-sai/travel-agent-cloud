@@ -333,6 +333,15 @@ if (-not $createdTripPlan.days[0].attractions -or $createdTripPlan.days[0].attra
 if (-not $createdTripPlan.days[0].meals -or $createdTripPlan.days[0].meals.Count -lt 1) {
   throw "Trip plan API did not return day meals"
 }
+$tripPlanAgentStatus = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/status"
+if (
+  -not $tripPlanAgentStatus.lastRunTrace -or
+  $tripPlanAgentStatus.lastRunTrace.operation -ne "trip_plan" -or
+  -not $tripPlanAgentStatus.lastRunTrace.toolCalls -or
+  $tripPlanAgentStatus.lastRunTrace.toolCalls.Count -lt 1
+) {
+  throw "Agent status API did not record trip plan tool calls"
+}
 
 Write-Host "Checking conversation list API"
 $conversations = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations?page=1&pageSize=20" -Headers $headers

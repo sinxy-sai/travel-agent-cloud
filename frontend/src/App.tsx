@@ -3625,6 +3625,8 @@ function RuntimeStatus({
   const workflowNodes = capabilities?.workflowNodes ?? [];
   const completedNodes = agentStatus?.lastRunTrace?.completedNodes ?? [];
   const nodeEvents = agentStatus?.lastRunTrace?.nodeEvents ?? [];
+  const toolCalls = agentStatus?.lastRunTrace?.toolCalls ?? [];
+  const visibleToolCalls = toolCalls.slice(0, 5);
   const recentRunTraces = agentStatus?.recentRunTraces?.slice(0, 3) ?? [];
   const runSummary = agentStatus?.runSummary;
   const operationSummary = Object.entries(runSummary?.operationCounts ?? {}).slice(0, 3);
@@ -3720,6 +3722,28 @@ function RuntimeStatus({
                   </span>
                 </p>
               ))}
+            </div>
+          )}
+          {visibleToolCalls.length > 0 && (
+            <div className="mt-2 rounded border border-slate-200 bg-white px-2 py-1.5">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Last tool calls</p>
+              <div className="mt-1 grid gap-1">
+                {visibleToolCalls.map((toolCall, index) => (
+                  <p
+                    key={`${toolCall.toolName}-${index}`}
+                    className="flex items-center justify-between gap-2 text-[11px]"
+                    title={toolCall.detail}
+                  >
+                    <span className="truncate text-slate-500">{toolCall.toolName}</span>
+                    <span className={`shrink-0 rounded px-1.5 py-0.5 ${agentNodeStatusClass(toolCall.status)}`}>
+                      {formatAgentOperation(toolCall.status)}
+                    </span>
+                  </p>
+                ))}
+                {toolCalls.length > visibleToolCalls.length && (
+                  <p className="text-[11px] text-slate-400">+{toolCalls.length - visibleToolCalls.length} more</p>
+                )}
+              </div>
             </div>
           )}
           {runSummary && runSummary.totalRuns > 0 && (

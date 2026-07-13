@@ -238,10 +238,17 @@ export interface AgentRunTrace {
   fallbackUsed: boolean;
   llmEnabled: boolean;
   nodeEvents?: AgentNodeEvent[];
+  toolCalls?: AgentToolCall[];
 }
 
 export interface AgentNodeEvent {
   nodeName: string;
+  status: string;
+  detail: string;
+}
+
+export interface AgentToolCall {
+  toolName: string;
   status: string;
   detail: string;
 }

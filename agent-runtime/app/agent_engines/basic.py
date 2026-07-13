@@ -2,7 +2,13 @@ from datetime import UTC, datetime
 from time import perf_counter
 from uuid import uuid4
 
-from app.agent_engines.types import TravelAgentEngineCapabilities, TravelAgentNodeEvent, TravelAgentRunTrace
+from app.agent_engines.tool_tracing import TracingTravelToolProvider
+from app.agent_engines.types import (
+    TravelAgentEngineCapabilities,
+    TravelAgentNodeEvent,
+    TravelAgentRunTrace,
+    TravelAgentToolCall,
+)
 from app.llm import LLMClient
 from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
@@ -60,6 +66,7 @@ class BasicTravelAgentEngine:
                 if fallback_used
                 else _node_event("mock_fallback", "SKIPPED", "llm_response_available"),
             ),
+            tool_calls=(),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -68,9 +75,11 @@ class BasicTravelAgentEngine:
     def generate_trip_plan(self, request: TripPlanRequest) -> TripPlanResponse:
         started_at = _utc_timestamp()
         started = perf_counter()
+        tool_calls: list[TravelAgentToolCall] = []
+        traced_tools = TracingTravelToolProvider(self._travel_tools, tool_calls)
         llm_response = self._llm_client.generate_trip_plan(request)
         if llm_response:
-            response = enrich_trip_plan_response(llm_response, request, self._travel_tools)
+            response = enrich_trip_plan_response(llm_response, request, traced_tools)
             self._record_trace(self._build_trace(
                 operation="trip_plan",
                 completed_nodes=("llm_call", "tool_enrichment"),
@@ -80,11 +89,12 @@ class BasicTravelAgentEngine:
                     _node_event("tool_enrichment", "SUCCEEDED", "travel_tools_applied"),
                     _node_event("mock_fallback", "SKIPPED", "llm_plan_available"),
                 ),
+                tool_calls=tuple(tool_calls),
                 started_at=started_at,
                 duration_ms=_elapsed_ms(started),
             ))
             return response
-        response = build_mock_trip_plan(request, self._travel_tools)
+        response = build_mock_trip_plan(request, traced_tools)
         self._record_trace(self._build_trace(
             operation="trip_plan",
             completed_nodes=("llm_call", "mock_fallback"),
@@ -94,6 +104,7 @@ class BasicTravelAgentEngine:
                 _node_event("tool_enrichment", "SKIPPED", "no_llm_plan_to_enrich"),
                 _node_event("mock_fallback", "FALLBACK", "mock_trip_plan_generated"),
             ),
+            tool_calls=tuple(tool_calls),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -121,6 +132,7 @@ class BasicTravelAgentEngine:
                 if fallback_used
                 else _node_event("mock_fallback", "SKIPPED", "llm_day_available"),
             ),
+            tool_calls=(),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
@@ -137,6 +149,7 @@ class BasicTravelAgentEngine:
         completed_nodes: tuple[str, ...],
         fallback_used: bool,
         node_events: tuple[TravelAgentNodeEvent, ...],
+        tool_calls: tuple[TravelAgentToolCall, ...],
         started_at: str,
         duration_ms: int,
     ) -> TravelAgentRunTrace:
@@ -151,6 +164,7 @@ class BasicTravelAgentEngine:
             fallback_used=fallback_used,
             llm_enabled=self.llm_enabled,
             node_events=node_events,
+            tool_calls=tool_calls,
         )
 
 

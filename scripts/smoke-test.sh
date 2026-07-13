@@ -428,6 +428,12 @@ if [ "${CREATED_TRIP_PLAN_RICH_VALID}" != "yes" ]; then
   echo "Trip plan API did not return rich itinerary fields" >&2
   exit 1
 fi
+TRIP_PLAN_AGENT_STATUS_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/status")"
+HAS_TRIP_PLAN_TOOL_CALLS="$(printf '%s' "${TRIP_PLAN_AGENT_STATUS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin).get("lastRunTrace") or {}; print("yes" if data.get("operation") == "trip_plan" and data.get("toolCalls") else "no")')"
+if [ "${HAS_TRIP_PLAN_TOOL_CALLS}" != "yes" ]; then
+  echo "Agent status API did not record trip plan tool calls" >&2
+  exit 1
+fi
 echo
 
 echo "Checking conversation list API"
