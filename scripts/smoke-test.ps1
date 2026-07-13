@@ -45,6 +45,13 @@ $agentStatus = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/status"
 if (-not $agentStatus.engine -or -not $agentStatus.capabilities) {
   throw "Agent status API did not return engine capabilities"
 }
+if (-not $agentStatus.toolCatalog -or -not $agentStatus.toolCatalog.tools -or $agentStatus.toolCatalog.toolCount -lt 1) {
+  throw "Agent status API did not return tool catalog"
+}
+$agentTools = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/tools"
+if (-not $agentTools.provider -or -not $agentTools.tools -or $agentTools.toolCount -lt 1) {
+  throw "Agent tools API did not return tool definitions"
+}
 
 Write-Host "Preparing anonymous local data"
 $anonymousUserId = "smoke-anon-$([guid]::NewGuid().ToString('N'))"

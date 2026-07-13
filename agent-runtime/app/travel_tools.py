@@ -6,8 +6,25 @@ from app.schemas import Attraction, Budget, Hotel, Location, Meal, TripPlanReque
 from app.settings import Settings
 
 
+@dataclass(frozen=True)
+class TravelToolDefinition:
+    name: str
+    category: str
+    description: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "name": self.name,
+            "category": self.category,
+            "description": self.description,
+        }
+
+
 class TravelToolProvider(Protocol):
     name: str
+
+    def list_tools(self) -> tuple[TravelToolDefinition, ...]:
+        ...
 
     def date_for_day(self, request: TripPlanRequest, day: int) -> str | None:
         ...
@@ -31,6 +48,40 @@ class TravelToolProvider(Protocol):
 @dataclass(frozen=True)
 class MockTravelToolProvider:
     name: str = "mock"
+
+    def list_tools(self) -> tuple[TravelToolDefinition, ...]:
+        return (
+            TravelToolDefinition(
+                name="date_for_day",
+                category="calendar",
+                description="Derives the itinerary date for a day when a trip start date is available.",
+            ),
+            TravelToolDefinition(
+                name="attractions_for_day",
+                category="poi",
+                description="Returns deterministic mock attractions for an itinerary day.",
+            ),
+            TravelToolDefinition(
+                name="hotel_for_day",
+                category="lodging",
+                description="Returns a deterministic mock hotel matched to destination and budget.",
+            ),
+            TravelToolDefinition(
+                name="meals_for_day",
+                category="food",
+                description="Returns deterministic mock meal suggestions for breakfast, lunch, and dinner.",
+            ),
+            TravelToolDefinition(
+                name="weather_for_trip",
+                category="weather",
+                description="Returns deterministic mock weather for the trip duration.",
+            ),
+            TravelToolDefinition(
+                name="estimate_budget",
+                category="budget",
+                description="Estimates itinerary costs from mock attractions, hotel, meals, and transit.",
+            ),
+        )
 
     def date_for_day(self, request: TripPlanRequest, day: int) -> str | None:
         if not request.start_date:

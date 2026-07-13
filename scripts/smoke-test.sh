@@ -65,6 +65,17 @@ if [ "${HAS_AGENT_STATUS_ENGINE}" != "yes" ]; then
   echo "Agent status API did not return engine capabilities" >&2
   exit 1
 fi
+HAS_AGENT_STATUS_TOOL_CATALOG="$(printf '%s' "${AGENT_STATUS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin).get("toolCatalog", {}); print("yes" if data.get("provider") and data.get("tools") and data.get("toolCount", 0) > 0 else "no")')"
+if [ "${HAS_AGENT_STATUS_TOOL_CATALOG}" != "yes" ]; then
+  echo "Agent status API did not return tool catalog" >&2
+  exit 1
+fi
+AGENT_TOOLS_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/tools")"
+HAS_AGENT_TOOLS="$(printf '%s' "${AGENT_TOOLS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); print("yes" if data.get("provider") and data.get("tools") and data.get("toolCount", 0) > 0 else "no")')"
+if [ "${HAS_AGENT_TOOLS}" != "yes" ]; then
+  echo "Agent tools API did not return tool definitions" >&2
+  exit 1
+fi
 echo
 
 echo "Preparing anonymous local data"

@@ -3628,6 +3628,8 @@ function RuntimeStatus({
   const recentRunTraces = agentStatus?.recentRunTraces?.slice(0, 3) ?? [];
   const runSummary = agentStatus?.runSummary;
   const operationSummary = Object.entries(runSummary?.operationCounts ?? {}).slice(0, 3);
+  const toolCatalog = agentStatus?.toolCatalog;
+  const visibleTools = toolCatalog?.tools.slice(0, 4) ?? [];
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -3656,11 +3658,29 @@ function RuntimeStatus({
           muted={!runtimeOnline || loading}
         />
         <StatusRow
-          label={`Travel tools: ${health?.travelToolsProvider ?? 'mock'}`}
+          label={`Travel tools: ${toolCatalog?.provider ?? health?.travelToolsProvider ?? 'mock'}${
+            toolCatalog ? ` (${toolCatalog.toolCount})` : ''
+          }`}
           active={runtimeOnline}
           muted={!runtimeOnline || loading}
         />
       </div>
+      {visibleTools.length > 0 && (
+        <div className="mt-3 border-t border-slate-200 pt-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Travel tools</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {visibleTools.map((tool) => (
+              <span
+                key={tool.name}
+                className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600"
+                title={tool.description}
+              >
+                {tool.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {workflowNodes.length > 0 && (
         <div className="mt-3 border-t border-slate-200 pt-3">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Agent workflow</p>

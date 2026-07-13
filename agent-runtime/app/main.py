@@ -196,7 +196,13 @@ def agent_status() -> dict[str, object]:
         "lastRunTrace": last_run_trace.to_dict() if last_run_trace else None,
         "recentRunTraces": [trace.to_dict() for trace in travel_agent_service.recent_run_traces],
         "runSummary": travel_agent_service.run_summary.to_dict(),
+        "toolCatalog": _travel_tool_catalog(),
     }
+
+
+@app.get("/api/v1/agent/tools")
+def agent_tools() -> dict[str, object]:
+    return _travel_tool_catalog()
 
 
 @app.post("/api/v1/auth/register", response_model=AuthSession, status_code=status.HTTP_201_CREATED)
@@ -1390,6 +1396,15 @@ def _redact_user_id(user_id: str) -> str:
     if len(user_id) <= 12:
         return user_id
     return f"{user_id[:8]}...{user_id[-4:]}"
+
+
+def _travel_tool_catalog() -> dict[str, object]:
+    tools = [tool.to_dict() for tool in travel_tool_provider.list_tools()]
+    return {
+        "provider": travel_tool_provider.name,
+        "toolCount": len(tools),
+        "tools": tools,
+    }
 
 
 def _list_all_conversations(user_id: str) -> list[Conversation]:

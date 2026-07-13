@@ -254,6 +254,18 @@ export interface AgentRunSummary {
   operationCounts: Record<string, number>;
 }
 
+export interface AgentToolDefinition {
+  name: string;
+  category: string;
+  description: string;
+}
+
+export interface AgentToolCatalog {
+  provider: string;
+  toolCount: number;
+  tools: AgentToolDefinition[];
+}
+
 export interface AgentStatusResponse {
   engine: string;
   llmEnabled: boolean;
@@ -261,6 +273,7 @@ export interface AgentStatusResponse {
   lastRunTrace?: AgentRunTrace | null;
   recentRunTraces: AgentRunTrace[];
   runSummary?: AgentRunSummary;
+  toolCatalog?: AgentToolCatalog;
 }
 
 export interface UserProfile {
@@ -447,6 +460,11 @@ export async function getHealth(): Promise<HealthResponse> {
 
 export async function getAgentStatus(): Promise<AgentStatusResponse> {
   const response = await api.get<AgentStatusResponse>('/api/v1/agent/status');
+  return response.data;
+}
+
+export async function getAgentToolCatalog(): Promise<AgentToolCatalog> {
+  const response = await api.get<AgentToolCatalog>('/api/v1/agent/tools');
   return response.data;
 }
 
