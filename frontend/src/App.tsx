@@ -2120,6 +2120,8 @@ export default function App() {
                 <PlanMeta label="Preferences" value={(plan.preferences?.length ? plan.preferences : interests).join(', ')} />
               </div>
 
+              <TripMapPreview plan={plan} />
+
               {(plan.budget || (plan.weatherInfo?.length ?? 0) > 0 || plan.overallSuggestions) && (
                 <div className="mb-5 grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
                   {plan.budget && (
@@ -4011,6 +4013,134 @@ function PlanCost({ label, value }: { label: string; value: number }) {
   );
 }
 
+type MapStop = {
+  name: string;
+  type: 'hotel' | 'attraction' | 'route';
+  address: string;
+  x: number;
+  y: number;
+};
+
+type MapSegment = {
+  from: MapStop;
+  to: MapStop;
+  label: string;
+};
+
+function TripMapPreview({ plan }: { plan: TripPlanResponse }) {
+  const mapDays = (plan.days ?? []).filter(
+    (day) =>
+      Boolean(day.hotel?.location) ||
+      (day.attractions ?? []).some((attraction) => Boolean(attraction.location)) ||
+      (day.routes?.length ?? 0) > 0,
+  );
+  const [selectedMapDay, setSelectedMapDay] = useState<number | null>(mapDays[0]?.day ?? null);
+  const selectedDay = mapDays.find((day) => day.day === selectedMapDay) ?? mapDays[0];
+
+  if (!selectedDay) {
+    return null;
+  }
+
+  const mapModel = buildDayMapModel(selectedDay);
+  if (mapModel.stops.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="mb-5 rounded-lg border border-slate-200 p-4">
+      <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h3 className="font-semibold text-ink">Map preview</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Day {selectedDay.day}
+            {selectedDay.date ? ` / ${selectedDay.date}` : ''} / {mapModel.stops.length} stops
+          </p>
+        </div>
+        {mapDays.length > 1 && (
+          <Segmented
+            size="small"
+            value={selectedDay.day}
+            options={mapDays.map((day) => ({ label: `Day ${day.day}`, value: day.day }))}
+            onChange={(value) => setSelectedMapDay(Number(value))}
+          />
+        )}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="relative h-[260px] overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+          <svg className="h-full w-full" viewBox="0 0 640 260" role="img" aria-label={`Day ${selectedDay.day} route map`}>
+            <defs>
+              <pattern id={`map-grid-${selectedDay.day}`} width="32" height="32" patternUnits="userSpaceOnUse">
+                <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#e2e8f0" strokeWidth="1" />
+              </pattern>
+            </defs>
+            <rect width="640" height="260" fill={`url(#map-grid-${selectedDay.day})`} />
+            {mapModel.segments.map((segment, index) => (
+              <g key={`${segment.from.name}-${segment.to.name}-${index}`}>
+                <line
+                  x1={segment.from.x}
+                  y1={segment.from.y}
+                  x2={segment.to.x}
+                  y2={segment.to.y}
+                  stroke="#0f766e"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeDasharray={segment.label ? '0' : '6 7'}
+                />
+                <circle
+                  cx={(segment.from.x + segment.to.x) / 2}
+                  cy={(segment.from.y + segment.to.y) / 2}
+                  r="3"
+                  fill="#0f766e"
+                  opacity="0.8"
+                />
+              </g>
+            ))}
+            {mapModel.stops.map((stop, index) => (
+              <g key={`${stop.type}-${stop.name}-${index}`}>
+                <circle
+                  cx={stop.x}
+                  cy={stop.y}
+                  r={stop.type === 'hotel' ? 11 : 9}
+                  fill={stop.type === 'hotel' ? '#0f172a' : stop.type === 'attraction' ? '#0f766e' : '#64748b'}
+                  stroke="#ffffff"
+                  strokeWidth="3"
+                />
+                <text x={stop.x} y={stop.y + 4} textAnchor="middle" className="fill-white text-[10px] font-semibold">
+                  {stop.type === 'hotel' ? 'H' : index + 1}
+                </text>
+              </g>
+            ))}
+          </svg>
+        </div>
+
+        <div className="grid content-start gap-2">
+          {mapModel.stops.slice(0, 6).map((stop, index) => (
+            <div key={`${stop.name}-${index}`} className="rounded-md bg-slate-50 p-3">
+              <div className="flex items-start gap-2">
+                <span
+                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white ${
+                    stop.type === 'hotel' ? 'bg-ink' : stop.type === 'attraction' ? 'bg-trail' : 'bg-slate-500'
+                  }`}
+                >
+                  {stop.type === 'hotel' ? 'H' : index + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-ink">{stop.name}</p>
+                  {stop.address && <p className="mt-1 truncate text-xs text-slate-500">{stop.address}</p>}
+                </div>
+              </div>
+            </div>
+          ))}
+          {mapModel.stops.length > 6 && (
+            <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">+{mapModel.stops.length - 6} more stops</p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function createDraftTripDay(day: number): TripPlanResponse['days'][number] {
   return {
     day,
@@ -4154,6 +4284,128 @@ function normalizeWeatherInfo(weatherInfo: WeatherInfo[]): WeatherInfo[] {
     }))
     .filter((weather) => weather.date.length > 0)
     .slice(0, 30);
+}
+
+function buildDayMapModel(day: TripPlanResponse['days'][number]): { stops: MapStop[]; segments: MapSegment[] } {
+  const coordinateStops = collectCoordinateStops(day);
+  const stops = coordinateStops.length > 0 ? projectCoordinateStops(coordinateStops) : buildRouteNameStops(day.routes ?? []);
+  const stopByName = new Map(stops.map((stop) => [normalizeMapName(stop.name), stop]));
+  const segments = (day.routes ?? [])
+    .map((route) => {
+      const from = stopByName.get(normalizeMapName(route.fromName));
+      const to = stopByName.get(normalizeMapName(route.toName));
+      if (!from || !to) {
+        return null;
+      }
+      return {
+        from,
+        to,
+        label: route.mode,
+      };
+    })
+    .filter((segment): segment is MapSegment => segment !== null);
+
+  if (segments.length === 0 && stops.length > 1) {
+    return {
+      stops,
+      segments: stops.slice(0, -1).map((stop, index) => ({
+        from: stop,
+        to: stops[index + 1],
+        label: '',
+      })),
+    };
+  }
+
+  return { stops, segments };
+}
+
+function collectCoordinateStops(day: TripPlanResponse['days'][number]) {
+  const rawStops: Array<{
+    name: string;
+    type: MapStop['type'];
+    address: string;
+    longitude: number;
+    latitude: number;
+  }> = [];
+
+  if (day.hotel?.location) {
+    rawStops.push({
+      name: day.hotel.name,
+      type: 'hotel',
+      address: day.hotel.address,
+      longitude: day.hotel.location.longitude,
+      latitude: day.hotel.location.latitude,
+    });
+  }
+
+  (day.attractions ?? []).forEach((attraction) => {
+    if (!attraction.location) {
+      return;
+    }
+    rawStops.push({
+      name: attraction.name,
+      type: 'attraction',
+      address: attraction.address,
+      longitude: attraction.location.longitude,
+      latitude: attraction.location.latitude,
+    });
+  });
+
+  return rawStops;
+}
+
+function projectCoordinateStops(
+  rawStops: Array<{
+    name: string;
+    type: MapStop['type'];
+    address: string;
+    longitude: number;
+    latitude: number;
+  }>,
+): MapStop[] {
+  const longitudes = rawStops.map((stop) => stop.longitude);
+  const latitudes = rawStops.map((stop) => stop.latitude);
+  const minLng = Math.min(...longitudes);
+  const maxLng = Math.max(...longitudes);
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const lngRange = maxLng - minLng || 1;
+  const latRange = maxLat - minLat || 1;
+
+  return rawStops.map((stop, index) => ({
+    name: stop.name,
+    type: stop.type,
+    address: stop.address,
+    x: rawStops.length === 1 ? 320 : 48 + ((stop.longitude - minLng) / lngRange) * 544,
+    y: rawStops.length === 1 ? 130 : 36 + (1 - (stop.latitude - minLat) / latRange) * 188 + (index % 2) * 4,
+  }));
+}
+
+function buildRouteNameStops(routes: RouteLeg[]): MapStop[] {
+  const names: string[] = [];
+  routes.forEach((route) => {
+    [route.fromName, route.toName].forEach((name) => {
+      const normalized = name.trim();
+      if (normalized && !names.some((item) => normalizeMapName(item) === normalizeMapName(normalized))) {
+        names.push(normalized);
+      }
+    });
+  });
+
+  return names.slice(0, 12).map((name, index) => {
+    const progress = names.length <= 1 ? 0.5 : index / (Math.min(names.length, 12) - 1);
+    return {
+      name,
+      type: index === 0 ? 'hotel' : 'route',
+      address: '',
+      x: 52 + progress * 536,
+      y: 130 + Math.sin(progress * Math.PI * 2) * 48,
+    };
+  });
+}
+
+function normalizeMapName(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function normalizeTextList(values: string[], limit: number): string[] {

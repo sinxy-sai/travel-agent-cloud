@@ -14,14 +14,14 @@ This project should first preserve the prototype's user-facing travel planning c
 | Preferences | Transport preference, accommodation preference, travel style tags, extra requirements | Supported with transport, accommodation, interests, profile preferences, free text |
 | Planning progress | Step-style progress text while generating: attractions, weather, hotels, itinerary | Partially supported with loading states; detailed node progress should come from agent trace events |
 | Agent planning | Multi-agent flow: attraction search, weather query, hotel search, final planner | Partially supported through graph nodes and travel tools; real LangGraph/tool orchestration is in progress |
-| Map tools | Amap MCP tools for POI, weather, walking/driving/transit routes | Mock POI/hotel/meal/weather/route tools are wired; FastMCP provider skeleton is available, Amap tool server still pending |
+| Map tools | Amap MCP tools for POI, weather, walking/driving/transit routes | FastMCP travel tool server is wired with Amap support and deterministic fallback data |
 | Result overview | Overview, date range, suggestions, budget | Supported |
 | Budget | Attraction, hotel, meal, transportation, total cost | Supported |
 | Daily itinerary | Per-day description, transport, accommodation, attractions, hotel, meals, routes | Supported with mock route summaries |
-| Attraction details | Name, address, duration, description, rating, ticket price, image | Mostly supported; image/map rendering still needs parity work |
+| Attraction details | Name, address, duration, description, rating, ticket price, image | Mostly supported; image rendering still needs parity work |
 | Hotel details | Name, address, type, price range, rating, distance | Supported |
 | Weather | Day/night weather, temperatures, wind | Supported |
-| Map view | Map markers and route polylines for attractions | Not yet implemented in the React app |
+| Map view | Map markers and route polylines for attractions | Basic per-day schematic map preview is implemented; real Amap/MapLibre rendering is pending |
 | Editing | Edit itinerary, move/delete attractions, save/cancel changes | Supported at trip/day level; attraction-level reorder/delete parity still pending |
 | Export | Export result as image and PDF | Markdown export supported; image/PDF export parity pending |
 
@@ -29,10 +29,9 @@ This project should first preserve the prototype's user-facing travel planning c
 
 1. Make the LangGraph engine a real workflow runner behind the existing API.
 2. Stabilize the travel tool interface around POI, hotel, meal, weather, route, and budget calls. Initial route contracts are now in place.
-3. Connect the FastMCP provider to an Amap-backed MCP tool server without changing trip plan APIs.
-4. Add map visualization in the React itinerary view.
-5. Add prototype-compatible image/PDF export after map rendering is stable.
-6. Add finer-grained attraction editing, including reorder and delete.
+3. Upgrade the map preview from schematic rendering to a real map SDK view once route geometry is stable.
+4. Add prototype-compatible image/PDF export after map rendering is stable.
+5. Add finer-grained attraction editing, including reorder and delete.
 
 ## Non-Goals For Direct Copy
 
