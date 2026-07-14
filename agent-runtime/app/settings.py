@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 30.0
     agent_engine: str = "basic"
     travel_tool_provider: str = "mock"
+    fastmcp_base_url: str = ""
+    fastmcp_auth_token: str = ""
+    fastmcp_timeout_seconds: float = 8.0
+    fastmcp_attractions_tool: str = "travel.search_attractions"
+    fastmcp_hotel_tool: str = "travel.search_hotel"
+    fastmcp_meals_tool: str = "travel.search_meals"
+    fastmcp_routes_tool: str = "travel.plan_routes"
+    fastmcp_weather_tool: str = "travel.get_weather"
+    fastmcp_budget_tool: str = "travel.estimate_budget"
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

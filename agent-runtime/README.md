@@ -117,11 +117,20 @@ REDIS_KEY_PREFIX=travel-agent-cloud
 RPC_TIMEOUT_SECONDS=5
 AGENT_ENGINE=basic
 TRAVEL_TOOL_PROVIDER=mock
+FASTMCP_BASE_URL=
+FASTMCP_AUTH_TOKEN=
+FASTMCP_TIMEOUT_SECONDS=8
+FASTMCP_ATTRACTIONS_TOOL=travel.search_attractions
+FASTMCP_HOTEL_TOOL=travel.search_hotel
+FASTMCP_MEALS_TOOL=travel.search_meals
+FASTMCP_ROUTES_TOOL=travel.plan_routes
+FASTMCP_WEATHER_TOOL=travel.get_weather
+FASTMCP_BUDGET_TOOL=travel.estimate_budget
 WORKER_RECONNECT_INITIAL_SECONDS=2
 WORKER_RECONNECT_MAX_SECONDS=30
 ```
 
-`MESSAGE_QUEUE_URL` enables RabbitMQ event publishing. `REDIS_URL` enables distributed auth rate limiting. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for queue and future runtime-to-service calls. `AGENT_ENGINE=basic` selects the current built-in itinerary/chat engine. `AGENT_ENGINE=langgraph` reports `langgraph:workflow-runner` in `/health`; it uses a compiled LangGraph `StateGraph` when the optional dependency is installed and falls back to the internal graph runner otherwise. It defines chat, trip context normalization, trip draft, trip revision, enrichment, validation, and day-regeneration nodes behind the same public API contract. `/health` also returns `agentEngineCapabilities` with the supported user-facing abilities, workflow node names, and dependency mode for debugging. `GET /api/v1/agent/status` returns the same capabilities plus privacy-safe `lastRunTrace` and `recentRunTraces` that record only run id, operation, timing, and node names, not user prompts. Later DeepAgent engines should implement the same engine interface without changing the public chat and trip plan APIs. `TRAVEL_TOOL_PROVIDER=mock` enables the local deterministic POI, hotel, meal, route, weather, and budget provider. Later FastMCP-backed providers should implement the same travel tool interface without changing the public trip plan API.
+`MESSAGE_QUEUE_URL` enables RabbitMQ event publishing. `REDIS_URL` enables distributed auth rate limiting. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for queue and future runtime-to-service calls. `AGENT_ENGINE=basic` selects the current built-in itinerary/chat engine. `AGENT_ENGINE=langgraph` reports `langgraph:workflow-runner` in `/health`; it uses a compiled LangGraph `StateGraph` when the optional dependency is installed and falls back to the internal graph runner otherwise. It defines chat, trip context normalization, trip draft, trip revision, enrichment, validation, and day-regeneration nodes behind the same public API contract. `/health` also returns `agentEngineCapabilities` with the supported user-facing abilities, workflow node names, and dependency mode for debugging. `GET /api/v1/agent/status` returns the same capabilities plus privacy-safe `lastRunTrace` and `recentRunTraces` that record only run id, operation, timing, and node names, not user prompts. Later DeepAgent engines should implement the same engine interface without changing the public chat and trip plan APIs. `TRAVEL_TOOL_PROVIDER=mock` enables the local deterministic POI, hotel, meal, route, weather, and budget provider. `TRAVEL_TOOL_PROVIDER=fastmcp` enables the FastMCP provider when `FASTMCP_BASE_URL` is set; tool-specific failures fall back to mock values after schema validation, so the public trip plan API remains unchanged while Amap/FastMCP tools are introduced behind the provider layer. If FastMCP is selected without a base URL, the runtime reports `mock:fastmcp_unconfigured`.
 
 `lastRunTrace.nodeEvents` adds privacy-safe node-level statuses such as `SUCCEEDED`, `SKIPPED`, and `FALLBACK`; event details describe runtime decisions but never include prompts, generated content, user ids, API keys, or provider payloads.
 Trip planning traces include a context node (`trip_context` for the graph runner or `request_context` for the basic engine) that records only counts, coarse style tags, and whether extra constraints were present.
