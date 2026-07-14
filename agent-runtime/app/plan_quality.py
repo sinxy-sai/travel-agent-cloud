@@ -6,6 +6,21 @@ from app.schemas import TripPlanRequest, TripPlanResponse
 from app.travel_tools import MockTravelToolProvider, TravelToolProvider
 
 
+ISSUE_WEIGHTS = {
+    "days_count_mismatch": 30,
+    "day_numbers_not_sequential": 20,
+    "missing_start_date": 8,
+    "missing_end_date": 8,
+    "missing_transportation": 5,
+    "missing_accommodation": 5,
+    "missing_preferences": 5,
+    "missing_weather": 8,
+    "missing_budget": 10,
+    "missing_overall_suggestions": 4,
+    "missing_tips": 3,
+}
+
+
 @dataclass(frozen=True)
 class TripPlanQualityReport:
     issues: tuple[str, ...]
@@ -19,10 +34,27 @@ class TripPlanQualityReport:
     def passed(self) -> bool:
         return not self.issues
 
+    @property
+    def score(self) -> int:
+        penalty = sum(ISSUE_WEIGHTS.get(issue, 5) for issue in self.issues)
+        return max(0, 100 - penalty)
+
+    @property
+    def grade(self) -> str:
+        if self.score >= 90:
+            return "ready"
+        if self.score >= 70:
+            return "review"
+        return "needs_work"
+
     def to_trace_detail(self) -> str:
         issue_summary = ",".join(self.issues[:4]) if self.issues else "none"
         repair_summary = ",".join(self.repaired_fields[:4]) if self.repaired_fields else "none"
-        return f"issues={len(self.issues)}:{issue_summary}; repaired={len(self.repaired_fields)}:{repair_summary}"
+        return (
+            f"issues={len(self.issues)}:{issue_summary}; "
+            f"repaired={len(self.repaired_fields)}:{repair_summary}; "
+            f"score={self.score}; grade={self.grade}"
+        )
 
 
 def assure_trip_plan_quality(

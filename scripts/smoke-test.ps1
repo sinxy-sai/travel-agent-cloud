@@ -418,7 +418,11 @@ if (-not $tripPlanContextNode -or $tripPlanContextNode.status -ne "SUCCEEDED") {
 $tripPlanQualityNode = $tripPlanAgentStatus.lastRunTrace.nodeEvents | Where-Object {
   $_.nodeName -eq "trip_validation" -or $_.nodeName -eq "plan_quality"
 } | Select-Object -First 1
-if (-not $tripPlanQualityNode -or -not ($tripPlanQualityNode.detail -like "issues=*")) {
+if (
+  -not $tripPlanQualityNode -or
+  -not ($tripPlanQualityNode.detail -like "issues=*") -or
+  -not ($tripPlanQualityNode.detail -like "*score=*")
+) {
   throw "Agent status API did not record trip plan quality node"
 }
 
