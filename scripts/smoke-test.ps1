@@ -107,6 +107,16 @@ $agentTools = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/tools"
 if (-not $agentTools.provider -or -not $agentTools.tools -or $agentTools.toolCount -lt 1) {
   throw "Agent tools API did not return tool definitions"
 }
+$agentDiagnostics = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/diagnostics"
+if (-not $agentDiagnostics.status -or -not $agentDiagnostics.checks -or $agentDiagnostics.checks.Count -lt 1) {
+  throw "Agent diagnostics API did not return checks"
+}
+if (-not ($agentDiagnostics.checks | Where-Object { $_.name -eq "workflow" })) {
+  throw "Agent diagnostics API did not include workflow check"
+}
+if (-not $agentDiagnostics.toolCatalog -or $agentDiagnostics.toolCatalog.toolCount -lt 1) {
+  throw "Agent diagnostics API did not include tool catalog"
+}
 
 Write-Host "Preparing anonymous local data"
 $anonymousUserId = "smoke-anon-$([guid]::NewGuid().ToString('N'))"

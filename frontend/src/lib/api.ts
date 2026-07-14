@@ -292,6 +292,28 @@ export interface AgentStatusResponse {
   toolCatalog?: AgentToolCatalog;
 }
 
+export type AgentDiagnosticCheckStatus = 'OK' | 'DEGRADED' | 'DISABLED' | 'FAILED';
+
+export interface AgentDiagnosticCheck {
+  name: string;
+  status: AgentDiagnosticCheckStatus;
+  detail: string;
+}
+
+export interface AgentDiagnosticsResponse {
+  status: AgentDiagnosticCheckStatus;
+  engine: string;
+  dependencyMode: string;
+  llmEnabled: boolean;
+  toolProvider: string;
+  checks: AgentDiagnosticCheck[];
+  statusCounts: Record<string, number>;
+  capabilities: AgentEngineCapabilities;
+  toolCatalog: AgentToolCatalog;
+  runSummary: AgentRunSummary;
+  lastRunTrace?: AgentRunTrace | null;
+}
+
 export interface UserProfile {
   userId: string;
   displayName: string;
@@ -481,6 +503,11 @@ export async function getAgentStatus(): Promise<AgentStatusResponse> {
 
 export async function getAgentToolCatalog(): Promise<AgentToolCatalog> {
   const response = await api.get<AgentToolCatalog>('/api/v1/agent/tools');
+  return response.data;
+}
+
+export async function getAgentDiagnostics(): Promise<AgentDiagnosticsResponse> {
+  const response = await api.get<AgentDiagnosticsResponse>('/api/v1/agent/diagnostics');
   return response.data;
 }
 

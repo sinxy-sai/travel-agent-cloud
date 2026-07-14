@@ -76,6 +76,12 @@ if [ "${HAS_AGENT_TOOLS}" != "yes" ]; then
   echo "Agent tools API did not return tool definitions" >&2
   exit 1
 fi
+AGENT_DIAGNOSTICS_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/diagnostics")"
+HAS_AGENT_DIAGNOSTICS="$(printf '%s' "${AGENT_DIAGNOSTICS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); checks=data.get("checks", []); tool_catalog=data.get("toolCatalog", {}); print("yes" if data.get("status") and checks and any(check.get("name") == "workflow" for check in checks) and tool_catalog.get("toolCount", 0) > 0 else "no")')"
+if [ "${HAS_AGENT_DIAGNOSTICS}" != "yes" ]; then
+  echo "Agent diagnostics API did not return checks" >&2
+  exit 1
+fi
 echo
 
 echo "Preparing anonymous local data"

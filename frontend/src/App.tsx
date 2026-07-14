@@ -29,6 +29,7 @@ import {
   downloadCurrentUserExportFile,
   exportCurrentUserData,
   exportTripPlanMarkdown,
+  getAgentDiagnostics,
   getAgentStatus,
   getConversation,
   getConversationSummary,
@@ -71,6 +72,7 @@ import {
   type ConversationSummary,
   type ConversationSummaryJob,
   type HealthResponse,
+  type AgentDiagnosticsResponse,
   type AgentStatusResponse,
   type Attraction,
   type Budget,
@@ -225,6 +227,13 @@ export default function App() {
   const agentStatusQuery = useQuery({
     queryKey: ['agent-status'],
     queryFn: getAgentStatus,
+    refetchInterval: 30000,
+    retry: 1,
+  });
+
+  const agentDiagnosticsQuery = useQuery({
+    queryKey: ['agent-diagnostics'],
+    queryFn: getAgentDiagnostics,
     refetchInterval: 30000,
     retry: 1,
   });
@@ -1540,7 +1549,8 @@ export default function App() {
           <RuntimeStatus
             health={healthQuery.data}
             agentStatus={agentStatusQuery.data}
-            loading={healthQuery.isLoading || agentStatusQuery.isLoading}
+            agentDiagnostics={agentDiagnosticsQuery.data}
+            loading={healthQuery.isLoading || agentStatusQuery.isLoading || agentDiagnosticsQuery.isLoading}
             error={healthQuery.isError}
           />
           <AccountStatus
@@ -3612,11 +3622,13 @@ function isTripPlanDraftValid(plan: TripPlanResponse, rawTips: string): boolean 
 function RuntimeStatus({
   health,
   agentStatus,
+  agentDiagnostics,
   loading,
   error,
 }: {
   health?: HealthResponse;
   agentStatus?: AgentStatusResponse;
+  agentDiagnostics?: AgentDiagnosticsResponse;
   loading: boolean;
   error: boolean;
 }) {
@@ -3634,6 +3646,8 @@ function RuntimeStatus({
   const toolUsageSummary = Object.entries(toolCallSummary?.toolCounts ?? {}).slice(0, 3);
   const toolCatalog = agentStatus?.toolCatalog;
   const visibleTools = toolCatalog?.tools.slice(0, 4) ?? [];
+  const diagnosticChecks = agentDiagnostics?.checks ?? [];
+  const visibleDiagnosticChecks = diagnosticChecks.slice(0, 6);
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -3668,7 +3682,29 @@ function RuntimeStatus({
           active={runtimeOnline}
           muted={!runtimeOnline || loading}
         />
+        {agentDiagnostics && (
+          <StatusRow
+            label={`Agent diagnostics: ${formatAgentOperation(agentDiagnostics.status)}`}
+            active={agentDiagnostics.status !== 'FAILED'}
+            muted={!runtimeOnline || loading}
+          />
+        )}
       </div>
+      {visibleDiagnosticChecks.length > 0 && (
+        <div className="mt-3 border-t border-slate-200 pt-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Agent diagnostics</p>
+          <div className="mt-2 grid gap-1">
+            {visibleDiagnosticChecks.map((check) => (
+              <p key={check.name} className="flex items-center justify-between gap-2 text-[11px]" title={check.detail}>
+                <span className="truncate text-slate-500">{formatAgentOperation(check.name)}</span>
+                <span className={`shrink-0 rounded px-1.5 py-0.5 ${agentNodeStatusClass(check.status)}`}>
+                  {formatAgentOperation(check.status)}
+                </span>
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
       {visibleTools.length > 0 && (
         <div className="mt-3 border-t border-slate-200 pt-3">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Travel tools</p>
@@ -4338,11 +4374,14 @@ function formatAgentOperation(value: string): string {
 }
 
 function agentNodeStatusClass(status: string): string {
-  if (status === 'SUCCEEDED') {
+  if (status === 'SUCCEEDED' || status === 'OK') {
     return 'bg-emerald-50 text-emerald-700';
   }
-  if (status === 'FALLBACK') {
+  if (status === 'FALLBACK' || status === 'DEGRADED') {
     return 'bg-amber-50 text-amber-700';
+  }
+  if (status === 'FAILED') {
+    return 'bg-red-50 text-red-700';
   }
   return 'bg-slate-100 text-slate-500';
 }

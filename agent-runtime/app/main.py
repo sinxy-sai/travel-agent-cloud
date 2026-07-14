@@ -206,6 +206,39 @@ def agent_tools() -> dict[str, object]:
     return _travel_tool_catalog()
 
 
+@app.get("/api/v1/agent/diagnostics")
+def agent_diagnostics() -> dict[str, object]:
+    capabilities = travel_agent_service.engine_capabilities
+    run_summary = travel_agent_service.run_summary
+    tool_catalog = _travel_tool_catalog()
+    checks = _agent_diagnostic_checks(capabilities, run_summary.total_runs, tool_catalog)
+    status_counts: dict[str, int] = {}
+    for check in checks:
+        status_value = str(check["status"])
+        status_counts[status_value] = status_counts.get(status_value, 0) + 1
+
+    overall_status = "OK"
+    if status_counts.get("FAILED", 0) > 0:
+        overall_status = "FAILED"
+    elif status_counts.get("DEGRADED", 0) > 0 or status_counts.get("DISABLED", 0) > 0:
+        overall_status = "DEGRADED"
+
+    last_run_trace = travel_agent_service.last_run_trace
+    return {
+        "status": overall_status,
+        "engine": travel_agent_service.engine_name,
+        "dependencyMode": capabilities.dependency_mode,
+        "llmEnabled": travel_agent_service.llm_enabled,
+        "toolProvider": travel_tool_provider.name,
+        "checks": checks,
+        "statusCounts": status_counts,
+        "capabilities": capabilities.to_dict(),
+        "toolCatalog": tool_catalog,
+        "runSummary": run_summary.to_dict(),
+        "lastRunTrace": last_run_trace.to_dict() if last_run_trace else None,
+    }
+
+
 @app.post("/api/v1/auth/register", response_model=AuthSession, status_code=status.HTTP_201_CREATED)
 def register(request: Request, payload: AuthRegisterRequest, response: Response) -> AuthSession:
     _check_auth_rate_limit(request, "register", payload.email)
@@ -1406,6 +1439,71 @@ def _travel_tool_catalog() -> dict[str, object]:
         "toolCount": len(tools),
         "tools": tools,
     }
+
+
+def _agent_diagnostic_checks(
+    capabilities: object,
+    total_runs: int,
+    tool_catalog: dict[str, object],
+) -> list[dict[str, str]]:
+    workflow_nodes = getattr(capabilities, "workflow_nodes", ())
+    checks = [
+        {
+            "name": "runtime",
+            "status": "OK",
+            "detail": "Agent runtime process is reachable.",
+        },
+        {
+            "name": "engine",
+            "status": "OK",
+            "detail": f"{travel_agent_service.engine_name} is active.",
+        },
+        {
+            "name": "workflow",
+            "status": "OK" if workflow_nodes else "FAILED",
+            "detail": f"{len(workflow_nodes)} workflow nodes registered.",
+        },
+        {
+            "name": "llm",
+            "status": "OK" if travel_agent_service.llm_enabled else "DEGRADED",
+            "detail": (
+                "LLM provider is configured."
+                if travel_agent_service.llm_enabled
+                else "LLM is disabled; fallback generation is active."
+            ),
+        },
+        {
+            "name": "travel_tools",
+            "status": _travel_tools_diagnostic_status(str(tool_catalog["provider"]), int(tool_catalog["toolCount"])),
+            "detail": _travel_tools_diagnostic_detail(str(tool_catalog["provider"]), int(tool_catalog["toolCount"])),
+        },
+        {
+            "name": "trace_history",
+            "status": "OK" if total_runs > 0 else "DISABLED",
+            "detail": (
+                f"{total_runs} recent agent runs recorded."
+                if total_runs > 0
+                else "No agent run has been recorded since startup."
+            ),
+        },
+    ]
+    return checks
+
+
+def _travel_tools_diagnostic_status(provider: str, tool_count: int) -> str:
+    if tool_count <= 0:
+        return "FAILED"
+    if provider == "mock" or provider.startswith("mock:"):
+        return "DEGRADED"
+    return "OK"
+
+
+def _travel_tools_diagnostic_detail(provider: str, tool_count: int) -> str:
+    if tool_count <= 0:
+        return "No travel tools are registered."
+    if provider == "mock" or provider.startswith("mock:"):
+        return f"{tool_count} mock travel tools are registered; real provider integration is pending."
+    return f"{tool_count} travel tools are registered."
 
 
 def _list_all_conversations(user_id: str) -> list[Conversation]:
