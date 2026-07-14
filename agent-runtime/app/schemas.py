@@ -145,6 +145,24 @@ class SavedTripPlan(APIModel):
     updated_at: datetime | None = None
 
 
+class TripPlanVersion(APIModel):
+    id: str
+    trip_plan_id: str
+    version: int
+    title: str
+    plan: TripPlanResponse
+    source: str
+    created_at: datetime
+
+
+class TripPlanVersionListResponse(APIModel):
+    data: list[TripPlanVersion]
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+
+
 class TripPlanUpdateRequest(APIModel):
     favorite: bool | None = None
     plan: TripPlanResponse | None = None
@@ -200,6 +218,10 @@ class TripPlanReviseRequest(APIModel):
         if not instruction:
             raise ValueError("Instruction is required")
         return instruction
+
+
+class TripPlanRestoreRequest(APIModel):
+    expected_version: int = Field(ge=1)
 
 
 class TripPlanListResponse(APIModel):

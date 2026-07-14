@@ -50,12 +50,14 @@ import {
   loginUser,
   listConversations,
   listTripPlans,
+  listTripPlanVersions,
   logoutUser,
   registerUser,
   regenerateTripPlanDay,
   requestEmailVerification,
   requestPasswordReset,
   reviseTripPlan,
+  restoreTripPlanVersion,
   revokeAuthSession,
   revokeOtherAuthSessions,
   sendChatMessage,
@@ -81,6 +83,7 @@ import {
   type Meal,
   type SavedTripPlan,
   type TripPlanResponse,
+  type TripPlanVersion,
   type WeatherInfo,
   type UserProfile,
   type UserExportFile,
@@ -137,6 +140,9 @@ export default function App() {
   const [tripPlanReviseModalOpen, setTripPlanReviseModalOpen] = useState(false);
   const [tripPlanReviseInstruction, setTripPlanReviseInstruction] = useState('');
   const [tripPlanReviseError, setTripPlanReviseError] = useState('');
+  const [tripPlanVersionsModalOpen, setTripPlanVersionsModalOpen] = useState(false);
+  const [tripPlanVersions, setTripPlanVersions] = useState<TripPlanVersion[]>([]);
+  const [tripPlanVersionsError, setTripPlanVersionsError] = useState('');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -517,6 +523,7 @@ export default function App() {
       setTripPlanReviseModalOpen(false);
       setTripPlanReviseInstruction('');
       setTripPlanReviseError('');
+      resetTripPlanVersionsPanel();
       setConversationPage(1);
       setTripPlanPage(1);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -582,6 +589,7 @@ export default function App() {
       setTripPlanReviseModalOpen(false);
       setTripPlanReviseInstruction('');
       setTripPlanReviseError('');
+      resetTripPlanVersionsPanel();
       if (savedTripPlan.conversationId) {
         setConversationId(savedTripPlan.conversationId);
         setConversationSummary(null);
@@ -653,6 +661,7 @@ export default function App() {
         setTripPlanReviseModalOpen(false);
         setTripPlanReviseInstruction('');
         setTripPlanReviseError('');
+        resetTripPlanVersionsPanel();
       }
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     },
@@ -765,6 +774,50 @@ export default function App() {
         isApiErrorStatus(error, 409)
           ? 'This itinerary changed elsewhere. Reload the saved itinerary before revising it.'
           : 'Could not revise this itinerary. Adjust the instruction and try again.',
+      );
+    },
+  });
+
+  const listTripPlanVersionsMutation = useMutation({
+    mutationFn: (tripPlanId: string) => listTripPlanVersions(tripPlanId),
+    onMutate: () => {
+      setTripPlanVersionsError('');
+    },
+    onSuccess: (response) => {
+      setTripPlanVersions(response.data);
+    },
+    onError: () => {
+      setTripPlanVersionsError('Could not load itinerary versions.');
+    },
+  });
+
+  const restoreTripPlanVersionMutation = useMutation({
+    mutationFn: ({
+      tripPlanId,
+      versionId,
+      expectedVersion,
+    }: {
+      tripPlanId: string;
+      versionId: string;
+      expectedVersion: number;
+    }) => restoreTripPlanVersion(tripPlanId, versionId, { expectedVersion }),
+    onMutate: () => {
+      setTripPlanVersionsError('');
+    },
+    onSuccess: (savedTripPlan) => {
+      setPlan(savedTripPlan.plan);
+      setSelectedTripPlanVersion(savedTripPlan.version);
+      queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      if (savedTripPlan.id) {
+        listTripPlanVersionsMutation.mutate(savedTripPlan.id);
+      }
+    },
+    onError: (error) => {
+      setTripPlanVersionsError(
+        isApiErrorStatus(error, 409)
+          ? 'This itinerary changed elsewhere. Reload it before restoring a version.'
+          : 'Could not restore this itinerary version.',
       );
     },
   });
@@ -883,6 +936,12 @@ export default function App() {
     setConversationSummaryJobStatus('IDLE');
     setConversationSummaryJob(null);
     setConversationSummaryJobError('');
+  }
+
+  function resetTripPlanVersionsPanel() {
+    setTripPlanVersionsModalOpen(false);
+    setTripPlanVersions([]);
+    setTripPlanVersionsError('');
   }
 
   function startConversationSummaryJobPolling(targetConversationId: string) {
@@ -1138,6 +1197,7 @@ export default function App() {
     setTripPlanReviseModalOpen(false);
     setTripPlanReviseInstruction('');
     setTripPlanReviseError('');
+    resetTripPlanVersionsPanel();
     setConversationPage(1);
     setTripPlanPage(1);
   }
@@ -1574,6 +1634,15 @@ export default function App() {
     reviseTripPlanMutation.reset();
   };
 
+  const openTripPlanVersions = () => {
+    if (!selectedTripPlanId) {
+      return;
+    }
+    setTripPlanVersionsModalOpen(true);
+    setTripPlanVersionsError('');
+    listTripPlanVersionsMutation.mutate(selectedTripPlanId);
+  };
+
   const submitTripPlanRevision = () => {
     const instruction = tripPlanReviseInstruction.trim();
     if (!selectedTripPlanId || !instruction) {
@@ -1992,6 +2061,11 @@ export default function App() {
                       onClick={openTripPlanReviser}
                     >
                       Revise
+                    </Button>
+                  )}
+                  {selectedTripPlanId && (
+                    <Button icon={<HistoryOutlined />} onClick={openTripPlanVersions}>
+                      Versions
                     </Button>
                   )}
                   {selectedTripPlanId && (
@@ -2981,6 +3055,58 @@ export default function App() {
           {tripPlanReviseError && (
             <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {tripPlanReviseError}
+            </div>
+          )}
+        </div>
+      </Modal>
+      <Modal
+        title="Itinerary versions"
+        open={tripPlanVersionsModalOpen}
+        footer={null}
+        onCancel={resetTripPlanVersionsPanel}
+      >
+        <div className="space-y-3">
+          {listTripPlanVersionsMutation.isPending && (
+            <div className="flex justify-center py-6">
+              <Spin />
+            </div>
+          )}
+          {!listTripPlanVersionsMutation.isPending && tripPlanVersions.length === 0 && !tripPlanVersionsError && (
+            <Empty description="No previous versions yet" />
+          )}
+          {tripPlanVersions.map((version) => (
+            <div key={version.id} className="rounded-md border border-slate-200 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-ink">Version {version.version}</p>
+                  <p className="mt-1 truncate text-sm text-slate-600">{version.title}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {formatAgentOperation(version.source)} / {formatDateTime(version.createdAt)}
+                  </p>
+                </div>
+                {selectedTripPlanId && (
+                  <Popconfirm
+                    title={`Restore version ${version.version}?`}
+                    okText="Restore"
+                    onConfirm={() =>
+                      restoreTripPlanVersionMutation.mutate({
+                        tripPlanId: selectedTripPlanId,
+                        versionId: version.id,
+                        expectedVersion: selectedTripPlanVersion,
+                      })
+                    }
+                  >
+                    <Button size="small" loading={restoreTripPlanVersionMutation.isPending}>
+                      Restore
+                    </Button>
+                  </Popconfirm>
+                )}
+              </div>
+            </div>
+          ))}
+          {tripPlanVersionsError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {tripPlanVersionsError}
             </div>
           )}
         </div>

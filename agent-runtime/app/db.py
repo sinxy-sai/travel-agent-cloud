@@ -54,6 +54,19 @@ def _ensure_existing_schema(engine) -> None:
                     "ON trip_plans (user_id, is_favorite, created_at)"
                 )
             )
+        if inspector.has_table("trip_plan_versions"):
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_trip_plan_versions_trip_plan_version "
+                    "ON trip_plan_versions (trip_plan_id, version)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_trip_plan_versions_user_created "
+                    "ON trip_plan_versions (user_id, created_at)"
+                )
+            )
 
         if inspector.has_table("users"):
             user_columns = {column["name"] for column in inspector.get_columns("users")}

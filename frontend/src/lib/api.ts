@@ -117,6 +117,24 @@ export interface SavedTripPlan {
   updatedAt?: string | null;
 }
 
+export interface TripPlanVersion {
+  id: string;
+  tripPlanId: string;
+  version: number;
+  title: string;
+  plan: TripPlanResponse;
+  source: string;
+  createdAt: string;
+}
+
+export interface TripPlanVersionListResponse {
+  data: TripPlanVersion[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+}
+
 export interface TripPlanUpdateRequest {
   favorite?: boolean;
   plan?: TripPlanResponse;
@@ -130,6 +148,10 @@ export interface TripDayRegenerateRequest {
 
 export interface TripPlanReviseRequest {
   instruction: string;
+  expectedVersion: number;
+}
+
+export interface TripPlanRestoreRequest {
   expectedVersion: number;
 }
 
@@ -744,6 +766,17 @@ export async function getTripPlan(tripPlanId: string): Promise<SavedTripPlan> {
   return response.data;
 }
 
+export async function listTripPlanVersions(
+  tripPlanId: string,
+  page = 1,
+  pageSize = 20,
+): Promise<TripPlanVersionListResponse> {
+  const response = await api.get<TripPlanVersionListResponse>(`/api/v1/trip-plans/${tripPlanId}/versions`, {
+    params: { page, pageSize },
+  });
+  return response.data;
+}
+
 export async function deleteTripPlan(tripPlanId: string): Promise<void> {
   await api.delete(`/api/v1/trip-plans/${tripPlanId}`);
 }
@@ -774,6 +807,18 @@ export async function reviseTripPlan(
   request: TripPlanReviseRequest,
 ): Promise<SavedTripPlan> {
   const response = await api.post<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}/revise`, request);
+  return response.data;
+}
+
+export async function restoreTripPlanVersion(
+  tripPlanId: string,
+  versionId: string,
+  request: TripPlanRestoreRequest,
+): Promise<SavedTripPlan> {
+  const response = await api.post<SavedTripPlan>(
+    `/api/v1/trip-plans/${tripPlanId}/versions/${versionId}/restore`,
+    request,
+  );
   return response.data;
 }
 

@@ -178,6 +178,23 @@ class TripPlanRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class TripPlanVersionRecord(Base):
+    __tablename__ = "trip_plan_versions"
+    __table_args__ = (
+        Index("ix_trip_plan_versions_trip_plan_version", "trip_plan_id", "version", unique=True),
+        Index("ix_trip_plan_versions_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String(80), index=True)
+    trip_plan_id: Mapped[str] = mapped_column(ForeignKey("trip_plans.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(160))
+    plan: Mapped[dict] = mapped_column(JSON)
+    source: Mapped[str] = mapped_column(String(40), default="manual_edit")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class UserProfileRecord(Base):
     __tablename__ = "user_profiles"
 

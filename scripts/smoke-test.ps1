@@ -642,6 +642,14 @@ if (
 if ([int]$editedTripPlan.version -ne ($initialTripPlanVersion + 1)) {
   throw "Trip plan content update API did not increment the version"
 }
+$tripPlanVersions = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/versions?page=1&pageSize=20" -Headers $headers
+if (-not $tripPlanVersions.data -or $tripPlanVersions.data[0].version -ne $initialTripPlanVersion) {
+  throw "Trip plan versions API did not return the pre-edit version"
+}
+$preEditVersionId = $tripPlanVersions.data[0].id
+if ($tripPlanVersions.data[0].plan.title -eq $editedTripTitle) {
+  throw "Trip plan versions API stored the edited plan instead of the previous plan"
+}
 try {
   Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)" -Method Patch -ContentType "application/json" -Headers $headers -Body $tripPlanUpdateBody
   throw "Trip plan content update API accepted a stale version"
@@ -680,17 +688,41 @@ try {
   }
 }
 
+Write-Host "Checking trip plan version restore API"
+$restoreVersionBody = @{
+  expectedVersion = [int]$revisedTripPlan.version
+} | ConvertTo-Json
+$restoredTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/versions/$preEditVersionId/restore" -Method Post -ContentType "application/json" -Headers $headers -Body $restoreVersionBody
+if ([int]$restoredTripPlan.version -ne ([int]$revisedTripPlan.version + 1)) {
+  throw "Trip plan version restore API did not increment the version"
+}
+if ($restoredTripPlan.plan.title -eq $revisedTripPlan.plan.title -or $restoredTripPlan.plan.title -eq $editedTripTitle) {
+  throw "Trip plan version restore API did not restore the earlier plan content"
+}
+$versionsAfterRestore = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/versions?page=1&pageSize=20" -Headers $headers
+if ($versionsAfterRestore.data.Count -lt 3) {
+  throw "Trip plan versions API did not retain edit, revision, and restore snapshots"
+}
+try {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/versions/$preEditVersionId/restore" -Method Post -ContentType "application/json" -Headers $headers -Body $restoreVersionBody
+  throw "Trip plan version restore API accepted a stale version"
+} catch {
+  if ($_.Exception.Response.StatusCode.value__ -ne 409) {
+    throw
+  }
+}
+
 Write-Host "Checking trip plan day regeneration API"
 $dayRegenerationBody = @{
   instruction = "Make this day slower and add a local food stop"
-  expectedVersion = [int]$revisedTripPlan.version
+  expectedVersion = [int]$restoredTripPlan.version
 } | ConvertTo-Json
 $regeneratedTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/days/2/regenerate" -Method Post -ContentType "application/json" -Headers $headers -Body $dayRegenerationBody
 $regeneratedDay = $regeneratedTripPlan.plan.days | Where-Object { $_.day -eq 2 } | Select-Object -First 1
 if (-not $regeneratedDay -or -not $regeneratedDay.theme -or -not $regeneratedDay.morning -or -not $regeneratedDay.afternoon -or -not $regeneratedDay.evening) {
   throw "Trip plan day regeneration API did not update day 2"
 }
-if ([int]$regeneratedTripPlan.version -ne ([int]$revisedTripPlan.version + 1)) {
+if ([int]$regeneratedTripPlan.version -ne ([int]$restoredTripPlan.version + 1)) {
   throw "Trip plan day regeneration API did not increment the version"
 }
 

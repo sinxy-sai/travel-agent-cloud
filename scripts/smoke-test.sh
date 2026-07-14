@@ -715,6 +715,14 @@ if [ "${EDITED_TRIP_PLAN_VERSION}" -ne "$((INITIAL_TRIP_PLAN_VERSION + 1))" ]; t
   echo "Trip plan content update API did not increment the version" >&2
   exit 1
 fi
+TRIP_PLAN_VERSIONS_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}/versions?page=1&pageSize=20" \
+  -H "X-User-Id: ${USER_ID}")"
+PRE_EDIT_VERSION_ID="$(printf '%s' "${TRIP_PLAN_VERSIONS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin).get("data", []); print(data[0].get("id", "") if data else "")')"
+PRE_EDIT_VERSION_VALID="$(printf '%s' "${TRIP_PLAN_VERSIONS_JSON}" | EDITED_TRIP_PLAN_TITLE_EXPECTED="${EDITED_TRIP_PLAN_TITLE_EXPECTED}" INITIAL_TRIP_PLAN_VERSION="${INITIAL_TRIP_PLAN_VERSION}" python3 -c 'import json, os, sys; data=json.load(sys.stdin).get("data", []); first=data[0] if data else {}; print("yes" if first.get("version") == int(os.environ["INITIAL_TRIP_PLAN_VERSION"]) and first.get("plan", {}).get("title") != os.environ["EDITED_TRIP_PLAN_TITLE_EXPECTED"] else "no")')"
+if [ -z "${PRE_EDIT_VERSION_ID}" ] || [ "${PRE_EDIT_VERSION_VALID}" != "yes" ]; then
+  echo "Trip plan versions API did not return the pre-edit version" >&2
+  exit 1
+fi
 STALE_TRIP_PLAN_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X PATCH "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: ${USER_ID}" \
@@ -757,8 +765,41 @@ if [ "${STALE_TRIP_REVISION_STATUS}" != "409" ]; then
 fi
 echo
 
+echo "Checking trip plan version restore API"
+RESTORE_VERSION_JSON="$(REVISED_TRIP_PLAN_VERSION="${REVISED_TRIP_PLAN_VERSION}" python3 -c 'import json, os; print(json.dumps({"expectedVersion": int(os.environ["REVISED_TRIP_PLAN_VERSION"])}, separators=(",", ":")))')"
+RESTORED_TRIP_PLAN_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}/versions/${PRE_EDIT_VERSION_ID}/restore" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${USER_ID}" \
+  -d "${RESTORE_VERSION_JSON}")"
+RESTORED_TRIP_PLAN_VERSION="$(printf '%s' "${RESTORED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("version", 0))')"
+RESTORED_TRIP_PLAN_VALID="$(printf '%s' "${RESTORED_TRIP_PLAN_JSON}" | EDITED_TRIP_PLAN_TITLE_EXPECTED="${EDITED_TRIP_PLAN_TITLE_EXPECTED}" python3 -c 'import json, os, sys; plan=json.load(sys.stdin).get("plan", {}); title=plan.get("title", ""); print("yes" if title and title != os.environ["EDITED_TRIP_PLAN_TITLE_EXPECTED"] and not title.startswith("Revised") else "no")')"
+if [ "${RESTORED_TRIP_PLAN_VALID}" != "yes" ]; then
+  echo "Trip plan version restore API did not restore the earlier plan content" >&2
+  exit 1
+fi
+if [ "${RESTORED_TRIP_PLAN_VERSION}" -ne "$((REVISED_TRIP_PLAN_VERSION + 1))" ]; then
+  echo "Trip plan version restore API did not increment the version" >&2
+  exit 1
+fi
+VERSIONS_AFTER_RESTORE_JSON="$(curl -fsS "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}/versions?page=1&pageSize=20" \
+  -H "X-User-Id: ${USER_ID}")"
+VERSIONS_AFTER_RESTORE_COUNT="$(printf '%s' "${VERSIONS_AFTER_RESTORE_JSON}" | python3 -c 'import json, sys; print(len(json.load(sys.stdin).get("data", [])))')"
+if [ "${VERSIONS_AFTER_RESTORE_COUNT}" -lt 3 ]; then
+  echo "Trip plan versions API did not retain edit, revision, and restore snapshots" >&2
+  exit 1
+fi
+STALE_RESTORE_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}/versions/${PRE_EDIT_VERSION_ID}/restore" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${USER_ID}" \
+  -d "${RESTORE_VERSION_JSON}")"
+if [ "${STALE_RESTORE_STATUS}" != "409" ]; then
+  echo "Trip plan version restore API accepted a stale version" >&2
+  exit 1
+fi
+echo
+
 echo "Checking trip plan day regeneration API"
-DAY_REGENERATION_JSON="$(REVISED_TRIP_PLAN_VERSION="${REVISED_TRIP_PLAN_VERSION}" python3 -c 'import json, os; print(json.dumps({"instruction": "Make this day slower and add a local food stop", "expectedVersion": int(os.environ["REVISED_TRIP_PLAN_VERSION"])}, separators=(",", ":")))')"
+DAY_REGENERATION_JSON="$(RESTORED_TRIP_PLAN_VERSION="${RESTORED_TRIP_PLAN_VERSION}" python3 -c 'import json, os; print(json.dumps({"instruction": "Make this day slower and add a local food stop", "expectedVersion": int(os.environ["RESTORED_TRIP_PLAN_VERSION"])}, separators=(",", ":")))')"
 REGENERATED_TRIP_PLAN_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}/days/2/regenerate" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: ${USER_ID}" \
@@ -769,7 +810,7 @@ if [ "${REGENERATED_DAY_VALID}" != "yes" ]; then
   echo "Trip plan day regeneration API did not update day 2" >&2
   exit 1
 fi
-if [ "${REGENERATED_TRIP_PLAN_VERSION}" -ne "$((REVISED_TRIP_PLAN_VERSION + 1))" ]; then
+if [ "${REGENERATED_TRIP_PLAN_VERSION}" -ne "$((RESTORED_TRIP_PLAN_VERSION + 1))" ]; then
   echo "Trip plan day regeneration API did not increment the version" >&2
   exit 1
 fi

@@ -141,6 +141,7 @@ Current events:
 - `trip.plan.updated`
 - `trip.plan.deleted`
 - `user.profile.updated`
+- `trip.plan.version.restored`
 - `agent.conversation.updated`
 - `agent.conversation.deleted`
 - `agent.conversation.summarize.requested`
@@ -187,6 +188,7 @@ When database storage is enabled, the service creates the current tables on star
 - `conversation_summaries`
 - `conversation_summary_jobs`
 - `trip_plans`
+- `trip_plan_versions`
 - `auth_tokens`
 - `auth_identities`
 - `users`
@@ -517,6 +519,7 @@ curl -X PATCH http://localhost:8000/api/v1/trip-plans/{tripPlanId} \
 ```
 
 Content edits increment `version`. A request using an outdated `expectedVersion` returns HTTP `409` with code `TRIP_PLAN_VERSION_CONFLICT`; reload the saved plan before retrying. Favorite-only updates do not require `expectedVersion`.
+Before each content edit, agent revision, day regeneration, or version restore, the runtime stores the previous itinerary in `trip_plan_versions`.
 
 Revise a full saved trip plan with an agent instruction. The whole itinerary is replaced, quality-checked, saved with the next `version`, and attached to the planning conversation when one exists:
 
@@ -541,6 +544,20 @@ curl -X POST http://localhost:8000/api/v1/trip-plans/{tripPlanId}/days/2/regener
 ```
 
 Day regeneration also increments `version` and returns HTTP `409` with code `TRIP_PLAN_VERSION_CONFLICT` when `expectedVersion` is stale.
+
+List previous versions for a saved trip plan:
+
+```bash
+curl "http://localhost:8000/api/v1/trip-plans/{tripPlanId}/versions?page=1&pageSize=20"
+```
+
+Restore a previous version. Restoring creates a new current version and snapshots the plan that was current before restore:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/trip-plans/{tripPlanId}/versions/{versionId}/restore \
+  -H "Content-Type: application/json" \
+  -d '{"expectedVersion": 4}'
+```
 
 Delete a saved trip plan:
 
