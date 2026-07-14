@@ -6,9 +6,9 @@ ARG VITE_AMAP_SECURITY_JS_CODE=""
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN if [ -n "$VITE_AGENT_API_BASE_URL" ]; then export VITE_AGENT_API_BASE_URL; fi; \
-    if [ -n "$VITE_AMAP_JS_KEY" ]; then export VITE_AMAP_JS_KEY; fi; \
-    if [ -n "$VITE_AMAP_SECURITY_JS_CODE" ]; then export VITE_AMAP_SECURITY_JS_CODE; fi; \
+RUN if [ -n "$VITE_AGENT_API_BASE_URL" ]; then export VITE_AGENT_API_BASE_URL; else unset VITE_AGENT_API_BASE_URL; fi; \
+    if [ -n "$VITE_AMAP_JS_KEY" ]; then export VITE_AMAP_JS_KEY; else unset VITE_AMAP_JS_KEY; fi; \
+    if [ -n "$VITE_AMAP_SECURITY_JS_CODE" ]; then export VITE_AMAP_SECURITY_JS_CODE; else unset VITE_AMAP_SECURITY_JS_CODE; fi; \
     npm run build
 
 FROM nginx:1.27-alpine
