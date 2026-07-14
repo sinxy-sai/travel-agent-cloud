@@ -113,6 +113,8 @@ services:
       context: ./frontend
       args:
         VITE_AGENT_API_BASE_URL: ""
+        VITE_AMAP_JS_KEY: ${VITE_AMAP_JS_KEY:-}
+        VITE_AMAP_SECURITY_JS_CODE: ${VITE_AMAP_SECURITY_JS_CODE:-}
     container_name: travel-agent-frontend
     ports:
       - "5173:80"

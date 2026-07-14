@@ -112,6 +112,8 @@ const historyPageSize = 8;
 const tripPlanVersionsPageSize = 5;
 const summaryJobPollingIntervalMs = 2000;
 const summaryJobPollingTimeoutMs = 30000;
+const amapJsKey = import.meta.env.VITE_AMAP_JS_KEY?.trim() ?? '';
+const amapSecurityJsCode = import.meta.env.VITE_AMAP_SECURITY_JS_CODE?.trim() ?? '';
 type ConversationSummaryJobUiStatus = 'IDLE' | 'POLLING' | 'FAILED' | 'TIMEOUT';
 type AttractionTextField = 'name' | 'address' | 'description' | 'category';
 type HotelTextField = 'name' | 'address' | 'priceRange' | 'rating' | 'distance' | 'type';
@@ -4219,6 +4221,8 @@ type MapStop = {
   name: string;
   type: 'hotel' | 'attraction' | 'route';
   address: string;
+  longitude?: number;
+  latitude?: number;
   x: number;
   y: number;
 };
@@ -4229,6 +4233,46 @@ type MapSegment = {
   label: string;
 };
 
+type AMapPosition = [number, number];
+
+interface AMapMapInstance {
+  add: (overlays: unknown | unknown[]) => void;
+  destroy: () => void;
+  setFitView: (overlays?: unknown[], immediately?: boolean, avoid?: [number, number, number, number], maxZoom?: number) => void;
+}
+
+interface AMapMarkerInstance {
+  getPosition: () => unknown;
+  on: (eventName: string, handler: (event: { target: AMapMarkerInstance }) => void) => void;
+}
+
+interface AMapInfoWindowInstance {
+  open: (map: AMapMapInstance, position: unknown) => void;
+}
+
+interface AMapNamespace {
+  Map: new (container: HTMLDivElement, options: Record<string, unknown>) => AMapMapInstance;
+  Marker: new (options: Record<string, unknown>) => AMapMarkerInstance;
+  Polyline: new (options: Record<string, unknown>) => unknown;
+  InfoWindow: new (options: Record<string, unknown>) => AMapInfoWindowInstance;
+  Pixel: new (x: number, y: number) => unknown;
+}
+
+interface AMapLoaderNamespace {
+  load: (options: { key: string; version: string; plugins?: string[] }) => Promise<AMapNamespace>;
+}
+
+declare global {
+  interface Window {
+    AMapLoader?: AMapLoaderNamespace;
+    _AMapSecurityConfig?: {
+      securityJsCode?: string;
+    };
+  }
+}
+
+let amapLoaderPromise: Promise<AMapLoaderNamespace> | null = null;
+
 function TripMapPreview({ plan }: { plan: TripPlanResponse }) {
   const mapDays = (plan.days ?? []).filter(
     (day) =>
@@ -4238,6 +4282,11 @@ function TripMapPreview({ plan }: { plan: TripPlanResponse }) {
   );
   const [selectedMapDay, setSelectedMapDay] = useState<number | null>(mapDays[0]?.day ?? null);
   const selectedDay = mapDays.find((day) => day.day === selectedMapDay) ?? mapDays[0];
+  const [amapUnavailable, setAmapUnavailable] = useState('');
+
+  useEffect(() => {
+    setAmapUnavailable('');
+  }, [selectedDay?.day]);
 
   if (!selectedDay) {
     return null;
@@ -4247,6 +4296,7 @@ function TripMapPreview({ plan }: { plan: TripPlanResponse }) {
   if (mapModel.stops.length === 0) {
     return null;
   }
+  const canUseAmap = Boolean(amapJsKey && mapModel.stops.some(hasCoordinateStop) && !amapUnavailable);
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 p-4">
@@ -4269,52 +4319,16 @@ function TripMapPreview({ plan }: { plan: TripPlanResponse }) {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
-        <div className="relative h-[260px] overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-          <svg className="h-full w-full" viewBox="0 0 640 260" role="img" aria-label={`Day ${selectedDay.day} route map`}>
-            <defs>
-              <pattern id={`map-grid-${selectedDay.day}`} width="32" height="32" patternUnits="userSpaceOnUse">
-                <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#e2e8f0" strokeWidth="1" />
-              </pattern>
-            </defs>
-            <rect width="640" height="260" fill={`url(#map-grid-${selectedDay.day})`} />
-            {mapModel.segments.map((segment, index) => (
-              <g key={`${segment.from.name}-${segment.to.name}-${index}`}>
-                <line
-                  x1={segment.from.x}
-                  y1={segment.from.y}
-                  x2={segment.to.x}
-                  y2={segment.to.y}
-                  stroke="#0f766e"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeDasharray={segment.label ? '0' : '6 7'}
-                />
-                <circle
-                  cx={(segment.from.x + segment.to.x) / 2}
-                  cy={(segment.from.y + segment.to.y) / 2}
-                  r="3"
-                  fill="#0f766e"
-                  opacity="0.8"
-                />
-              </g>
-            ))}
-            {mapModel.stops.map((stop, index) => (
-              <g key={`${stop.type}-${stop.name}-${index}`}>
-                <circle
-                  cx={stop.x}
-                  cy={stop.y}
-                  r={stop.type === 'hotel' ? 11 : 9}
-                  fill={stop.type === 'hotel' ? '#0f172a' : stop.type === 'attraction' ? '#0f766e' : '#64748b'}
-                  stroke="#ffffff"
-                  strokeWidth="3"
-                />
-                <text x={stop.x} y={stop.y + 4} textAnchor="middle" className="fill-white text-[10px] font-semibold">
-                  {stop.type === 'hotel' ? 'H' : index + 1}
-                </text>
-              </g>
-            ))}
-          </svg>
-        </div>
+        {canUseAmap ? (
+          <AmapRouteMap
+            key={`amap-${selectedDay.day}`}
+            mapModel={mapModel}
+            selectedDay={selectedDay}
+            onUnavailable={setAmapUnavailable}
+          />
+        ) : (
+          <SchematicRouteMap mapModel={mapModel} selectedDay={selectedDay} />
+        )}
 
         <div className="grid content-start gap-2">
           {mapModel.stops.slice(0, 6).map((stop, index) => (
@@ -4341,6 +4355,239 @@ function TripMapPreview({ plan }: { plan: TripPlanResponse }) {
       </div>
     </section>
   );
+}
+
+function AmapRouteMap({
+  mapModel,
+  selectedDay,
+  onUnavailable,
+}: {
+  mapModel: { stops: MapStop[]; segments: MapSegment[] };
+  selectedDay: TripPlanResponse['days'][number];
+  onUnavailable: (message: string) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<AMapMapInstance | null>(null);
+  const coordinateStops = mapModel.stops.filter(hasCoordinateStop);
+  const coordinateSignature = coordinateStops
+    .map((stop) => `${stop.name}:${stop.longitude}:${stop.latitude}`)
+    .join('|');
+  const segmentSignature = mapModel.segments
+    .filter((segment) => hasCoordinateStop(segment.from) && hasCoordinateStop(segment.to))
+    .map((segment) => `${segment.from.name}:${segment.to.name}:${segment.label}`)
+    .join('|');
+
+  useEffect(() => {
+    let cancelled = false;
+    const container = containerRef.current;
+    if (!container || coordinateStops.length === 0) {
+      return undefined;
+    }
+
+    loadAmapLoader()
+      .then((loader) => loader.load({ key: amapJsKey, version: '2.0', plugins: ['AMap.Scale'] }))
+      .then((AMap) => {
+        if (cancelled || !containerRef.current) {
+          return;
+        }
+
+        mapRef.current?.destroy();
+        const map = new AMap.Map(containerRef.current, {
+          resizeEnable: true,
+          viewMode: '2D',
+          zoom: 13,
+          center: [coordinateStops[0].longitude, coordinateStops[0].latitude],
+        });
+        mapRef.current = map;
+
+        const markers = coordinateStops.map((stop, index) => {
+          const marker = new AMap.Marker({
+            position: toAmapPosition(stop),
+            title: stop.name,
+            label: {
+              content: stop.type === 'hotel' ? 'H' : String(index + 1),
+              direction: 'top',
+            },
+          });
+          const infoWindow = new AMap.InfoWindow({
+            content: createAmapInfoWindowHtml(stop),
+            offset: new AMap.Pixel(0, -30),
+          });
+          marker.on('click', (event) => infoWindow.open(map, event.target.getPosition()));
+          return marker;
+        });
+
+        const polylines = mapModel.segments.flatMap((segment) => {
+          if (!hasCoordinateStop(segment.from) || !hasCoordinateStop(segment.to)) {
+            return [];
+          }
+          return [
+            new AMap.Polyline({
+              path: [toAmapPosition(segment.from), toAmapPosition(segment.to)],
+              strokeColor: '#0f766e',
+              strokeOpacity: 0.86,
+              strokeWeight: 5,
+              strokeStyle: segment.label ? 'solid' : 'dashed',
+            }),
+          ];
+        });
+
+        map.add([...markers, ...polylines]);
+        map.setFitView([...markers, ...polylines], false, [36, 36, 36, 36], 15);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          onUnavailable('amap_sdk_unavailable');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      mapRef.current?.destroy();
+      mapRef.current = null;
+    };
+  }, [coordinateSignature, segmentSignature, coordinateStops.length, onUnavailable]);
+
+  return (
+    <div className="relative h-[260px] overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+      <div ref={containerRef} className="h-full w-full" aria-label={`Day ${selectedDay.day} AMap route map`} />
+      <span className="absolute left-3 top-3 rounded bg-white/90 px-2 py-1 text-xs font-medium text-slate-600 shadow-sm">
+        AMap
+      </span>
+    </div>
+  );
+}
+
+function SchematicRouteMap({
+  mapModel,
+  selectedDay,
+}: {
+  mapModel: { stops: MapStop[]; segments: MapSegment[] };
+  selectedDay: TripPlanResponse['days'][number];
+}) {
+  return (
+    <div className="relative h-[260px] overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+      <svg className="h-full w-full" viewBox="0 0 640 260" role="img" aria-label={`Day ${selectedDay.day} route map`}>
+        <defs>
+          <pattern id={`map-grid-${selectedDay.day}`} width="32" height="32" patternUnits="userSpaceOnUse">
+            <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#e2e8f0" strokeWidth="1" />
+          </pattern>
+        </defs>
+        <rect width="640" height="260" fill={`url(#map-grid-${selectedDay.day})`} />
+        {mapModel.segments.map((segment, index) => (
+          <g key={`${segment.from.name}-${segment.to.name}-${index}`}>
+            <line
+              x1={segment.from.x}
+              y1={segment.from.y}
+              x2={segment.to.x}
+              y2={segment.to.y}
+              stroke="#0f766e"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeDasharray={segment.label ? '0' : '6 7'}
+            />
+            <circle
+              cx={(segment.from.x + segment.to.x) / 2}
+              cy={(segment.from.y + segment.to.y) / 2}
+              r="3"
+              fill="#0f766e"
+              opacity="0.8"
+            />
+          </g>
+        ))}
+        {mapModel.stops.map((stop, index) => (
+          <g key={`${stop.type}-${stop.name}-${index}`}>
+            <circle
+              cx={stop.x}
+              cy={stop.y}
+              r={stop.type === 'hotel' ? 11 : 9}
+              fill={stop.type === 'hotel' ? '#0f172a' : stop.type === 'attraction' ? '#0f766e' : '#64748b'}
+              stroke="#ffffff"
+              strokeWidth="3"
+            />
+            <text x={stop.x} y={stop.y + 4} textAnchor="middle" className="fill-white text-[10px] font-semibold">
+              {stop.type === 'hotel' ? 'H' : index + 1}
+            </text>
+          </g>
+        ))}
+      </svg>
+      <span className="absolute left-3 top-3 rounded bg-white/90 px-2 py-1 text-xs font-medium text-slate-600 shadow-sm">
+        Schematic
+      </span>
+    </div>
+  );
+}
+
+function loadAmapLoader(): Promise<AMapLoaderNamespace> {
+  if (window.AMapLoader) {
+    return Promise.resolve(window.AMapLoader);
+  }
+  if (amapSecurityJsCode) {
+    window._AMapSecurityConfig = {
+      securityJsCode: amapSecurityJsCode,
+    };
+  }
+  if (amapLoaderPromise) {
+    return amapLoaderPromise;
+  }
+
+  amapLoaderPromise = new Promise((resolve, reject) => {
+    const existingScript = document.getElementById('amap-jsapi-loader');
+    if (existingScript) {
+      existingScript.addEventListener('load', () => {
+        if (window.AMapLoader) {
+          resolve(window.AMapLoader);
+        } else {
+          reject(new Error('AMap loader is unavailable'));
+        }
+      });
+      existingScript.addEventListener('error', () => reject(new Error('AMap loader script failed')));
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = 'amap-jsapi-loader';
+    script.async = true;
+    script.src = 'https://webapi.amap.com/loader.js';
+    script.onload = () => {
+      if (window.AMapLoader) {
+        resolve(window.AMapLoader);
+      } else {
+        reject(new Error('AMap loader is unavailable'));
+      }
+    };
+    script.onerror = () => reject(new Error('AMap loader script failed'));
+    document.head.appendChild(script);
+  });
+
+  return amapLoaderPromise;
+}
+
+function hasCoordinateStop(stop: MapStop): stop is MapStop & { longitude: number; latitude: number } {
+  return Number.isFinite(stop.longitude) && Number.isFinite(stop.latitude);
+}
+
+function toAmapPosition(stop: MapStop & { longitude: number; latitude: number }): AMapPosition {
+  return [stop.longitude, stop.latitude];
+}
+
+function createAmapInfoWindowHtml(stop: MapStop): string {
+  const address = stop.address ? `<p style="margin:4px 0 0;color:#64748b;">${escapeHtml(stop.address)}</p>` : '';
+  return [
+    '<div style="min-width:160px;max-width:240px;font:13px/1.45 system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;">',
+    `<strong style="display:block;color:#0f172a;">${escapeHtml(stop.name)}</strong>`,
+    address,
+    '</div>',
+  ].join('');
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function createDraftTripDay(day: number): TripPlanResponse['days'][number] {
@@ -4600,6 +4847,8 @@ function projectCoordinateStops(
     name: stop.name,
     type: stop.type,
     address: stop.address,
+    longitude: stop.longitude,
+    latitude: stop.latitude,
     x: rawStops.length === 1 ? 320 : 48 + ((stop.longitude - minLng) / lngRange) * 544,
     y: rawStops.length === 1 ? 130 : 36 + (1 - (stop.latitude - minLat) / latRange) * 188 + (index % 2) * 4,
   }));
