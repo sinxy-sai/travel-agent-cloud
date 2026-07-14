@@ -7,6 +7,61 @@ $headers = @{
   "X-User-Id" = "smoke-test-user"
 }
 
+function ConvertTo-AsciiJson {
+  param(
+    [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
+    [string]$Json
+  )
+
+  $builder = [System.Text.StringBuilder]::new()
+  foreach ($character in $Json.ToCharArray()) {
+    $codePoint = [int][char]$character
+    if ($codePoint -gt 127) {
+      [void]$builder.Append(("\u{0:x4}" -f $codePoint))
+    } else {
+      [void]$builder.Append($character)
+    }
+  }
+  return $builder.ToString()
+}
+
+function Invoke-JsonRequestUtf8 {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Uri,
+    [string]$Method = "Get",
+    [hashtable]$Headers,
+    [string]$ContentType = "application/json",
+    $Body = $null
+  )
+
+  $request = @{
+    Uri = $Uri
+    Method = $Method
+    UseBasicParsing = $true
+  }
+  if ($Headers) {
+    $request.Headers = $Headers
+  }
+  if ($null -ne $Body) {
+    $request.ContentType = $ContentType
+    $request.Body = $Body
+  }
+
+  $response = Invoke-WebRequest @request
+  if ($response.RawContentStream) {
+    $response.RawContentStream.Position = 0
+    $reader = [System.IO.StreamReader]::new($response.RawContentStream, [System.Text.Encoding]::UTF8)
+    $content = $reader.ReadToEnd()
+  } else {
+    $content = $response.Content
+  }
+  if (-not $content) {
+    return $null
+  }
+  return $content | ConvertFrom-Json
+}
+
 Write-Host "Checking health: $BaseUrl/health"
 $healthResponse = Invoke-WebRequest -Uri "$BaseUrl/health" -UseBasicParsing
 if (-not $healthResponse.Headers["X-Request-ID"]) {
@@ -414,16 +469,17 @@ Write-Host "Checking trip plan content update and version conflict API"
 $savedTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)" -Headers $headers
 $initialTripPlanVersion = [int]$savedTripPlan.version
 $editedTripTitle = -join ([char[]](0x0033, 0x5929, 0x6210, 0x90FD, 0x4E4B, 0x65C5))
-$savedTripPlan.plan.title = $editedTripTitle
-$savedTripPlan.plan.startDate = "2026-08-02"
-$savedTripPlan.plan.endDate = "2026-08-05"
-$savedTripPlan.plan.transportation = "metro, walking, and taxi"
-$savedTripPlan.plan.accommodation = "boutique hotel near transit"
-$savedTripPlan.plan.preferences = @("local food", "city walk", "tea house")
-$savedTripPlan.plan.freeTextInput = "Keep the plan editable and leave room for a slow afternoon."
-$savedTripPlan.plan.overallSuggestions = "Carry an umbrella and reserve dinner before peak hours."
+$editableTripPlan = $savedTripPlan.plan | ConvertTo-Json -Depth 40 | ConvertFrom-Json
+$editableTripPlan.title = $editedTripTitle
+$editableTripPlan.startDate = "2026-08-02"
+$editableTripPlan.endDate = "2026-08-05"
+$editableTripPlan.transportation = "metro, walking, and taxi"
+$editableTripPlan.accommodation = "boutique hotel near transit"
+$editableTripPlan.preferences = @("local food", "city walk", "tea house")
+$editableTripPlan.freeTextInput = "Keep the plan editable and leave room for a slow afternoon."
+$editableTripPlan.overallSuggestions = "Carry an umbrella and reserve dinner before peak hours."
 
-$editedDays = @($savedTripPlan.plan.days)
+$editedDays = @($editableTripPlan.days)
 if ($editedDays.Count -lt 3) {
   throw "Trip plan update setup expected at least 3 days"
 }
@@ -466,8 +522,8 @@ $reorderedDays = @($editedDays[1], $editedDays[0], $editedDays[2], $extraDay)
 for ($i = 0; $i -lt $reorderedDays.Count; $i++) {
   $reorderedDays[$i].day = $i + 1
 }
-$savedTripPlan.plan.days = $reorderedDays
-$savedTripPlan.plan.weatherInfo = @(
+$editableTripPlan.days = $reorderedDays
+$editableTripPlan.weatherInfo = @(
   [pscustomobject]@{
     date = "2026-08-05"
     dayWeather = "Cloudy"
@@ -478,16 +534,20 @@ $savedTripPlan.plan.weatherInfo = @(
     windPower = "2"
   }
 )
-$savedTripPlan.plan.budget.totalAttractions = 1
-$savedTripPlan.plan.budget.totalHotels = 2
-$savedTripPlan.plan.budget.totalMeals = 3
-$savedTripPlan.plan.budget.totalTransportation = 180
-$savedTripPlan.plan.budget.total = 4
+$editableTripPlan.budget.totalAttractions = 1
+$editableTripPlan.budget.totalHotels = 2
+$editableTripPlan.budget.totalMeals = 3
+$editableTripPlan.budget.totalTransportation = 180
+$editableTripPlan.budget.total = 4
 $tripPlanUpdateBody = @{
-  plan = $savedTripPlan.plan
+  plan = $editableTripPlan
   expectedVersion = $initialTripPlanVersion
-} | ConvertTo-Json -Depth 40
-$editedTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)" -Method Patch -ContentType "application/json" -Headers $headers -Body $tripPlanUpdateBody
+} | ConvertTo-Json -Depth 40 | ConvertTo-AsciiJson
+$tripPlanUpdatePreview = $tripPlanUpdateBody | ConvertFrom-Json
+if ($tripPlanUpdatePreview.plan.title -ne $editedTripTitle) {
+  throw "Smoke test setup did not serialize edited trip title"
+}
+$editedTripPlan = Invoke-JsonRequestUtf8 -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)" -Method Patch -ContentType "application/json" -Headers $headers -Body $tripPlanUpdateBody
 if ($editedTripPlan.plan.title -ne $editedTripTitle) {
   throw "Trip plan content update API did not persist the edited title"
 }
