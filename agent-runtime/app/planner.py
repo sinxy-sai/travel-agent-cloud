@@ -13,23 +13,27 @@ def build_mock_trip_plan(
     interests = planning_context.interest_summary
     transportation = planning_context.transportation
     accommodation = planning_context.accommodation
-    days = [
-        TripDay(
-            day=day,
-            date=travel_tools.date_for_day(request, day),
-            theme=_theme_for_day(day, interests),
-            description=f"Day {day} balances {interests} with practical transit and recovery time.",
-            transportation=transportation,
-            accommodation=accommodation,
-            morning=f"Start with a calm neighborhood route in {request.destination} and collect local context.",
-            afternoon=f"Visit a high-value attraction matched to {interests}, then leave buffer time for transit.",
-            evening=f"Choose a {request.budget} dinner area and review tomorrow's route with the assistant.",
-            hotel=travel_tools.hotel_for_day(request, day),
-            attractions=travel_tools.attractions_for_day(request, day),
-            meals=travel_tools.meals_for_day(request, day),
+    days: list[TripDay] = []
+    for day in range(1, request.days + 1):
+        hotel = travel_tools.hotel_for_day(request, day)
+        attractions = travel_tools.attractions_for_day(request, day)
+        days.append(
+            TripDay(
+                day=day,
+                date=travel_tools.date_for_day(request, day),
+                theme=_theme_for_day(day, interests),
+                description=f"Day {day} balances {interests} with practical transit and recovery time.",
+                transportation=transportation,
+                accommodation=accommodation,
+                morning=f"Start with a calm neighborhood route in {request.destination} and collect local context.",
+                afternoon=f"Visit a high-value attraction matched to {interests}, then leave buffer time for transit.",
+                evening=f"Choose a {request.budget} dinner area and review tomorrow's route with the assistant.",
+                hotel=hotel,
+                attractions=attractions,
+                meals=travel_tools.meals_for_day(request, day),
+                routes=travel_tools.routes_for_day(request, day, attractions, hotel),
+            )
         )
-        for day in range(1, request.days + 1)
-    ]
     weather_info = travel_tools.weather_for_trip(request)
     budget = travel_tools.estimate_budget(request)
 
@@ -71,21 +75,25 @@ def enrich_trip_plan_response(
     planning_context = planning_context or build_travel_planning_context(request)
     transportation = plan.transportation or planning_context.transportation
     accommodation = plan.accommodation or planning_context.accommodation
-    days = [
-        day.model_copy(
-            update={
-                "date": day.date or travel_tools.date_for_day(request, day.day),
-                "description": day.description
-                or f"Day {day.day} balances {planning_context.interest_summary} with practical pacing.",
-                "transportation": day.transportation or transportation,
-                "accommodation": day.accommodation or accommodation,
-                "hotel": day.hotel or travel_tools.hotel_for_day(request, day.day),
-                "attractions": day.attractions or travel_tools.attractions_for_day(request, day.day),
-                "meals": day.meals or travel_tools.meals_for_day(request, day.day),
-            }
+    days = []
+    for day in plan.days:
+        hotel = day.hotel or travel_tools.hotel_for_day(request, day.day)
+        attractions = day.attractions or travel_tools.attractions_for_day(request, day.day)
+        days.append(
+            day.model_copy(
+                update={
+                    "date": day.date or travel_tools.date_for_day(request, day.day),
+                    "description": day.description
+                    or f"Day {day.day} balances {planning_context.interest_summary} with practical pacing.",
+                    "transportation": day.transportation or transportation,
+                    "accommodation": day.accommodation or accommodation,
+                    "hotel": hotel,
+                    "attractions": attractions,
+                    "meals": day.meals or travel_tools.meals_for_day(request, day.day),
+                    "routes": day.routes or travel_tools.routes_for_day(request, day.day, attractions, hotel),
+                }
+            )
         )
-        for day in plan.days
-    ]
 
     return plan.model_copy(
         update={

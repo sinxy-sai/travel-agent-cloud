@@ -1,8 +1,15 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import perf_counter
-from typing import Callable, Generic, TypeVar
+from typing import Callable, Generic, TypedDict, TypeVar, cast
 from uuid import uuid4
+
+try:
+    from langgraph.graph import END, START, StateGraph
+except ImportError:  # pragma: no cover - exercised when optional dependency is absent.
+    END = None
+    START = None
+    StateGraph = None
 
 from app.agent_engines.tool_tracing import TracingTravelToolProvider
 from app.agent_engines.types import (
@@ -27,6 +34,11 @@ from app.travel_tools import TravelToolProvider
 
 MAX_TRACE_HISTORY = 10
 WorkflowStateT = TypeVar("WorkflowStateT")
+
+
+class _GraphWorkflowState(TypedDict):
+    state: object
+    completed_nodes: list[str]
 
 
 @dataclass
@@ -77,10 +89,10 @@ class WorkflowRunResult(Generic[WorkflowStateT]):
 class LangGraphTravelAgentEngine:
     """Graph-shaped engine with a small internal runner.
 
-    The public contract is already shaped as graph nodes. The internal runner is
-    deliberately minimal so a future compiled LangGraph can replace only this
-    orchestration layer while keeping node methods, traces, and API responses
-    stable.
+    The public contract is already shaped as graph nodes. When the optional
+    LangGraph dependency is installed, the node chain is executed by a compiled
+    StateGraph. Local development can still run through the internal fallback
+    runner when that dependency is not installed.
     """
 
     name = "langgraph:workflow-runner"
@@ -88,6 +100,7 @@ class LangGraphTravelAgentEngine:
     def __init__(self, settings: Settings, travel_tools: TravelToolProvider) -> None:
         self._llm_client = LLMClient(settings)
         self._travel_tools = travel_tools
+        self._langgraph_available = StateGraph is not None
         self._last_run_trace: TravelAgentRunTrace | None = None
         self._recent_run_traces: list[TravelAgentRunTrace] = []
 
@@ -113,7 +126,7 @@ class LangGraphTravelAgentEngine:
                 "day_regeneration",
                 "day_fallback",
             ),
-            dependency_mode="internal-graph-runner",
+            dependency_mode="compiled-langgraph" if self._langgraph_available else "internal-graph-runner",
         )
 
     @property
@@ -225,12 +238,47 @@ class LangGraphTravelAgentEngine:
         initial_state: WorkflowStateT,
         nodes: tuple[tuple[str, Callable[[WorkflowStateT], WorkflowStateT]], ...],
     ) -> WorkflowRunResult[WorkflowStateT]:
+        if self._langgraph_available:
+            return self._run_compiled_langgraph_workflow(initial_state, nodes)
+        return self._run_internal_workflow(initial_state, nodes)
+
+    def _run_internal_workflow(
+        self,
+        initial_state: WorkflowStateT,
+        nodes: tuple[tuple[str, Callable[[WorkflowStateT], WorkflowStateT]], ...],
+    ) -> WorkflowRunResult[WorkflowStateT]:
         state = initial_state
         completed_nodes: list[str] = []
         for node_name, node in nodes:
             state = node(state)
             completed_nodes.append(node_name)
         return WorkflowRunResult(state=state, completed_nodes=tuple(completed_nodes))
+
+    def _run_compiled_langgraph_workflow(
+        self,
+        initial_state: WorkflowStateT,
+        nodes: tuple[tuple[str, Callable[[WorkflowStateT], WorkflowStateT]], ...],
+    ) -> WorkflowRunResult[WorkflowStateT]:
+        if StateGraph is None or START is None or END is None:
+            return self._run_internal_workflow(initial_state, nodes)
+
+        workflow = StateGraph(_GraphWorkflowState)
+
+        for node_name, node in nodes:
+            workflow.add_node(node_name, _wrap_workflow_node(node_name, node))
+
+        first_node_name = nodes[0][0]
+        workflow.add_edge(START, first_node_name)
+        for index, (node_name, _node) in enumerate(nodes):
+            next_node_name = nodes[index + 1][0] if index + 1 < len(nodes) else END
+            workflow.add_edge(node_name, next_node_name)
+
+        compiled = workflow.compile()
+        result = compiled.invoke({"state": initial_state, "completed_nodes": []})
+        return WorkflowRunResult(
+            state=cast(WorkflowStateT, result["state"]),
+            completed_nodes=tuple(result["completed_nodes"]),
+        )
 
     def _revision_context_node(self, state: TripRevisionWorkflowState) -> TripRevisionWorkflowState:
         request = trip_plan_request_from_saved(state.saved_trip_plan, state.instruction)
@@ -460,6 +508,20 @@ def _build_rule_based_reply(request: ChatRequest) -> str:
         f"You said: {message}. "
         "The current runtime is rule-based; LLM planning and tool calls will be added behind this contract."
     )
+
+
+def _wrap_workflow_node(
+    node_name: str,
+    node: Callable[[WorkflowStateT], WorkflowStateT],
+) -> Callable[[_GraphWorkflowState], _GraphWorkflowState]:
+    def wrapped(graph_state: _GraphWorkflowState) -> _GraphWorkflowState:
+        next_state = node(cast(WorkflowStateT, graph_state["state"]))
+        return {
+            "state": next_state,
+            "completed_nodes": [*graph_state["completed_nodes"], node_name],
+        }
+
+    return wrapped
 
 
 def _utc_timestamp() -> str:

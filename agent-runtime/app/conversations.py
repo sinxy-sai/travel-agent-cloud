@@ -305,7 +305,8 @@ def _recalculate_budget(plan: TripPlanResponse) -> Budget | None:
     )
     total_hotels = sum(day.hotel.estimated_cost for day in plan.days if day.hotel is not None)
     total_meals = sum(meal.estimated_cost for day in plan.days for meal in (day.meals or []))
-    total_transportation = plan.budget.total_transportation
+    route_total = sum(route.estimated_cost for day in plan.days for route in (day.routes or []))
+    total_transportation = route_total if route_total > 0 else plan.budget.total_transportation
     return Budget(
         total_attractions=total_attractions,
         total_hotels=total_hotels,

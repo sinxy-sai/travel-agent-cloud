@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from app.planning_context import TravelPlanningContext, build_travel_planning_context
 from app.planner import build_mock_trip_plan
-from app.schemas import TripPlanRequest, TripPlanResponse
+from app.schemas import TripDay, TripPlanRequest, TripPlanResponse
 from app.travel_tools import MockTravelToolProvider, TravelToolProvider
 
 
@@ -16,6 +16,7 @@ ISSUE_WEIGHTS = {
     "missing_preferences": 5,
     "missing_weather": 8,
     "missing_budget": 10,
+    "missing_routes": 4,
     "missing_overall_suggestions": 4,
     "missing_tips": 3,
 }
@@ -96,6 +97,9 @@ def assure_trip_plan_quality(
     if "missing_budget" in issues:
         update["budget"] = travel_tools.estimate_budget(request)
         repaired_fields.append("budget")
+    if "missing_routes" in issues:
+        update["days"] = _repair_day_routes(repaired_plan, request, travel_tools)
+        repaired_fields.append("routes")
     if "missing_overall_suggestions" in issues:
         update["overall_suggestions"] = "Review weather, transit buffers, and reservation windows before departure."
         repaired_fields.append("overall_suggestions")
@@ -137,9 +141,35 @@ def _quality_issues(
         issues.append("missing_weather")
     if plan.budget is None:
         issues.append("missing_budget")
+    if any(not day.routes for day in plan.days):
+        issues.append("missing_routes")
     if not plan.overall_suggestions.strip():
         issues.append("missing_overall_suggestions")
     if not plan.tips:
         issues.append("missing_tips")
 
     return issues
+
+
+def _repair_day_routes(
+    plan: TripPlanResponse,
+    request: TripPlanRequest,
+    travel_tools: TravelToolProvider,
+) -> list[TripDay]:
+    repaired_days: list[TripDay] = []
+    for day in plan.days:
+        if day.routes:
+            repaired_days.append(day)
+            continue
+        hotel = day.hotel or travel_tools.hotel_for_day(request, day.day)
+        attractions = day.attractions or travel_tools.attractions_for_day(request, day.day)
+        repaired_days.append(
+            day.model_copy(
+                update={
+                    "hotel": hotel,
+                    "attractions": attractions,
+                    "routes": travel_tools.routes_for_day(request, day.day, attractions, hotel),
+                }
+            )
+        )
+    return repaired_days

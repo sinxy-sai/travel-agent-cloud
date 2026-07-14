@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Protocol
 
-from app.schemas import Attraction, Budget, Hotel, Location, Meal, TripPlanRequest, WeatherInfo
+from app.schemas import Attraction, Budget, Hotel, Location, Meal, RouteLeg, TripPlanRequest, WeatherInfo
 from app.settings import Settings
 
 
@@ -38,6 +38,15 @@ class TravelToolProvider(Protocol):
     def meals_for_day(self, request: TripPlanRequest, day: int) -> list[Meal]:
         ...
 
+    def routes_for_day(
+        self,
+        request: TripPlanRequest,
+        day: int,
+        attractions: list[Attraction],
+        hotel: Hotel | None = None,
+    ) -> list[RouteLeg]:
+        ...
+
     def weather_for_trip(self, request: TripPlanRequest) -> list[WeatherInfo]:
         ...
 
@@ -70,6 +79,11 @@ class MockTravelToolProvider:
                 name="meals_for_day",
                 category="food",
                 description="Returns deterministic mock meal suggestions for breakfast, lunch, and dinner.",
+            ),
+            TravelToolDefinition(
+                name="routes_for_day",
+                category="route",
+                description="Returns deterministic mock route legs between the hotel and daily attractions.",
             ),
             TravelToolDefinition(
                 name="weather_for_trip",
@@ -136,6 +150,32 @@ class MockTravelToolProvider:
             for meal_type, cost in costs.items()
         ]
 
+    def routes_for_day(
+        self,
+        request: TripPlanRequest,
+        day: int,
+        attractions: list[Attraction],
+        hotel: Hotel | None = None,
+    ) -> list[RouteLeg]:
+        if not attractions:
+            return []
+
+        mode = request.transportation or "mixed transit"
+        start_name = hotel.name if hotel is not None else f"{request.destination} hotel area"
+        stops = [start_name, *[attraction.name for attraction in attractions], start_name]
+        return [
+            RouteLeg(
+                from_name=stops[index],
+                to_name=stops[index + 1],
+                mode=mode,
+                distance_meters=1800 + day * 250 + index * 650,
+                duration_minutes=18 + day * 2 + index * 8,
+                estimated_cost=_route_leg_cost(mode, index),
+                instruction=f"Mock {mode} route from {stops[index]} to {stops[index + 1]}.",
+            )
+            for index in range(len(stops) - 1)
+        ]
+
     def weather_for_trip(self, request: TripPlanRequest) -> list[WeatherInfo]:
         return [
             WeatherInfo(
@@ -190,3 +230,12 @@ def _hotel_cost(budget: str) -> int:
     if normalized in {"low", "economy", "budget"}:
         return 280
     return 520
+
+
+def _route_leg_cost(mode: str, index: int) -> int:
+    normalized = mode.lower()
+    if normalized in {"walk", "walking", "bike", "bicycle", "cycling", "on foot"}:
+        return 0
+    if any(keyword in normalized for keyword in ("taxi", "ride", "car")):
+        return 25 + index * 10
+    return 3 + index * 2

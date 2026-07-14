@@ -113,6 +113,17 @@ class LLMClient:
                         {"type": "lunch", "name": "Lunch option", "description": "Local lunch", "estimatedCost": 55},
                         {"type": "dinner", "name": "Dinner option", "description": "Local dinner", "estimatedCost": 90},
                     ],
+                    "routes": [
+                        {
+                            "fromName": "Hotel name",
+                            "toName": "Attraction name",
+                            "mode": "mixed transit",
+                            "distanceMeters": 2400,
+                            "durationMinutes": 28,
+                            "estimatedCost": 6,
+                            "instruction": "Take transit or taxi depending on traffic.",
+                        }
+                    ],
                 }
             ],
             "weatherInfo": [
@@ -151,7 +162,7 @@ class LLMClient:
                     "Create an itinerary from this normalized planning context:\n"
                     f"{planning_context_prompt}\n"
                     f"Additional constraints: {request.free_text_input or 'none'}. "
-                    "Include hotel, attractions, meals, weatherInfo, overallSuggestions, and budget when possible. "
+                    "Include hotel, attractions, meals, routes, weatherInfo, overallSuggestions, and budget when possible. "
                     f"JSON schema example: {json.dumps(schema_hint, ensure_ascii=False)}"
                 ),
             },
@@ -191,6 +202,7 @@ class LLMClient:
             "hotel": current_day.hotel.model_dump(mode="json", by_alias=True) if current_day.hotel else None,
             "attractions": [item.model_dump(mode="json", by_alias=True) for item in current_day.attractions],
             "meals": [item.model_dump(mode="json", by_alias=True) for item in current_day.meals],
+            "routes": [item.model_dump(mode="json", by_alias=True) for item in current_day.routes],
         }
         itinerary = saved_trip_plan.plan.model_dump(mode="json", by_alias=True)
         messages = [

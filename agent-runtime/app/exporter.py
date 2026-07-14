@@ -114,6 +114,23 @@ def trip_plan_to_markdown(plan: TripPlanResponse, title: str | None = None) -> s
                     lines.append(f"  - Notes: {meal.description}")
             lines.append("")
 
+        if day.routes:
+            lines.extend(["#### Routes", ""])
+            for route in day.routes:
+                route_parts = [f"{route.from_name} -> {route.to_name}"]
+                if route.mode:
+                    route_parts.append(route.mode)
+                if route.duration_minutes:
+                    route_parts.append(f"{route.duration_minutes} minutes")
+                if route.distance_meters:
+                    route_parts.append(f"{round(route.distance_meters / 1000, 1)} km")
+                if route.estimated_cost:
+                    route_parts.append(f"estimated {route.estimated_cost}")
+                lines.append(f"- {'; '.join(route_parts)}")
+                if route.instruction:
+                    lines.append(f"  - Notes: {route.instruction}")
+            lines.append("")
+
         lines.extend(
             [
                 "#### Daily rhythm",

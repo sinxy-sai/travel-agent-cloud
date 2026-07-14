@@ -82,6 +82,7 @@ import {
   type Budget,
   type Hotel,
   type Meal,
+  type RouteLeg,
   type SavedTripPlan,
   type TripPlanResponse,
   type TripPlanVersion,
@@ -1330,6 +1331,7 @@ export default function App() {
             ...meal,
             location: meal.location ? { ...meal.location } : meal.location,
           })),
+          routes: (day.routes ?? []).map((route) => ({ ...route })),
         })),
       ),
       weatherInfo: (plan.weatherInfo ?? []).map((weather) => ({ ...weather })),
@@ -2241,6 +2243,36 @@ export default function App() {
                               )}
                               {meal.estimatedCost > 0 && (
                                 <p className="mt-2 text-xs text-slate-500">{formatCost(meal.estimatedCost)}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {(day.routes?.length ?? 0) > 0 && (
+                      <div className="mb-3">
+                        <h4 className="mb-2 text-sm font-semibold text-ink">Routes</h4>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {day.routes?.map((route, routeIndex) => (
+                            <div
+                              key={`${day.day}-${routeIndex}-${route.fromName}-${route.toName}`}
+                              className="rounded-md border border-slate-200 p-3"
+                            >
+                              <p className="text-sm font-medium text-ink">
+                                {`${route.fromName} -> ${route.toName}`}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {[
+                                  route.mode,
+                                  route.durationMinutes ? `${route.durationMinutes} min` : '',
+                                  route.distanceMeters ? formatDistance(route.distanceMeters) : '',
+                                  route.estimatedCost ? formatCost(route.estimatedCost) : '',
+                                ]
+                                  .filter(Boolean)
+                                  .join(' / ')}
+                              </p>
+                              {route.instruction && (
+                                <p className="mt-2 text-xs leading-5 text-slate-600">{route.instruction}</p>
                               )}
                             </div>
                           ))}
@@ -3900,6 +3932,7 @@ function summarizeTripDayForDiff(day?: TripPlanResponse['days'][number]): string
   const namedStops = [
     ...(day.attractions ?? []).slice(0, 2).map((attraction) => attraction.name),
     ...(day.meals ?? []).slice(0, 2).map((meal) => meal.name),
+    ...(day.routes ?? []).slice(0, 2).map((route) => `${route.fromName}->${route.toName}`),
   ].filter(Boolean);
 
   return summarizeDiffText(
@@ -3924,6 +3957,9 @@ function tripDayDiffSignature(day?: TripPlanResponse['days'][number]): string {
     day.evening,
     (day.attractions ?? []).map((attraction) => attraction.name).join('|'),
     (day.meals ?? []).map((meal) => `${meal.type}:${meal.name}`).join('|'),
+    (day.routes ?? [])
+      .map((route) => `${route.fromName}:${route.toName}:${route.mode}:${route.durationMinutes}`)
+      .join('|'),
   ]
     .map((value) => normalizeDiffValue(value ?? ''))
     .join('\n');
@@ -3989,6 +4025,7 @@ function createDraftTripDay(day: number): TripPlanResponse['days'][number] {
     hotel: null,
     attractions: [],
     meals: [],
+    routes: [],
   };
 }
 
@@ -4087,6 +4124,22 @@ function normalizeMeals(meals: Meal[]): Meal[] {
     .slice(0, 8);
 }
 
+function normalizeRoutes(routes: RouteLeg[]): RouteLeg[] {
+  return routes
+    .map((route) => ({
+      ...route,
+      fromName: route.fromName.trim(),
+      toName: route.toName.trim(),
+      mode: route.mode.trim(),
+      distanceMeters: clampInteger(route.distanceMeters, 0, 1000000),
+      durationMinutes: clampInteger(route.durationMinutes, 0, 10000),
+      estimatedCost: clampInteger(route.estimatedCost, 0, 100000),
+      instruction: route.instruction.trim(),
+    }))
+    .filter((route) => route.fromName.length > 0 && route.toName.length > 0)
+    .slice(0, 16);
+}
+
 function normalizeWeatherInfo(weatherInfo: WeatherInfo[]): WeatherInfo[] {
   return weatherInfo
     .map((weather) => ({
@@ -4134,6 +4187,7 @@ function normalizeTripPlanDays(days: TripPlanResponse['days']): TripPlanResponse
     hotel: normalizeHotel(day.hotel ?? null),
     attractions: normalizeAttractions(day.attractions ?? []),
     meals: normalizeMeals(day.meals ?? []),
+    routes: normalizeRoutes(day.routes ?? []),
   }));
 }
 
@@ -5020,6 +5074,16 @@ function formatCost(value: number): string {
   return `CNY ${value}`;
 }
 
+function formatDistance(distanceMeters: number): string {
+  if (!Number.isFinite(distanceMeters) || distanceMeters <= 0) {
+    return '';
+  }
+  if (distanceMeters < 1000) {
+    return `${distanceMeters} m`;
+  }
+  return `${(distanceMeters / 1000).toFixed(1)} km`;
+}
+
 function tripPlanToMarkdown(
   plan: TripPlanResponse,
   request: {
@@ -5135,6 +5199,23 @@ function tripPlanToMarkdown(
       body.push('#### Meals', '');
       day.meals.forEach((meal) => {
         body.push(`- ${meal.type}: ${meal.name}${meal.estimatedCost ? ` (${meal.estimatedCost})` : ''}`);
+      });
+      body.push('');
+    }
+    if (day.routes?.length) {
+      body.push('#### Routes', '');
+      day.routes.forEach((route) => {
+        const routeParts = [
+          `${route.fromName} -> ${route.toName}`,
+          route.mode,
+          route.durationMinutes ? `${route.durationMinutes} minutes` : '',
+          route.distanceMeters ? formatDistance(route.distanceMeters) : '',
+          route.estimatedCost ? `${route.estimatedCost}` : '',
+        ].filter(Boolean);
+        body.push(`- ${routeParts.join('; ')}`);
+        if (route.instruction) {
+          body.push(`  - Notes: ${route.instruction}`);
+        }
       });
       body.push('');
     }

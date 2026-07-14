@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import TypeVar
 
 from app.agent_engines.types import TravelAgentToolCall
-from app.schemas import Attraction, Budget, Hotel, Meal, TripPlanRequest, WeatherInfo
+from app.schemas import Attraction, Budget, Hotel, Meal, RouteLeg, TripPlanRequest, WeatherInfo
 from app.travel_tools import TravelToolDefinition, TravelToolProvider
 
 T = TypeVar("T")
@@ -32,6 +32,19 @@ class TracingTravelToolProvider:
 
     def meals_for_day(self, request: TripPlanRequest, day: int) -> list[Meal]:
         return self._record("meals_for_day", f"day={day}", lambda: self._delegate.meals_for_day(request, day))
+
+    def routes_for_day(
+        self,
+        request: TripPlanRequest,
+        day: int,
+        attractions: list[Attraction],
+        hotel: Hotel | None = None,
+    ) -> list[RouteLeg]:
+        return self._record(
+            "routes_for_day",
+            f"day={day};stops={len(attractions)}",
+            lambda: self._delegate.routes_for_day(request, day, attractions, hotel),
+        )
 
     def weather_for_trip(self, request: TripPlanRequest) -> list[WeatherInfo]:
         return self._record("weather_for_trip", f"days={request.days}", lambda: self._delegate.weather_for_trip(request))

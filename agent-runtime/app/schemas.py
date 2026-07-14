@@ -97,6 +97,16 @@ class WeatherInfo(APIModel):
     wind_power: str = Field(default="", max_length=80)
 
 
+class RouteLeg(APIModel):
+    from_name: str = Field(min_length=1, max_length=160)
+    to_name: str = Field(min_length=1, max_length=160)
+    mode: str = Field(default="", max_length=80)
+    distance_meters: int = Field(default=0, ge=0, le=1000000)
+    duration_minutes: int = Field(default=0, ge=0, le=10000)
+    estimated_cost: int = Field(default=0, ge=0, le=100000)
+    instruction: str = Field(default="", max_length=500)
+
+
 class TripDay(APIModel):
     day: int
     theme: str
@@ -110,6 +120,7 @@ class TripDay(APIModel):
     hotel: Hotel | None = None
     attractions: list[Attraction] = Field(default_factory=list, max_length=8)
     meals: list[Meal] = Field(default_factory=list, max_length=8)
+    routes: list[RouteLeg] = Field(default_factory=list, max_length=16)
 
 
 class TripPlanResponse(APIModel):

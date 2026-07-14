@@ -69,6 +69,16 @@ export interface WeatherInfo {
   windPower: string;
 }
 
+export interface RouteLeg {
+  fromName: string;
+  toName: string;
+  mode: string;
+  distanceMeters: number;
+  durationMinutes: number;
+  estimatedCost: number;
+  instruction: string;
+}
+
 export interface TripDay {
   day: number;
   theme: string;
@@ -82,6 +92,7 @@ export interface TripDay {
   hotel?: Hotel | null;
   attractions?: Attraction[];
   meals?: Meal[];
+  routes?: RouteLeg[];
 }
 
 export interface TripPlanResponse {
