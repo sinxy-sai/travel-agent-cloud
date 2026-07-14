@@ -11,6 +11,7 @@ from app.agent_engines.types import (
     TravelAgentToolCall,
 )
 from app.llm import LLMClient
+from app.plan_quality import TripPlanQualityReport, assure_trip_plan_quality
 from app.planning_context import TravelPlanningContext, build_travel_planning_context
 from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
@@ -34,6 +35,7 @@ class TripPlanningWorkflowState:
     planning_context: TravelPlanningContext | None = None
     draft_plan: TripPlanResponse | None = None
     final_plan: TripPlanResponse | None = None
+    quality_report: TripPlanQualityReport | None = None
     fallback_used: bool = False
 
 
@@ -175,6 +177,7 @@ class LangGraphTravelAgentEngine:
             planning_context=build_travel_planning_context(state.request),
             draft_plan=state.draft_plan,
             final_plan=state.final_plan,
+            quality_report=state.quality_report,
             fallback_used=state.fallback_used,
         )
 
@@ -184,6 +187,7 @@ class LangGraphTravelAgentEngine:
             request=state.request,
             planning_context=state.planning_context,
             draft_plan=draft_plan,
+            quality_report=state.quality_report,
         )
 
     def _trip_enrichment_node(
@@ -204,6 +208,7 @@ class LangGraphTravelAgentEngine:
             planning_context=state.planning_context,
             draft_plan=state.draft_plan,
             final_plan=final_plan,
+            quality_report=state.quality_report,
             fallback_used=state.fallback_used,
         )
 
@@ -212,16 +217,26 @@ class LangGraphTravelAgentEngine:
         state: TripPlanningWorkflowState,
         travel_tools: TravelToolProvider,
     ) -> TripPlanningWorkflowState:
-        if not state.final_plan or not state.final_plan.days:
-            fallback_plan = build_mock_trip_plan(state.request, travel_tools, state.planning_context)
-            return TripPlanningWorkflowState(
-                request=state.request,
-                planning_context=state.planning_context,
-                draft_plan=state.draft_plan,
-                final_plan=fallback_plan,
-                fallback_used=True,
-            )
-        return state
+        fallback_used = state.fallback_used
+        candidate_plan = state.final_plan
+        if candidate_plan is None or not candidate_plan.days:
+            candidate_plan = build_mock_trip_plan(state.request, travel_tools, state.planning_context)
+            fallback_used = True
+
+        final_plan, quality_report = assure_trip_plan_quality(
+            candidate_plan,
+            state.request,
+            travel_tools,
+            state.planning_context,
+        )
+        return TripPlanningWorkflowState(
+            request=state.request,
+            planning_context=state.planning_context,
+            draft_plan=state.draft_plan,
+            final_plan=final_plan,
+            quality_report=quality_report,
+            fallback_used=fallback_used or quality_report.repaired,
+        )
 
     def _day_regeneration_node(self, state: DayRegenerationWorkflowState) -> DayRegenerationWorkflowState:
         regenerated_day = self._llm_client.regenerate_trip_day(
@@ -336,9 +351,11 @@ def _trip_node_events(state: TripPlanningWorkflowState) -> tuple[TravelAgentNode
         else _node_event("trip_enrichment", "SKIPPED", "no_draft_plan_to_enrich")
     )
     validation_event = (
-        _node_event("trip_validation", "FALLBACK", "mock_trip_plan_generated")
-        if state.fallback_used
-        else _node_event("trip_validation", "SUCCEEDED", "plan_has_days")
+        _node_event(
+            "trip_validation",
+            "FALLBACK" if state.quality_report and state.quality_report.repaired else "SUCCEEDED",
+            state.quality_report.to_trace_detail() if state.quality_report else "quality_report_missing",
+        )
     )
     return (context_event, draft_event, enrichment_event, validation_event)
 

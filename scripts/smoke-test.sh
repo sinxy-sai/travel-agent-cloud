@@ -445,6 +445,11 @@ if [ "${HAS_TRIP_PLAN_CONTEXT_NODE}" != "yes" ]; then
   echo "Agent status API did not record trip planning context node" >&2
   exit 1
 fi
+HAS_TRIP_PLAN_QUALITY_NODE="$(printf '%s' "${TRIP_PLAN_AGENT_STATUS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); events=(data.get("lastRunTrace") or {}).get("nodeEvents") or []; print("yes" if any(event.get("nodeName") in {"trip_validation", "plan_quality"} and str(event.get("detail", "")).startswith("issues=") for event in events) else "no")')"
+if [ "${HAS_TRIP_PLAN_QUALITY_NODE}" != "yes" ]; then
+  echo "Agent status API did not record trip plan quality node" >&2
+  exit 1
+fi
 echo
 
 echo "Checking conversation list API"
