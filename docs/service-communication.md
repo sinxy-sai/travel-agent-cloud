@@ -9,6 +9,7 @@ This document defines the service-to-service communication choices for Travel Ag
 | Public API | REST over HTTP | Frontend to Gateway |
 | Java internal RPC | Spring Cloud OpenFeign | Gateway, auth, trip, agent services |
 | Python Agent Runtime calls | REST over HTTP | Java `travel-agent` to FastAPI `agent-runtime` |
+| Travel tool calls | MCP-style JSON-RPC over HTTP | `agent-runtime` to `travel-mcp` / future FastMCP servers |
 | Async events and jobs | RabbitMQ | Cross-service events and background jobs |
 | Future streaming RPC | gRPC | Reserved, not part of the current implementation |
 
@@ -44,8 +45,15 @@ Use OpenFeign for:
 Use plain REST clients for:
 
 - `travel-agent -> agent-runtime`
+- `agent-runtime -> travel-mcp` while the local tool server is an MCP-compatible HTTP stub
 
 The Python Agent Runtime should stay behind an explicit HTTP contract. That keeps the AI runtime replaceable and avoids coupling Java services directly to Python internals.
+
+Use MCP-style JSON-RPC for:
+
+- `agent-runtime -> travel-mcp` travel tools such as attraction search, weather, route planning, hotels, meals, and budget estimates.
+
+The tool server must return schema-validated structured content. Agent Runtime treats all tool responses as untrusted and falls back to mock values when a tool call fails or returns invalid data.
 
 ## Event Naming
 
@@ -105,4 +113,5 @@ Event payloads use camelCase fields:
 - A RabbitMQ consumer entrypoint exists at `python -m app.worker_main`.
 - The consumer updates job status from `QUEUED` to `RUNNING`, then `SUCCEEDED` or `FAILED`.
 - Docker Compose exposes the consumer as the `agent-runtime-worker` service behind the `worker` profile.
+- Docker Compose exposes the local `travel-mcp` tool server behind the `tools` profile for FastMCP/Amap integration development.
 - K3s deploys the consumer through `deploy/k8s/addons/agent-runtime-worker.yaml` as part of the default Kustomize deployment.

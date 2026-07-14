@@ -45,6 +45,15 @@ services:
     volumes:
       - minio-data:/data
 
+  travel-mcp:
+    build:
+      context: ./services/travel-mcp
+    container_name: travel-agent-mcp
+    profiles:
+      - tools
+    ports:
+      - "8100:8100"
+
   agent-runtime:
     build:
       context: ./agent-runtime
