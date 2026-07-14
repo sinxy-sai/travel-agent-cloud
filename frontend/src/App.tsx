@@ -7,6 +7,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
+  EyeOutlined,
   HistoryOutlined,
   PlusOutlined,
   SendOutlined,
@@ -142,6 +143,7 @@ export default function App() {
   const [tripPlanReviseError, setTripPlanReviseError] = useState('');
   const [tripPlanVersionsModalOpen, setTripPlanVersionsModalOpen] = useState(false);
   const [tripPlanVersions, setTripPlanVersions] = useState<TripPlanVersion[]>([]);
+  const [previewTripPlanVersionId, setPreviewTripPlanVersionId] = useState<string | null>(null);
   const [tripPlanVersionsError, setTripPlanVersionsError] = useState('');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
@@ -941,6 +943,7 @@ export default function App() {
   function resetTripPlanVersionsPanel() {
     setTripPlanVersionsModalOpen(false);
     setTripPlanVersions([]);
+    setPreviewTripPlanVersionId(null);
     setTripPlanVersionsError('');
   }
 
@@ -1640,6 +1643,7 @@ export default function App() {
     }
     setTripPlanVersionsModalOpen(true);
     setTripPlanVersionsError('');
+    setPreviewTripPlanVersionId(null);
     listTripPlanVersionsMutation.mutate(selectedTripPlanId);
   };
 
@@ -3064,6 +3068,7 @@ export default function App() {
         open={tripPlanVersionsModalOpen}
         footer={null}
         onCancel={resetTripPlanVersionsPanel}
+        width={760}
       >
         <div className="space-y-3">
           {listTripPlanVersionsMutation.isPending && (
@@ -3084,24 +3089,36 @@ export default function App() {
                     {formatAgentOperation(version.source)} / {formatDateTime(version.createdAt)}
                   </p>
                 </div>
-                {selectedTripPlanId && (
-                  <Popconfirm
-                    title={`Restore version ${version.version}?`}
-                    okText="Restore"
-                    onConfirm={() =>
-                      restoreTripPlanVersionMutation.mutate({
-                        tripPlanId: selectedTripPlanId,
-                        versionId: version.id,
-                        expectedVersion: selectedTripPlanVersion,
-                      })
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    size="small"
+                    icon={<EyeOutlined />}
+                    onClick={() =>
+                      setPreviewTripPlanVersionId((current) => (current === version.id ? null : version.id))
                     }
                   >
-                    <Button size="small" loading={restoreTripPlanVersionMutation.isPending}>
-                      Restore
-                    </Button>
-                  </Popconfirm>
-                )}
+                    {previewTripPlanVersionId === version.id ? 'Hide' : 'Preview'}
+                  </Button>
+                  {selectedTripPlanId && (
+                    <Popconfirm
+                      title={`Restore version ${version.version}?`}
+                      okText="Restore"
+                      onConfirm={() =>
+                        restoreTripPlanVersionMutation.mutate({
+                          tripPlanId: selectedTripPlanId,
+                          versionId: version.id,
+                          expectedVersion: selectedTripPlanVersion,
+                        })
+                      }
+                    >
+                      <Button size="small" loading={restoreTripPlanVersionMutation.isPending}>
+                        Restore
+                      </Button>
+                    </Popconfirm>
+                  )}
+                </div>
               </div>
+              {previewTripPlanVersionId === version.id && <TripPlanVersionPreview version={version} />}
             </div>
           ))}
           {tripPlanVersionsError && (
@@ -3603,6 +3620,81 @@ export default function App() {
         </div>
       </Modal>
     </main>
+  );
+}
+
+function TripPlanVersionPreview({ version }: { version: TripPlanVersion }) {
+  const plan = version.plan;
+  const firstDays = (plan.days ?? []).slice(0, 4);
+  const remainingDayCount = Math.max(0, (plan.days?.length ?? 0) - firstDays.length);
+
+  return (
+    <div className="mt-3 space-y-3 border-t border-slate-200 pt-3">
+      <div>
+        <h3 className="text-base font-semibold text-ink">{plan.title || version.title}</h3>
+        {plan.summary && <p className="mt-1 text-sm leading-6 text-slate-600">{plan.summary}</p>}
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-2">
+        <PlanMeta label="Dates" value={formatDateRange(plan.startDate, plan.endDate)} />
+        <PlanMeta label="Transportation" value={plan.transportation || ''} />
+        <PlanMeta label="Accommodation" value={plan.accommodation || ''} />
+        <PlanMeta label="Preferences" value={(plan.preferences ?? []).join(', ')} />
+      </div>
+
+      {plan.budget && (
+        <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-600">
+          <div className="flex items-center justify-between gap-3 font-semibold text-ink">
+            <span>Budget estimate</span>
+            <span>{formatCost(plan.budget.total)}</span>
+          </div>
+          <div className="mt-2 grid gap-1 md:grid-cols-2">
+            <PlanCost label="Attractions" value={plan.budget.totalAttractions} />
+            <PlanCost label="Hotels" value={plan.budget.totalHotels} />
+            <PlanCost label="Meals" value={plan.budget.totalMeals} />
+            <PlanCost label="Transit" value={plan.budget.totalTransportation} />
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-3">
+        {firstDays.map((day) => (
+          <article key={`${version.id}-${day.day}`} className="rounded-md bg-white">
+            <div className="mb-2 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-ink">
+                  Day {day.day}: {day.theme}
+                </p>
+                {day.date && <p className="text-xs text-slate-500">{day.date}</p>}
+              </div>
+              {day.hotel?.name && <span className="text-xs text-slate-500">{day.hotel.name}</span>}
+            </div>
+            {day.description && <p className="mb-2 text-sm leading-6 text-slate-600">{day.description}</p>}
+            <div className="grid gap-2 md:grid-cols-3">
+              <PlanBlock title="Morning" value={day.morning} />
+              <PlanBlock title="Afternoon" value={day.afternoon} />
+              <PlanBlock title="Evening" value={day.evening} />
+            </div>
+          </article>
+        ))}
+        {remainingDayCount > 0 && (
+          <p className="text-xs text-slate-500">
+            {remainingDayCount} more {remainingDayCount === 1 ? 'day' : 'days'} in this version.
+          </p>
+        )}
+      </div>
+
+      {(plan.tips?.length ?? 0) > 0 && (
+        <div className="rounded-md bg-slate-50 p-3">
+          <p className="text-sm font-semibold text-ink">Travel notes</p>
+          <ul className="mt-2 list-inside list-disc text-sm leading-6 text-slate-600">
+            {plan.tips.slice(0, 6).map((tip) => (
+              <li key={tip}>{tip}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 
