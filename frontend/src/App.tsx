@@ -8,6 +8,8 @@ import {
   DownloadOutlined,
   EditOutlined,
   EyeOutlined,
+  FileImageOutlined,
+  FilePdfOutlined,
   HistoryOutlined,
   PlusOutlined,
   SendOutlined,
@@ -121,10 +123,12 @@ type HotelTextField = 'name' | 'address' | 'priceRange' | 'rating' | 'distance' 
 type MealTextField = 'type' | 'name' | 'address' | 'description';
 type RouteTextField = 'fromName' | 'toName' | 'mode' | 'instruction';
 type WeatherTextField = 'date' | 'dayWeather' | 'nightWeather' | 'windDirection' | 'windPower';
+type TripPlanMediaExportFormat = 'png' | 'pdf';
 
 export default function App() {
   const queryClient = useQueryClient();
   const importDataInputRef = useRef<HTMLInputElement | null>(null);
+  const tripPlanExportRef = useRef<HTMLDivElement | null>(null);
   const [destination, setDestination] = useState('Chengdu');
   const [days, setDays] = useState(3);
   const [budget, setBudget] = useState('moderate');
@@ -153,6 +157,8 @@ export default function App() {
   const [tripPlanVersionsTotalItems, setTripPlanVersionsTotalItems] = useState(0);
   const [previewTripPlanVersionId, setPreviewTripPlanVersionId] = useState<string | null>(null);
   const [tripPlanVersionsError, setTripPlanVersionsError] = useState('');
+  const [tripPlanMediaExportFormat, setTripPlanMediaExportFormat] = useState<TripPlanMediaExportFormat | null>(null);
+  const [tripPlanMediaExportError, setTripPlanMediaExportError] = useState('');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -863,6 +869,29 @@ export default function App() {
       downloadTextFile(markdown, `${slugify(plan.title)}.md`);
     },
   });
+
+  const exportTripPlanMedia = async (format: TripPlanMediaExportFormat) => {
+    if (!plan || !tripPlanExportRef.current) {
+      return;
+    }
+
+    setTripPlanMediaExportFormat(format);
+    setTripPlanMediaExportError('');
+    try {
+      await waitForBrowserPaint();
+      const imageDataUrl = await renderElementAsPng(tripPlanExportRef.current);
+      const filenameBase = slugify(plan.title);
+      if (format === 'png') {
+        downloadDataUrlFile(imageDataUrl, `${filenameBase}.png`);
+      } else {
+        await downloadPdfFromPng(imageDataUrl, `${filenameBase}.pdf`, plan.title);
+      }
+    } catch (_error) {
+      setTripPlanMediaExportError('Could not export this itinerary. Try again after the map and itinerary finish rendering.');
+    } finally {
+      setTripPlanMediaExportFormat(null);
+    }
+  };
 
   const requestPreview = useMemo(
     () => {
@@ -2137,13 +2166,13 @@ export default function App() {
           )}
 
           {plan && !tripPlanMutation.isPending && (
-            <div>
+            <div ref={tripPlanExportRef} className="bg-white">
               <div className="mb-5 flex flex-col gap-3 border-b border-slate-200 pb-5 md:flex-row md:items-start md:justify-between">
                 <div>
                   <h2 className="text-2xl font-semibold text-ink">{plan.title}</h2>
                   <p className="mt-2 max-w-3xl text-slate-600">{plan.summary}</p>
                 </div>
-                <div className="flex flex-wrap gap-2 md:justify-end">
+                <div className="flex flex-wrap gap-2 md:justify-end" data-export-ignore="true">
                   {selectedTripPlanId && (
                     <Button icon={<EditOutlined />} onClick={openTripPlanEditor}>
                       Edit
@@ -2180,8 +2209,30 @@ export default function App() {
                   >
                     Export .md
                   </Button>
+                  <Button
+                    icon={<FileImageOutlined />}
+                    loading={tripPlanMediaExportFormat === 'png'}
+                    disabled={Boolean(tripPlanMediaExportFormat)}
+                    onClick={() => void exportTripPlanMedia('png')}
+                  >
+                    Export PNG
+                  </Button>
+                  <Button
+                    icon={<FilePdfOutlined />}
+                    loading={tripPlanMediaExportFormat === 'pdf'}
+                    disabled={Boolean(tripPlanMediaExportFormat)}
+                    onClick={() => void exportTripPlanMedia('pdf')}
+                  >
+                    Export PDF
+                  </Button>
                 </div>
               </div>
+
+              {tripPlanMediaExportError && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700" data-export-ignore="true">
+                  {tripPlanMediaExportError}
+                </div>
+              )}
 
               <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <PlanMeta label="Dates" value={formatDateRange(plan.startDate, plan.endDate)} />
@@ -2190,7 +2241,7 @@ export default function App() {
                 <PlanMeta label="Preferences" value={(plan.preferences?.length ? plan.preferences : interests).join(', ')} />
               </div>
 
-              <TripMapPreview plan={plan} />
+              <TripMapPreview plan={plan} forceSchematic={Boolean(tripPlanMediaExportFormat)} />
 
               {(plan.budget || (plan.weatherInfo?.length ?? 0) > 0 || plan.overallSuggestions) && (
                 <div className="mb-5 grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
@@ -2254,6 +2305,7 @@ export default function App() {
                             icon={<SyncOutlined />}
                             loading={regenerateTripDayMutation.isPending && regeneratingTripDay === day.day}
                             onClick={() => openTripDayRegenerator(day.day)}
+                            data-export-ignore="true"
                           >
                             Regenerate
                           </Button>
@@ -4292,7 +4344,7 @@ declare global {
 
 let amapLoaderPromise: Promise<AMapLoaderNamespace> | null = null;
 
-function TripMapPreview({ plan }: { plan: TripPlanResponse }) {
+function TripMapPreview({ plan, forceSchematic = false }: { plan: TripPlanResponse; forceSchematic?: boolean }) {
   const mapDays = (plan.days ?? []).filter(
     (day) =>
       Boolean(day.hotel?.location) ||
@@ -4317,7 +4369,7 @@ function TripMapPreview({ plan }: { plan: TripPlanResponse }) {
   }
   const hasAmapKey = Boolean(amapJsKey);
   const hasCoordinates = mapModel.stops.some(hasCoordinateStop);
-  const canUseAmap = Boolean(hasAmapKey && hasCoordinates && !amapUnavailable);
+  const canUseAmap = Boolean(hasAmapKey && hasCoordinates && !amapUnavailable && !forceSchematic);
   const mapFallbackReason = getMapFallbackReason({
     hasAmapKey,
     hasCoordinates,
@@ -6087,6 +6139,77 @@ function tripPlanToMarkdown(
 function downloadTextFile(content: string, filename: string) {
   const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
   downloadBlobFile(blob, filename);
+}
+
+async function renderElementAsPng(element: HTMLElement): Promise<string> {
+  const { toPng } = await import('html-to-image');
+  const bounds = element.getBoundingClientRect();
+  return toPng(element, {
+    backgroundColor: '#ffffff',
+    cacheBust: true,
+    height: Math.ceil(element.scrollHeight),
+    pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+    width: Math.ceil(bounds.width),
+    filter: (node) => {
+      if (!(node instanceof HTMLElement)) {
+        return true;
+      }
+      return node.dataset.exportIgnore !== 'true' && !node.closest('[data-export-ignore="true"]');
+    },
+  });
+}
+
+function downloadDataUrlFile(dataUrl: string, filename: string) {
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+async function downloadPdfFromPng(dataUrl: string, filename: string, title: string) {
+  const [{ jsPDF }, image] = await Promise.all([import('jspdf'), loadImage(dataUrl)]);
+  const pdf = new jsPDF({
+    orientation: image.width >= image.height ? 'landscape' : 'portrait',
+    unit: 'pt',
+    format: 'a4',
+  });
+  pdf.setProperties({ title });
+
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 32;
+  const imageWidth = pageWidth - margin * 2;
+  const imageHeight = (image.height / image.width) * imageWidth;
+  const pageContentHeight = pageHeight - margin * 2;
+  const pageCount = Math.max(1, Math.ceil(imageHeight / pageContentHeight));
+
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+    if (pageIndex > 0) {
+      pdf.addPage();
+    }
+    pdf.addImage(dataUrl, 'PNG', margin, margin - pageIndex * pageContentHeight, imageWidth, imageHeight);
+  }
+
+  pdf.save(filename);
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Image could not be loaded for PDF export.'));
+    image.src = dataUrl;
+  });
+}
+
+function waitForBrowserPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
 }
 
 function downloadBlobFile(blob: Blob, filename: string) {
