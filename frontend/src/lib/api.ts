@@ -527,9 +527,12 @@ export interface AnonymousDataSummary {
   tripPlans: number;
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+const LONG_RUNNING_REQUEST_TIMEOUT_MS = 120000;
+
 const api = axios.create({
   baseURL: import.meta.env.VITE_AGENT_API_BASE_URL ?? '',
-  timeout: 30000,
+  timeout: DEFAULT_REQUEST_TIMEOUT_MS,
   withCredentials: true,
 });
 
@@ -539,7 +542,9 @@ api.interceptors.request.use((config) => {
 });
 
 export async function createTripPlan(request: TripPlanRequest): Promise<TripPlanResponse> {
-  const response = await api.post<TripPlanResponse>('/api/v1/trip-plan', request);
+  const response = await api.post<TripPlanResponse>('/api/v1/trip-plan', request, {
+    timeout: LONG_RUNNING_REQUEST_TIMEOUT_MS,
+  });
   return response.data;
 }
 
@@ -686,6 +691,8 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
     message: request.message,
     conversationId: request.conversationId,
     mode: request.mode ?? 'CHAT',
+  }, {
+    timeout: LONG_RUNNING_REQUEST_TIMEOUT_MS,
   });
   return response.data;
 }
@@ -809,7 +816,9 @@ export async function regenerateTripPlanDay(
   day: number,
   request: TripDayRegenerateRequest,
 ): Promise<SavedTripPlan> {
-  const response = await api.post<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}/days/${day}/regenerate`, request);
+  const response = await api.post<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}/days/${day}/regenerate`, request, {
+    timeout: LONG_RUNNING_REQUEST_TIMEOUT_MS,
+  });
   return response.data;
 }
 
@@ -817,7 +826,9 @@ export async function reviseTripPlan(
   tripPlanId: string,
   request: TripPlanReviseRequest,
 ): Promise<SavedTripPlan> {
-  const response = await api.post<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}/revise`, request);
+  const response = await api.post<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}/revise`, request, {
+    timeout: LONG_RUNNING_REQUEST_TIMEOUT_MS,
+  });
   return response.data;
 }
 
@@ -835,6 +846,10 @@ export async function restoreTripPlanVersion(
 
 export function isApiErrorStatus(error: unknown, status: number): boolean {
   return axios.isAxiosError(error) && error.response?.status === status;
+}
+
+export function isApiTimeoutError(error: unknown): boolean {
+  return axios.isAxiosError(error) && (error.code === 'ECONNABORTED' || error.message.toLowerCase().includes('timeout'));
 }
 
 export async function exportTripPlanMarkdown(tripPlanId: string): Promise<string> {

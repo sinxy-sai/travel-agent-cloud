@@ -45,6 +45,7 @@ import {
   importAnonymousUserData,
   importCurrentUserData,
   isApiErrorStatus,
+  isApiTimeoutError,
   listAuthIdentities,
   listAuthSessions,
   listUserSecurityEvents,
@@ -538,6 +539,11 @@ export default function App() {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
       queryClient.invalidateQueries({ queryKey: ['agent-status'] });
+    },
+    onError: (error) => {
+      if (isApiTimeoutError(error)) {
+        queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+      }
     },
   });
 
@@ -2120,7 +2126,7 @@ export default function App() {
 
           {tripPlanMutation.isError && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
-              Agent runtime is unavailable. Start the FastAPI service and try again.
+              {getTripPlanErrorMessage(tripPlanMutation.error)}
             </div>
           )}
 
@@ -3896,6 +3902,19 @@ export default function App() {
   );
 }
 
+function getTripPlanErrorMessage(error: unknown): string {
+  if (isApiTimeoutError(error)) {
+    return 'Trip planning took longer than expected. The backend may still finish; check Saved itineraries or try again.';
+  }
+  if (isApiErrorStatus(error, 429)) {
+    return 'Trip planning is rate limited. Wait a moment and try again.';
+  }
+  if (isApiErrorStatus(error, 401)) {
+    return 'Sign in again before generating a new itinerary.';
+  }
+  return 'Could not generate this itinerary. Check the Agent Runtime logs and try again.';
+}
+
 function TripPlanVersionPreview({
   currentPlan,
   version,
@@ -4296,7 +4315,14 @@ function TripMapPreview({ plan }: { plan: TripPlanResponse }) {
   if (mapModel.stops.length === 0) {
     return null;
   }
-  const canUseAmap = Boolean(amapJsKey && mapModel.stops.some(hasCoordinateStop) && !amapUnavailable);
+  const hasAmapKey = Boolean(amapJsKey);
+  const hasCoordinates = mapModel.stops.some(hasCoordinateStop);
+  const canUseAmap = Boolean(hasAmapKey && hasCoordinates && !amapUnavailable);
+  const mapFallbackReason = getMapFallbackReason({
+    hasAmapKey,
+    hasCoordinates,
+    amapUnavailable,
+  });
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 p-4">
@@ -4327,7 +4353,7 @@ function TripMapPreview({ plan }: { plan: TripPlanResponse }) {
             onUnavailable={setAmapUnavailable}
           />
         ) : (
-          <SchematicRouteMap mapModel={mapModel} selectedDay={selectedDay} />
+          <SchematicRouteMap mapModel={mapModel} selectedDay={selectedDay} fallbackReason={mapFallbackReason} />
         )}
 
         <div className="grid content-start gap-2">
@@ -4461,9 +4487,11 @@ function AmapRouteMap({
 function SchematicRouteMap({
   mapModel,
   selectedDay,
+  fallbackReason,
 }: {
   mapModel: { stops: MapStop[]; segments: MapSegment[] };
   selectedDay: TripPlanResponse['days'][number];
+  fallbackReason: string;
 }) {
   return (
     <div className="relative h-[260px] overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
@@ -4514,8 +4542,34 @@ function SchematicRouteMap({
       <span className="absolute left-3 top-3 rounded bg-white/90 px-2 py-1 text-xs font-medium text-slate-600 shadow-sm">
         Schematic
       </span>
+      {fallbackReason && (
+        <span className="absolute bottom-3 left-3 max-w-[calc(100%-1.5rem)] rounded bg-white/90 px-2 py-1 text-xs text-slate-500 shadow-sm">
+          {fallbackReason}
+        </span>
+      )}
     </div>
   );
+}
+
+function getMapFallbackReason({
+  hasAmapKey,
+  hasCoordinates,
+  amapUnavailable,
+}: {
+  hasAmapKey: boolean;
+  hasCoordinates: boolean;
+  amapUnavailable: string;
+}): string {
+  if (!hasAmapKey) {
+    return 'AMap key is not bundled. Restart Vite or rebuild frontend after setting VITE_AMAP_JS_KEY.';
+  }
+  if (!hasCoordinates) {
+    return 'No coordinates found in this itinerary day.';
+  }
+  if (amapUnavailable) {
+    return 'AMap SDK could not load. Check key type, security code, domain restrictions, and network access.';
+  }
+  return '';
 }
 
 function loadAmapLoader(): Promise<AMapLoaderNamespace> {
