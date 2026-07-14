@@ -25,6 +25,7 @@
 - `POST /api/v1/trip-plans/{id}/revise` rewrites a saved itinerary from an agent instruction while preserving optimistic version control.
 - `GET /api/v1/trip-plans/{id}/versions` and restore endpoints keep itinerary edits reversible.
 - Run traces and summaries are in-memory only and do not include prompts, messages, user ids, API keys, or generated itinerary content.
+- Prototype parity tracking lives in `docs/prototype-feature-parity.md`, based on `Hello-Agents/hello-agents-main/code/chapter13/helloagents-trip-planner`.
 
 ## 当前模块
 

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import perf_counter
+from typing import Callable, Generic, TypeVar
 from uuid import uuid4
 
 from app.agent_engines.tool_tracing import TracingTravelToolProvider
@@ -25,6 +26,7 @@ from app.settings import Settings
 from app.travel_tools import TravelToolProvider
 
 MAX_TRACE_HISTORY = 10
+WorkflowStateT = TypeVar("WorkflowStateT")
 
 
 @dataclass
@@ -54,15 +56,34 @@ class DayRegenerationWorkflowState:
     fallback_used: bool = False
 
 
-class LangGraphTravelAgentEngine:
-    """Graph-shaped engine skeleton for the future LangGraph implementation.
+@dataclass
+class TripRevisionWorkflowState:
+    saved_trip_plan: SavedTripPlan
+    instruction: str
+    request: TripPlanRequest | None = None
+    planning_context: TravelPlanningContext | None = None
+    draft_plan: TripPlanResponse | None = None
+    final_plan: TripPlanResponse | None = None
+    quality_report: TripPlanQualityReport | None = None
+    fallback_used: bool = False
 
-    This class intentionally avoids importing LangGraph for now. The methods are
-    structured as graph nodes so the future implementation can replace the
-    sequential runner with a compiled LangGraph without changing public APIs.
+
+@dataclass(frozen=True)
+class WorkflowRunResult(Generic[WorkflowStateT]):
+    state: WorkflowStateT
+    completed_nodes: tuple[str, ...]
+
+
+class LangGraphTravelAgentEngine:
+    """Graph-shaped engine with a small internal runner.
+
+    The public contract is already shaped as graph nodes. The internal runner is
+    deliberately minimal so a future compiled LangGraph can replace only this
+    orchestration layer while keeping node methods, traces, and API responses
+    stable.
     """
 
-    name = "langgraph:workflow-skeleton"
+    name = "langgraph:workflow-runner"
 
     def __init__(self, settings: Settings, travel_tools: TravelToolProvider) -> None:
         self._llm_client = LLMClient(settings)
@@ -92,7 +113,7 @@ class LangGraphTravelAgentEngine:
                 "day_regeneration",
                 "day_fallback",
             ),
-            dependency_mode="dependency-free-skeleton",
+            dependency_mode="internal-graph-runner",
         )
 
     @property
@@ -107,12 +128,15 @@ class LangGraphTravelAgentEngine:
         started_at = _utc_timestamp()
         started = perf_counter()
         state = ChatWorkflowState(request=request, messages=messages)
-        state = self._chat_llm_node(state)
-        state = self._chat_fallback_node(state)
+        workflow = self._run_workflow(state, (
+            ("chat_llm", self._chat_llm_node),
+            ("chat_fallback", self._chat_fallback_node),
+        ))
+        state = workflow.state
         response = state.response or _build_rule_based_reply(request)
         self._record_trace(self._build_trace(
             operation="chat",
-            completed_nodes=("chat_llm", "chat_fallback"),
+            completed_nodes=workflow.completed_nodes,
             fallback_used=state.fallback_used,
             node_events=_chat_node_events(state),
             tool_calls=(),
@@ -127,14 +151,17 @@ class LangGraphTravelAgentEngine:
         tool_calls: list[TravelAgentToolCall] = []
         traced_tools = TracingTravelToolProvider(self._travel_tools, tool_calls)
         state = TripPlanningWorkflowState(request=request)
-        state = self._trip_context_node(state)
-        state = self._trip_draft_node(state)
-        state = self._trip_enrichment_node(state, traced_tools)
-        state = self._trip_validation_node(state, traced_tools)
+        workflow = self._run_workflow(state, (
+            ("trip_context", self._trip_context_node),
+            ("trip_draft", self._trip_draft_node),
+            ("trip_enrichment", lambda current: self._trip_enrichment_node(current, traced_tools)),
+            ("trip_validation", lambda current: self._trip_validation_node(current, traced_tools)),
+        ))
+        state = workflow.state
         response = state.final_plan or build_mock_trip_plan(request, traced_tools, state.planning_context)
         self._record_trace(self._build_trace(
             operation="trip_plan",
-            completed_nodes=("trip_context", "trip_draft", "trip_enrichment", "trip_validation"),
+            completed_nodes=workflow.completed_nodes,
             fallback_used=state.fallback_used,
             node_events=_trip_node_events(state),
             tool_calls=tuple(tool_calls),
@@ -151,12 +178,15 @@ class LangGraphTravelAgentEngine:
             day=day,
             instruction=instruction,
         )
-        state = self._day_regeneration_node(state)
-        state = self._day_fallback_node(state)
+        workflow = self._run_workflow(state, (
+            ("day_regeneration", self._day_regeneration_node),
+            ("day_fallback", self._day_fallback_node),
+        ))
+        state = workflow.state
         response = state.regenerated_day or build_mock_regenerated_trip_day(saved_trip_plan, day, instruction)
         self._record_trace(self._build_trace(
             operation="day_regeneration",
-            completed_nodes=("day_regeneration", "day_fallback"),
+            completed_nodes=workflow.completed_nodes,
             fallback_used=state.fallback_used,
             node_events=_day_node_events(state),
             tool_calls=(),
@@ -170,52 +200,112 @@ class LangGraphTravelAgentEngine:
         started = perf_counter()
         tool_calls: list[TravelAgentToolCall] = []
         traced_tools = TracingTravelToolProvider(self._travel_tools, tool_calls)
-        request = trip_plan_request_from_saved(saved_trip_plan, instruction)
-        planning_context = build_travel_planning_context(request)
-        draft_plan = self._llm_client.revise_trip_plan(saved_trip_plan, instruction)
-        fallback_used = draft_plan is None
-        candidate_plan = draft_plan or build_mock_revised_trip_plan(saved_trip_plan, instruction)
-        enriched_plan = (
-            enrich_trip_plan_response(candidate_plan, request, traced_tools, planning_context)
-            if draft_plan is not None
-            else candidate_plan
-        )
-        response, quality_report = assure_trip_plan_quality(
-            enriched_plan,
-            request,
-            traced_tools,
-            planning_context,
-        )
-        fallback_used = fallback_used or quality_report.repaired
+        state = TripRevisionWorkflowState(saved_trip_plan=saved_trip_plan, instruction=instruction)
+        workflow = self._run_workflow(state, (
+            ("trip_context", self._revision_context_node),
+            ("trip_revision", self._revision_draft_node),
+            ("trip_enrichment", lambda current: self._revision_enrichment_node(current, traced_tools)),
+            ("trip_validation", lambda current: self._revision_validation_node(current, traced_tools)),
+        ))
+        state = workflow.state
+        response = state.final_plan or build_mock_revised_trip_plan(saved_trip_plan, instruction)
         self._record_trace(self._build_trace(
             operation="trip_revision",
-            completed_nodes=("trip_context", "trip_revision", "trip_enrichment", "trip_validation"),
-            fallback_used=fallback_used,
-            node_events=(
-                _node_event("trip_context", "SUCCEEDED", planning_context.to_trace_detail()),
-                _node_event(
-                    "trip_revision",
-                    "FALLBACK" if draft_plan is None else "SUCCEEDED",
-                    "mock_trip_revision_generated" if draft_plan is None else "trip_revision_json_generated",
-                ),
-                _node_event(
-                    "trip_enrichment",
-                    "SKIPPED" if draft_plan is None else "SUCCEEDED",
-                    "mock_revision_already_enriched" if draft_plan is None else "travel_tools_applied",
-                ),
-                _node_event(
-                    "trip_validation",
-                    "FALLBACK" if quality_report.repaired else "SUCCEEDED",
-                    quality_report.to_trace_detail(),
-                    score=quality_report.score,
-                    grade=quality_report.grade,
-                ),
-            ),
+            completed_nodes=workflow.completed_nodes,
+            fallback_used=state.fallback_used,
+            node_events=_revision_node_events(state),
             tool_calls=tuple(tool_calls),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))
         return response
+
+    def _run_workflow(
+        self,
+        initial_state: WorkflowStateT,
+        nodes: tuple[tuple[str, Callable[[WorkflowStateT], WorkflowStateT]], ...],
+    ) -> WorkflowRunResult[WorkflowStateT]:
+        state = initial_state
+        completed_nodes: list[str] = []
+        for node_name, node in nodes:
+            state = node(state)
+            completed_nodes.append(node_name)
+        return WorkflowRunResult(state=state, completed_nodes=tuple(completed_nodes))
+
+    def _revision_context_node(self, state: TripRevisionWorkflowState) -> TripRevisionWorkflowState:
+        request = trip_plan_request_from_saved(state.saved_trip_plan, state.instruction)
+        return TripRevisionWorkflowState(
+            saved_trip_plan=state.saved_trip_plan,
+            instruction=state.instruction,
+            request=request,
+            planning_context=build_travel_planning_context(request),
+            draft_plan=state.draft_plan,
+            final_plan=state.final_plan,
+            quality_report=state.quality_report,
+            fallback_used=state.fallback_used,
+        )
+
+    def _revision_draft_node(self, state: TripRevisionWorkflowState) -> TripRevisionWorkflowState:
+        draft_plan = self._llm_client.revise_trip_plan(state.saved_trip_plan, state.instruction)
+        return TripRevisionWorkflowState(
+            saved_trip_plan=state.saved_trip_plan,
+            instruction=state.instruction,
+            request=state.request,
+            planning_context=state.planning_context,
+            draft_plan=draft_plan,
+            final_plan=state.final_plan,
+            quality_report=state.quality_report,
+            fallback_used=state.fallback_used or draft_plan is None,
+        )
+
+    def _revision_enrichment_node(
+        self,
+        state: TripRevisionWorkflowState,
+        travel_tools: TravelToolProvider,
+    ) -> TripRevisionWorkflowState:
+        if state.request is None or state.planning_context is None:
+            return state
+        candidate_plan = state.draft_plan or build_mock_revised_trip_plan(state.saved_trip_plan, state.instruction)
+        final_plan = (
+            enrich_trip_plan_response(candidate_plan, state.request, travel_tools, state.planning_context)
+            if state.draft_plan is not None
+            else candidate_plan
+        )
+        return TripRevisionWorkflowState(
+            saved_trip_plan=state.saved_trip_plan,
+            instruction=state.instruction,
+            request=state.request,
+            planning_context=state.planning_context,
+            draft_plan=state.draft_plan,
+            final_plan=final_plan,
+            quality_report=state.quality_report,
+            fallback_used=state.fallback_used,
+        )
+
+    def _revision_validation_node(
+        self,
+        state: TripRevisionWorkflowState,
+        travel_tools: TravelToolProvider,
+    ) -> TripRevisionWorkflowState:
+        if state.request is None or state.planning_context is None:
+            return state
+        candidate_plan = state.final_plan or build_mock_revised_trip_plan(state.saved_trip_plan, state.instruction)
+        final_plan, quality_report = assure_trip_plan_quality(
+            candidate_plan,
+            state.request,
+            travel_tools,
+            state.planning_context,
+        )
+        return TripRevisionWorkflowState(
+            saved_trip_plan=state.saved_trip_plan,
+            instruction=state.instruction,
+            request=state.request,
+            planning_context=state.planning_context,
+            draft_plan=state.draft_plan,
+            final_plan=final_plan,
+            quality_report=quality_report,
+            fallback_used=state.fallback_used or quality_report.repaired,
+        )
 
     def _chat_llm_node(self, state: ChatWorkflowState) -> ChatWorkflowState:
         response = self._llm_client.generate_chat_reply(state.messages, state.request.mode)
@@ -434,6 +524,32 @@ def _day_node_events(state: DayRegenerationWorkflowState) -> tuple[TravelAgentNo
         else _node_event("day_fallback", "SKIPPED", "llm_day_available")
     )
     return (generation_event, fallback_event)
+
+
+def _revision_node_events(state: TripRevisionWorkflowState) -> tuple[TravelAgentNodeEvent, ...]:
+    context_event = (
+        _node_event("trip_context", "SUCCEEDED", state.planning_context.to_trace_detail())
+        if state.planning_context is not None
+        else _node_event("trip_context", "FAILED", "planning_context_missing")
+    )
+    revision_event = (
+        _node_event("trip_revision", "FALLBACK", "mock_trip_revision_generated")
+        if state.draft_plan is None
+        else _node_event("trip_revision", "SUCCEEDED", "trip_revision_json_generated")
+    )
+    enrichment_event = (
+        _node_event("trip_enrichment", "SKIPPED", "mock_revision_already_enriched")
+        if state.draft_plan is None
+        else _node_event("trip_enrichment", "SUCCEEDED", "travel_tools_applied")
+    )
+    validation_event = _node_event(
+        "trip_validation",
+        "FALLBACK" if state.quality_report and state.quality_report.repaired else "SUCCEEDED",
+        state.quality_report.to_trace_detail() if state.quality_report else "quality_report_missing",
+        score=state.quality_report.score if state.quality_report else None,
+        grade=state.quality_report.grade if state.quality_report else None,
+    )
+    return (context_event, revision_event, enrichment_event, validation_event)
 
 
 def _node_event(
