@@ -637,6 +637,16 @@ if (
   $editedTripPlan.plan.budget.totalTransportation -ne 180 -or
   $editedTripPlan.plan.budget.total -ne $expectedTotal
 ) {
+  Write-Host "Expected budget:"
+  [pscustomobject]@{
+    totalAttractions = $expectedAttractions
+    totalHotels = $expectedHotels
+    totalMeals = $expectedMeals
+    totalTransportation = 180
+    total = $expectedTotal
+  } | Format-List
+  Write-Host "Actual budget:"
+  $editedTripPlan.plan.budget | Format-List
   throw "Trip plan content update API did not canonicalize edited budget from itinerary details"
 }
 if ([int]$editedTripPlan.version -ne ($initialTripPlanVersion + 1)) {

@@ -4276,9 +4276,25 @@ function RuntimeStatus({
   const toolCallSummary = agentStatus?.toolCallSummary;
   const toolUsageSummary = Object.entries(toolCallSummary?.toolCounts ?? {}).slice(0, 3);
   const toolCatalog = agentStatus?.toolCatalog;
-  const visibleTools = toolCatalog?.tools.slice(0, 4) ?? [];
+  const toolProvider = toolCatalog?.provider ?? health?.travelToolsProvider ?? 'mock';
+  const toolProviderMode = toolProvider === 'fastmcp' ? 'FastMCP' : toolProvider.startsWith('mock') ? 'Mock' : toolProvider;
+  const toolCategories = Object.entries(
+    (toolCatalog?.tools ?? []).reduce<Record<string, number>>((counts, tool) => {
+      counts[tool.category] = (counts[tool.category] ?? 0) + 1;
+      return counts;
+    }, {}),
+  ).slice(0, 6);
   const diagnosticChecks = agentDiagnostics?.checks ?? [];
   const visibleDiagnosticChecks = diagnosticChecks.slice(0, 6);
+  const diagnosticStatusCounts = Object.entries(agentDiagnostics?.statusCounts ?? {}).slice(0, 4);
+  const latestQuality =
+    qualitySummary && qualitySummary.scoredRuns > 0
+      ? `${qualitySummary.latestScore ?? qualitySummary.averageScore} ${formatAgentOperation(
+          qualitySummary.latestGrade || 'unknown',
+        )}`
+      : 'No score';
+  const failedToolCalls = toolCallSummary?.failedToolCalls ?? 0;
+  const totalToolCalls = toolCallSummary?.totalToolCalls ?? 0;
 
   return (
     <section className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -4307,9 +4323,7 @@ function RuntimeStatus({
           muted={!runtimeOnline || loading}
         />
         <StatusRow
-          label={`Travel tools: ${toolCatalog?.provider ?? health?.travelToolsProvider ?? 'mock'}${
-            toolCatalog ? ` (${toolCatalog.toolCount})` : ''
-          }`}
+          label={`Travel tools: ${toolProvider}${toolCatalog ? ` (${toolCatalog.toolCount})` : ''}`}
           active={runtimeOnline}
           muted={!runtimeOnline || loading}
         />
@@ -4321,9 +4335,31 @@ function RuntimeStatus({
           />
         )}
       </div>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <RuntimeMetric label="Provider" value={toolProviderMode} tone={toolProvider === 'fastmcp' ? 'green' : 'amber'} />
+        <RuntimeMetric
+          label="Quality"
+          value={latestQuality}
+          tone={qualitySummary?.latestGrade === 'ready' ? 'green' : qualitySummary?.scoredRuns ? 'amber' : 'slate'}
+        />
+        <RuntimeMetric
+          label="Tools"
+          value={totalToolCalls > 0 ? `${totalToolCalls}/${failedToolCalls}` : 'No runs'}
+          tone={failedToolCalls > 0 ? 'red' : totalToolCalls > 0 ? 'green' : 'slate'}
+        />
+      </div>
       {visibleDiagnosticChecks.length > 0 && (
         <div className="mt-3 border-t border-slate-200 pt-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Agent diagnostics</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Agent diagnostics</p>
+            {diagnosticStatusCounts.length > 0 && (
+              <p className="truncate text-[11px] text-slate-400">
+                {diagnosticStatusCounts
+                  .map(([status, count]) => `${formatAgentOperation(status)} ${count}`)
+                  .join(' / ')}
+              </p>
+            )}
+          </div>
           <div className="mt-2 grid gap-1">
             {visibleDiagnosticChecks.map((check) => (
               <p key={check.name} className="flex items-center justify-between gap-2 text-[11px]" title={check.detail}>
@@ -4336,20 +4372,29 @@ function RuntimeStatus({
           </div>
         </div>
       )}
-      {visibleTools.length > 0 && (
+      {toolCategories.length > 0 && (
         <div className="mt-3 border-t border-slate-200 pt-3">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Travel tools</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {visibleTools.map((tool) => (
+          <div className="mt-2 grid grid-cols-2 gap-1.5">
+            {toolCategories.map(([category, count]) => (
               <span
-                key={tool.name}
-                className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600"
-                title={tool.description}
+                key={category}
+                className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600"
               >
-                {tool.name}
+                <span className="truncate">{formatAgentOperation(category)}</span>
+                <span className="font-medium text-ink">{count}</span>
               </span>
             ))}
           </div>
+          {(toolCatalog?.tools ?? []).length > 0 && (
+            <p className="mt-2 truncate text-[11px] text-slate-400" title={(toolCatalog?.tools ?? []).map((tool) => tool.name).join(' / ')}>
+              {(toolCatalog?.tools ?? [])
+                .slice(0, 4)
+                .map((tool) => tool.name)
+                .join(' / ')}
+              {(toolCatalog?.tools?.length ?? 0) > 4 ? ` / +${(toolCatalog?.tools?.length ?? 0) - 4}` : ''}
+            </p>
+          )}
         </div>
       )}
       {workflowNodes.length > 0 && (
@@ -4403,7 +4448,10 @@ function RuntimeStatus({
                     className="flex items-center justify-between gap-2 text-[11px]"
                     title={toolCall.detail}
                   >
-                    <span className="truncate text-slate-500">{toolCall.toolName}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-slate-500">{toolCall.toolName}</span>
+                      {toolCall.detail && <span className="block truncate text-slate-400">{toolCall.detail}</span>}
+                    </span>
                     <span className={`shrink-0 rounded px-1.5 py-0.5 ${agentNodeStatusClass(toolCall.status)}`}>
                       {formatAgentOperation(toolCall.status)}
                     </span>
@@ -4471,6 +4519,26 @@ function RuntimeStatus({
         </div>
       )}
     </section>
+  );
+}
+
+function RuntimeMetric({ label, value, tone }: { label: string; value: string; tone: 'green' | 'amber' | 'red' | 'slate' }) {
+  const toneClass =
+    tone === 'green'
+      ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+      : tone === 'amber'
+        ? 'border-amber-100 bg-amber-50 text-amber-700'
+        : tone === 'red'
+          ? 'border-red-100 bg-red-50 text-red-700'
+          : 'border-slate-200 bg-white text-slate-600';
+
+  return (
+    <div className={`min-w-0 rounded-md border px-2 py-2 ${toneClass}`}>
+      <p className="text-[10px] font-medium uppercase tracking-wide opacity-70">{label}</p>
+      <p className="mt-1 truncate text-xs font-semibold" title={value}>
+        {value}
+      </p>
+    </div>
   );
 }
 
