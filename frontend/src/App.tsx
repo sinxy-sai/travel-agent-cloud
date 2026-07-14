@@ -108,6 +108,7 @@ const defaultChatSuggestions = [
 ];
 
 const historyPageSize = 8;
+const tripPlanVersionsPageSize = 5;
 const summaryJobPollingIntervalMs = 2000;
 const summaryJobPollingTimeoutMs = 30000;
 type ConversationSummaryJobUiStatus = 'IDLE' | 'POLLING' | 'FAILED' | 'TIMEOUT';
@@ -143,6 +144,8 @@ export default function App() {
   const [tripPlanReviseError, setTripPlanReviseError] = useState('');
   const [tripPlanVersionsModalOpen, setTripPlanVersionsModalOpen] = useState(false);
   const [tripPlanVersions, setTripPlanVersions] = useState<TripPlanVersion[]>([]);
+  const [tripPlanVersionsPage, setTripPlanVersionsPage] = useState(1);
+  const [tripPlanVersionsTotalItems, setTripPlanVersionsTotalItems] = useState(0);
   const [previewTripPlanVersionId, setPreviewTripPlanVersionId] = useState<string | null>(null);
   const [tripPlanVersionsError, setTripPlanVersionsError] = useState('');
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -781,12 +784,15 @@ export default function App() {
   });
 
   const listTripPlanVersionsMutation = useMutation({
-    mutationFn: (tripPlanId: string) => listTripPlanVersions(tripPlanId),
+    mutationFn: ({ tripPlanId, page }: { tripPlanId: string; page: number }) =>
+      listTripPlanVersions(tripPlanId, page, tripPlanVersionsPageSize),
     onMutate: () => {
       setTripPlanVersionsError('');
     },
     onSuccess: (response) => {
       setTripPlanVersions(response.data);
+      setTripPlanVersionsPage(response.page);
+      setTripPlanVersionsTotalItems(response.totalItems);
     },
     onError: () => {
       setTripPlanVersionsError('Could not load itinerary versions.');
@@ -809,10 +815,11 @@ export default function App() {
     onSuccess: (savedTripPlan) => {
       setPlan(savedTripPlan.plan);
       setSelectedTripPlanVersion(savedTripPlan.version);
+      setPreviewTripPlanVersionId(null);
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       if (savedTripPlan.id) {
-        listTripPlanVersionsMutation.mutate(savedTripPlan.id);
+        listTripPlanVersionsMutation.mutate({ tripPlanId: savedTripPlan.id, page: tripPlanVersionsPage });
       }
     },
     onError: (error) => {
@@ -943,6 +950,8 @@ export default function App() {
   function resetTripPlanVersionsPanel() {
     setTripPlanVersionsModalOpen(false);
     setTripPlanVersions([]);
+    setTripPlanVersionsPage(1);
+    setTripPlanVersionsTotalItems(0);
     setPreviewTripPlanVersionId(null);
     setTripPlanVersionsError('');
   }
@@ -1643,8 +1652,18 @@ export default function App() {
     }
     setTripPlanVersionsModalOpen(true);
     setTripPlanVersionsError('');
+    setTripPlanVersionsPage(1);
+    setTripPlanVersionsTotalItems(0);
     setPreviewTripPlanVersionId(null);
-    listTripPlanVersionsMutation.mutate(selectedTripPlanId);
+    listTripPlanVersionsMutation.mutate({ tripPlanId: selectedTripPlanId, page: 1 });
+  };
+
+  const changeTripPlanVersionsPage = (page: number) => {
+    if (!selectedTripPlanId) {
+      return;
+    }
+    setPreviewTripPlanVersionId(null);
+    listTripPlanVersionsMutation.mutate({ tripPlanId: selectedTripPlanId, page });
   };
 
   const submitTripPlanRevision = () => {
@@ -3121,6 +3140,18 @@ export default function App() {
               {previewTripPlanVersionId === version.id && <TripPlanVersionPreview version={version} />}
             </div>
           ))}
+          {tripPlanVersionsTotalItems > tripPlanVersionsPageSize && (
+            <div className="flex justify-end border-t border-slate-200 pt-3">
+              <Pagination
+                size="small"
+                current={tripPlanVersionsPage}
+                pageSize={tripPlanVersionsPageSize}
+                total={tripPlanVersionsTotalItems}
+                showSizeChanger={false}
+                onChange={changeTripPlanVersionsPage}
+              />
+            </div>
+          )}
           {tripPlanVersionsError && (
             <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {tripPlanVersionsError}
