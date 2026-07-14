@@ -93,6 +93,7 @@ from app.schemas import (
     MessageRole,
     SavedTripPlan,
     TripPlanListResponse,
+    TripPlanReviseRequest,
     TripDayRegenerateRequest,
     TripPlanRequest,
     TripPlanResponse,
@@ -974,6 +975,76 @@ def update_trip_plan(
     return trip_plan
 
 
+@app.post("/api/v1/trip-plans/{trip_plan_id}/revise", response_model=SavedTripPlan)
+def revise_trip_plan(
+    trip_plan_id: str,
+    request: TripPlanReviseRequest,
+    user_id: str = Depends(get_user_id),
+) -> SavedTripPlan:
+    try:
+        saved_trip_plan = conversation_store.get_trip_plan(user_id, trip_plan_id)
+    except TripPlanNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+    if request.expected_version != saved_trip_plan.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TRIP_PLAN_VERSION_CONFLICT",
+                "message": "Trip plan was updated elsewhere; reload it before saving",
+            },
+        )
+
+    revised_plan = travel_agent_service.revise_trip_plan(saved_trip_plan, request.instruction)
+    revised_plan = revised_plan.model_copy(
+        update={
+            "saved_trip_plan_id": saved_trip_plan.id,
+            "conversation_id": saved_trip_plan.conversation_id,
+        }
+    )
+
+    try:
+        trip_plan = conversation_store.update_trip_plan(
+            user_id,
+            trip_plan_id,
+            TripPlanUpdateRequest(plan=revised_plan, expected_version=request.expected_version),
+        )
+    except TripPlanVersionConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TRIP_PLAN_VERSION_CONFLICT",
+                "message": "Trip plan was updated elsewhere; reload it before saving",
+            },
+        ) from exc
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "TRIP_PLAN_REVISION_INVALID", "message": "Revised trip plan was invalid"},
+        ) from exc
+
+    if trip_plan.conversation_id:
+        try:
+            conversation = conversation_store.get(user_id, trip_plan.conversation_id)
+            conversation_store.append_message(conversation, MessageRole.USER, f"Revise itinerary: {request.instruction}")
+            conversation_store.append_message(
+                conversation,
+                MessageRole.ASSISTANT,
+                f"Revised itinerary: {trip_plan.plan.summary}",
+            )
+        except ConversationNotFoundError:
+            pass
+
+    event_publisher.publish(
+        "trip.plan.revised",
+        user_id,
+        {
+            "tripPlanId": trip_plan_id,
+            "version": trip_plan.version,
+        },
+    )
+    return trip_plan
+
+
 @app.post("/api/v1/trip-plans/{trip_plan_id}/days/{day}/regenerate", response_model=SavedTripPlan)
 def regenerate_trip_plan_day(
     trip_plan_id: str,
@@ -985,6 +1056,14 @@ def regenerate_trip_plan_day(
         saved_trip_plan = conversation_store.get_trip_plan(user_id, trip_plan_id)
     except TripPlanNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+    if request.expected_version != saved_trip_plan.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "TRIP_PLAN_VERSION_CONFLICT",
+                "message": "Trip plan was updated elsewhere; reload it before saving",
+            },
+        )
 
     if not any(item.day == day for item in saved_trip_plan.plan.days):
         raise HTTPException(

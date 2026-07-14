@@ -60,3 +60,6 @@ class TravelAgentService:
 
     def regenerate_trip_day(self, saved_trip_plan: SavedTripPlan, day: int, instruction: str) -> TripDay:
         return self._engine.regenerate_trip_day(saved_trip_plan, day, instruction)
+
+    def revise_trip_plan(self, saved_trip_plan: SavedTripPlan, instruction: str) -> TripPlanResponse:
+        return self._engine.revise_trip_plan(saved_trip_plan, instruction)

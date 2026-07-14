@@ -651,17 +651,46 @@ try {
   }
 }
 
+Write-Host "Checking trip plan revision API"
+$tripPlanRevisionBody = @{
+  instruction = "Make the whole itinerary more relaxed and add more local food context"
+  expectedVersion = [int]$editedTripPlan.version
+} | ConvertTo-Json
+$revisedTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/revise" -Method Post -ContentType "application/json" -Headers $headers -Body $tripPlanRevisionBody
+if ([int]$revisedTripPlan.version -ne ([int]$editedTripPlan.version + 1)) {
+  throw "Trip plan revision API did not increment the version"
+}
+if (-not ($revisedTripPlan.plan.title -like "Revised*") -or -not ($revisedTripPlan.plan.summary -like "*Adjusted for:*")) {
+  throw "Trip plan revision API did not revise the itinerary content"
+}
+$tripRevisionAgentStatus = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/status"
+if (
+  -not $tripRevisionAgentStatus.lastRunTrace -or
+  $tripRevisionAgentStatus.lastRunTrace.operation -ne "trip_revision" -or
+  -not ($tripRevisionAgentStatus.lastRunTrace.nodeEvents | Where-Object { $_.nodeName -eq "trip_validation" -or $_.nodeName -eq "plan_quality" })
+) {
+  throw "Agent status API did not record trip revision trace"
+}
+try {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/revise" -Method Post -ContentType "application/json" -Headers $headers -Body $tripPlanRevisionBody
+  throw "Trip plan revision API accepted a stale version"
+} catch {
+  if ($_.Exception.Response.StatusCode.value__ -ne 409) {
+    throw
+  }
+}
+
 Write-Host "Checking trip plan day regeneration API"
 $dayRegenerationBody = @{
   instruction = "Make this day slower and add a local food stop"
-  expectedVersion = [int]$editedTripPlan.version
+  expectedVersion = [int]$revisedTripPlan.version
 } | ConvertTo-Json
 $regeneratedTripPlan = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($createdTripPlan.savedTripPlanId)/days/2/regenerate" -Method Post -ContentType "application/json" -Headers $headers -Body $dayRegenerationBody
 $regeneratedDay = $regeneratedTripPlan.plan.days | Where-Object { $_.day -eq 2 } | Select-Object -First 1
 if (-not $regeneratedDay -or -not $regeneratedDay.theme -or -not $regeneratedDay.morning -or -not $regeneratedDay.afternoon -or -not $regeneratedDay.evening) {
   throw "Trip plan day regeneration API did not update day 2"
 }
-if ([int]$regeneratedTripPlan.version -ne ([int]$editedTripPlan.version + 1)) {
+if ([int]$regeneratedTripPlan.version -ne ([int]$revisedTripPlan.version + 1)) {
   throw "Trip plan day regeneration API did not increment the version"
 }
 

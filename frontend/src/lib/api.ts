@@ -128,6 +128,11 @@ export interface TripDayRegenerateRequest {
   expectedVersion: number;
 }
 
+export interface TripPlanReviseRequest {
+  instruction: string;
+  expectedVersion: number;
+}
+
 export interface TripPlanListResponse {
   data: SavedTripPlan[];
   page: number;
@@ -223,6 +228,7 @@ export interface AgentEngineCapabilities {
   supportsChat: boolean;
   supportsTripPlanning: boolean;
   supportsDayRegeneration: boolean;
+  supportsTripRevision?: boolean;
   workflowNodes: string[];
   dependencyMode: string;
 }
@@ -760,6 +766,14 @@ export async function regenerateTripPlanDay(
   request: TripDayRegenerateRequest,
 ): Promise<SavedTripPlan> {
   const response = await api.post<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}/days/${day}/regenerate`, request);
+  return response.data;
+}
+
+export async function reviseTripPlan(
+  tripPlanId: string,
+  request: TripPlanReviseRequest,
+): Promise<SavedTripPlan> {
+  const response = await api.post<SavedTripPlan>(`/api/v1/trip-plans/${tripPlanId}/revise`, request);
   return response.data;
 }
 

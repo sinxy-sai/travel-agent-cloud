@@ -121,7 +121,7 @@ WORKER_RECONNECT_INITIAL_SECONDS=2
 WORKER_RECONNECT_MAX_SECONDS=30
 ```
 
-`MESSAGE_QUEUE_URL` enables RabbitMQ event publishing. `REDIS_URL` enables distributed auth rate limiting. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for queue and future runtime-to-service calls. `AGENT_ENGINE=basic` selects the current built-in itinerary/chat engine. `AGENT_ENGINE=langgraph` runs the dependency-free graph-shaped workflow skeleton and reports `langgraph:workflow-skeleton` in `/health`; it defines chat, trip context normalization, trip draft, enrichment, validation, and day-regeneration nodes before the real LangGraph dependency is introduced. `/health` also returns `agentEngineCapabilities` with the supported user-facing abilities and workflow node names for debugging. `GET /api/v1/agent/status` returns the same capabilities plus privacy-safe `lastRunTrace` and `recentRunTraces` that record only run id, operation, timing, and node names, not user prompts. Later LangGraph or DeepAgent engines should implement the same engine interface without changing the public chat and trip plan APIs. `TRAVEL_TOOL_PROVIDER=mock` enables the local deterministic POI, hotel, meal, weather, and budget provider. Later FastMCP-backed providers should implement the same travel tool interface without changing the public trip plan API.
+`MESSAGE_QUEUE_URL` enables RabbitMQ event publishing. `REDIS_URL` enables distributed auth rate limiting. `RPC_TIMEOUT_SECONDS` is the shared timeout budget for queue and future runtime-to-service calls. `AGENT_ENGINE=basic` selects the current built-in itinerary/chat engine. `AGENT_ENGINE=langgraph` runs the dependency-free graph-shaped workflow skeleton and reports `langgraph:workflow-skeleton` in `/health`; it defines chat, trip context normalization, trip draft, trip revision, enrichment, validation, and day-regeneration nodes before the real LangGraph dependency is introduced. `/health` also returns `agentEngineCapabilities` with the supported user-facing abilities and workflow node names for debugging. `GET /api/v1/agent/status` returns the same capabilities plus privacy-safe `lastRunTrace` and `recentRunTraces` that record only run id, operation, timing, and node names, not user prompts. Later LangGraph or DeepAgent engines should implement the same engine interface without changing the public chat and trip plan APIs. `TRAVEL_TOOL_PROVIDER=mock` enables the local deterministic POI, hotel, meal, weather, and budget provider. Later FastMCP-backed providers should implement the same travel tool interface without changing the public trip plan API.
 
 `lastRunTrace.nodeEvents` adds privacy-safe node-level statuses such as `SUCCEEDED`, `SKIPPED`, and `FALLBACK`; event details describe runtime decisions but never include prompts, generated content, user ids, API keys, or provider payloads.
 Trip planning traces include a context node (`trip_context` for the graph skeleton or `request_context` for the basic engine) that records only counts, coarse style tags, and whether extra constraints were present.
@@ -137,6 +137,7 @@ When `MESSAGE_QUEUE_URL` is configured, the runtime publishes small domain event
 Current events:
 
 - `trip.plan.created`
+- `trip.plan.revised`
 - `trip.plan.updated`
 - `trip.plan.deleted`
 - `user.profile.updated`
@@ -516,6 +517,17 @@ curl -X PATCH http://localhost:8000/api/v1/trip-plans/{tripPlanId} \
 ```
 
 Content edits increment `version`. A request using an outdated `expectedVersion` returns HTTP `409` with code `TRIP_PLAN_VERSION_CONFLICT`; reload the saved plan before retrying. Favorite-only updates do not require `expectedVersion`.
+
+Revise a full saved trip plan with an agent instruction. The whole itinerary is replaced, quality-checked, saved with the next `version`, and attached to the planning conversation when one exists:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/trip-plans/{tripPlanId}/revise \
+  -H "Content-Type: application/json" \
+  -d '{
+    "instruction": "Make the itinerary more relaxed and add more local food stops",
+    "expectedVersion": 2
+  }'
+```
 
 Regenerate one day of a saved trip plan. Only the target day is replaced; the rest of the itinerary is preserved:
 

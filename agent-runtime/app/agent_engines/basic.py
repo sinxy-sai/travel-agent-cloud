@@ -12,7 +12,13 @@ from app.agent_engines.types import (
 from app.llm import LLMClient
 from app.plan_quality import assure_trip_plan_quality
 from app.planning_context import build_travel_planning_context
-from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
+from app.planner import (
+    build_mock_regenerated_trip_day,
+    build_mock_revised_trip_plan,
+    build_mock_trip_plan,
+    enrich_trip_plan_response,
+    trip_plan_request_from_saved,
+)
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
 from app.travel_tools import TravelToolProvider
@@ -38,6 +44,7 @@ class BasicTravelAgentEngine:
             supports_chat=True,
             supports_trip_planning=True,
             supports_day_regeneration=True,
+            supports_trip_revision=True,
             workflow_nodes=("request_context", "llm_call", "tool_enrichment", "plan_quality", "mock_fallback"),
             dependency_mode="builtin",
         )
@@ -165,6 +172,76 @@ class BasicTravelAgentEngine:
                 else _node_event("mock_fallback", "SKIPPED", "llm_day_available"),
             ),
             tool_calls=(),
+            started_at=started_at,
+            duration_ms=_elapsed_ms(started),
+        ))
+        return response
+
+    def revise_trip_plan(self, saved_trip_plan: SavedTripPlan, instruction: str) -> TripPlanResponse:
+        started_at = _utc_timestamp()
+        started = perf_counter()
+        tool_calls: list[TravelAgentToolCall] = []
+        traced_tools = TracingTravelToolProvider(self._travel_tools, tool_calls)
+        request = trip_plan_request_from_saved(saved_trip_plan, instruction)
+        planning_context = build_travel_planning_context(request)
+        context_event = _node_event("request_context", "SUCCEEDED", planning_context.to_trace_detail())
+        llm_response = self._llm_client.revise_trip_plan(saved_trip_plan, instruction)
+        if llm_response:
+            enriched_response = enrich_trip_plan_response(llm_response, request, traced_tools, planning_context)
+            response, quality_report = assure_trip_plan_quality(
+                enriched_response,
+                request,
+                traced_tools,
+                planning_context,
+            )
+            self._record_trace(self._build_trace(
+                operation="trip_revision",
+                completed_nodes=("request_context", "llm_call", "tool_enrichment", "plan_quality"),
+                fallback_used=quality_report.repaired,
+                node_events=(
+                    context_event,
+                    _node_event("llm_call", "SUCCEEDED", "trip_revision_json_generated"),
+                    _node_event("tool_enrichment", "SUCCEEDED", "travel_tools_applied"),
+                    _node_event(
+                        "plan_quality",
+                        "FALLBACK" if quality_report.repaired else "SUCCEEDED",
+                        quality_report.to_trace_detail(),
+                        score=quality_report.score,
+                        grade=quality_report.grade,
+                    ),
+                    _node_event("mock_fallback", "SKIPPED", "llm_revision_available"),
+                ),
+                tool_calls=tuple(tool_calls),
+                started_at=started_at,
+                duration_ms=_elapsed_ms(started),
+            ))
+            return response
+
+        mock_response = build_mock_revised_trip_plan(saved_trip_plan, instruction)
+        response, quality_report = assure_trip_plan_quality(
+            mock_response,
+            request,
+            traced_tools,
+            planning_context,
+        )
+        self._record_trace(self._build_trace(
+            operation="trip_revision",
+            completed_nodes=("request_context", "llm_call", "plan_quality", "mock_fallback"),
+            fallback_used=True,
+            node_events=(
+                context_event,
+                _node_event("llm_call", "SKIPPED", "llm_disabled_or_invalid_response"),
+                _node_event("tool_enrichment", "SKIPPED", "no_llm_revision_to_enrich"),
+                _node_event(
+                    "plan_quality",
+                    "SUCCEEDED",
+                    quality_report.to_trace_detail(),
+                    score=quality_report.score,
+                    grade=quality_report.grade,
+                ),
+                _node_event("mock_fallback", "FALLBACK", "mock_trip_revision_generated"),
+            ),
+            tool_calls=tuple(tool_calls),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))

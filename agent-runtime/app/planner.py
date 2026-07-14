@@ -121,6 +121,60 @@ def build_mock_regenerated_trip_day(saved_trip_plan: SavedTripPlan, day: int, in
     )
 
 
+def build_mock_revised_trip_plan(saved_trip_plan: SavedTripPlan, instruction: str) -> TripPlanResponse:
+    instruction_summary = instruction.strip()[:220]
+    current_plan = saved_trip_plan.plan
+    revised_days = [
+        day.model_copy(
+            update={
+                "theme": _revised_theme(day.theme),
+                "description": _append_revision_note(day.description, instruction_summary),
+                "morning": _append_revision_note(day.morning, instruction_summary),
+                "afternoon": _append_revision_note(day.afternoon, instruction_summary),
+                "evening": _append_revision_note(day.evening, instruction_summary),
+            }
+        )
+        for day in current_plan.days
+    ]
+    tips = [
+        *[tip for tip in current_plan.tips if tip.strip()],
+        f"Revision applied: {instruction_summary}",
+    ][:20]
+
+    return current_plan.model_copy(
+        update={
+            "title": _revised_title(current_plan.title),
+            "summary": _append_revision_note(current_plan.summary, instruction_summary),
+            "days": revised_days,
+            "overall_suggestions": _append_revision_note(current_plan.overall_suggestions, instruction_summary),
+            "tips": tips,
+            "saved_trip_plan_id": saved_trip_plan.id,
+            "conversation_id": saved_trip_plan.conversation_id,
+        }
+    )
+
+
+def trip_plan_request_from_saved(saved_trip_plan: SavedTripPlan, instruction: str = "") -> TripPlanRequest:
+    plan = saved_trip_plan.plan
+    free_text_input = plan.free_text_input or ""
+    if instruction.strip():
+        free_text_input = f"{free_text_input[:700]}\nRevision instruction: {instruction.strip()[:260]}".strip()
+    free_text_input = free_text_input[:1000]
+    return TripPlanRequest(
+        destination=saved_trip_plan.destination,
+        days=max(1, len(plan.days) or saved_trip_plan.days),
+        budget=saved_trip_plan.budget,
+        interests=saved_trip_plan.interests,
+        start_date=plan.start_date,
+        end_date=plan.end_date,
+        transportation=plan.transportation,
+        accommodation=plan.accommodation,
+        preferences=plan.preferences,
+        free_text_input=free_text_input,
+        conversation_id=saved_trip_plan.conversation_id,
+    )
+
+
 def _theme_for_day(day: int, interests: str) -> str:
     themes = [
         "Arrival and orientation",
@@ -132,3 +186,27 @@ def _theme_for_day(day: int, interests: str) -> str:
     if "food" in interests.lower():
         themes[1] = "Food-first route"
     return themes[(day - 1) % len(themes)]
+
+
+def _revised_title(title: str) -> str:
+    normalized = title.strip() or "Trip itinerary"
+    if normalized.lower().startswith("revised "):
+        return normalized[:160]
+    return f"Revised {normalized}"[:160]
+
+
+def _revised_theme(theme: str) -> str:
+    normalized = theme.strip() or "Updated day"
+    if normalized.lower().startswith("revised "):
+        return normalized[:160]
+    return f"Revised {normalized}"[:160]
+
+
+def _append_revision_note(value: str, instruction_summary: str) -> str:
+    normalized = value.strip()
+    note = f"Adjusted for: {instruction_summary}"
+    if not normalized:
+        return note[:1000]
+    if note in normalized:
+        return normalized[:1000]
+    return f"{normalized} {note}"[:1000]

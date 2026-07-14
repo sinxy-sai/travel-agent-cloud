@@ -13,7 +13,13 @@ from app.agent_engines.types import (
 from app.llm import LLMClient
 from app.plan_quality import TripPlanQualityReport, assure_trip_plan_quality
 from app.planning_context import TravelPlanningContext, build_travel_planning_context
-from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
+from app.planner import (
+    build_mock_regenerated_trip_day,
+    build_mock_revised_trip_plan,
+    build_mock_trip_plan,
+    enrich_trip_plan_response,
+    trip_plan_request_from_saved,
+)
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
 from app.travel_tools import TravelToolProvider
@@ -74,11 +80,13 @@ class LangGraphTravelAgentEngine:
             supports_chat=True,
             supports_trip_planning=True,
             supports_day_regeneration=True,
+            supports_trip_revision=True,
             workflow_nodes=(
                 "chat_llm",
                 "chat_fallback",
                 "trip_context",
                 "trip_draft",
+                "trip_revision",
                 "trip_enrichment",
                 "trip_validation",
                 "day_regeneration",
@@ -152,6 +160,58 @@ class LangGraphTravelAgentEngine:
             fallback_used=state.fallback_used,
             node_events=_day_node_events(state),
             tool_calls=(),
+            started_at=started_at,
+            duration_ms=_elapsed_ms(started),
+        ))
+        return response
+
+    def revise_trip_plan(self, saved_trip_plan: SavedTripPlan, instruction: str) -> TripPlanResponse:
+        started_at = _utc_timestamp()
+        started = perf_counter()
+        tool_calls: list[TravelAgentToolCall] = []
+        traced_tools = TracingTravelToolProvider(self._travel_tools, tool_calls)
+        request = trip_plan_request_from_saved(saved_trip_plan, instruction)
+        planning_context = build_travel_planning_context(request)
+        draft_plan = self._llm_client.revise_trip_plan(saved_trip_plan, instruction)
+        fallback_used = draft_plan is None
+        candidate_plan = draft_plan or build_mock_revised_trip_plan(saved_trip_plan, instruction)
+        enriched_plan = (
+            enrich_trip_plan_response(candidate_plan, request, traced_tools, planning_context)
+            if draft_plan is not None
+            else candidate_plan
+        )
+        response, quality_report = assure_trip_plan_quality(
+            enriched_plan,
+            request,
+            traced_tools,
+            planning_context,
+        )
+        fallback_used = fallback_used or quality_report.repaired
+        self._record_trace(self._build_trace(
+            operation="trip_revision",
+            completed_nodes=("trip_context", "trip_revision", "trip_enrichment", "trip_validation"),
+            fallback_used=fallback_used,
+            node_events=(
+                _node_event("trip_context", "SUCCEEDED", planning_context.to_trace_detail()),
+                _node_event(
+                    "trip_revision",
+                    "FALLBACK" if draft_plan is None else "SUCCEEDED",
+                    "mock_trip_revision_generated" if draft_plan is None else "trip_revision_json_generated",
+                ),
+                _node_event(
+                    "trip_enrichment",
+                    "SKIPPED" if draft_plan is None else "SUCCEEDED",
+                    "mock_revision_already_enriched" if draft_plan is None else "travel_tools_applied",
+                ),
+                _node_event(
+                    "trip_validation",
+                    "FALLBACK" if quality_report.repaired else "SUCCEEDED",
+                    quality_report.to_trace_detail(),
+                    score=quality_report.score,
+                    grade=quality_report.grade,
+                ),
+            ),
+            tool_calls=tuple(tool_calls),
             started_at=started_at,
             duration_ms=_elapsed_ms(started),
         ))

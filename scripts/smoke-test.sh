@@ -725,8 +725,40 @@ if [ "${STALE_TRIP_PLAN_STATUS}" != "409" ]; then
 fi
 echo
 
+echo "Checking trip plan revision API"
+TRIP_PLAN_REVISION_JSON="$(EDITED_TRIP_PLAN_VERSION="${EDITED_TRIP_PLAN_VERSION}" python3 -c 'import json, os; print(json.dumps({"instruction": "Make the whole itinerary more relaxed and add more local food context", "expectedVersion": int(os.environ["EDITED_TRIP_PLAN_VERSION"])}, separators=(",", ":")))')"
+REVISED_TRIP_PLAN_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}/revise" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${USER_ID}" \
+  -d "${TRIP_PLAN_REVISION_JSON}")"
+REVISED_TRIP_PLAN_VERSION="$(printf '%s' "${REVISED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("version", 0))')"
+REVISED_TRIP_PLAN_VALID="$(printf '%s' "${REVISED_TRIP_PLAN_JSON}" | python3 -c 'import json, sys; plan = json.load(sys.stdin).get("plan", {}); print("yes" if str(plan.get("title", "")).startswith("Revised") and "Adjusted for:" in plan.get("summary", "") else "no")')"
+if [ "${REVISED_TRIP_PLAN_VALID}" != "yes" ]; then
+  echo "Trip plan revision API did not revise the itinerary content" >&2
+  exit 1
+fi
+if [ "${REVISED_TRIP_PLAN_VERSION}" -ne "$((EDITED_TRIP_PLAN_VERSION + 1))" ]; then
+  echo "Trip plan revision API did not increment the version" >&2
+  exit 1
+fi
+TRIP_REVISION_AGENT_STATUS_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/status")"
+HAS_TRIP_REVISION_TRACE="$(printf '%s' "${TRIP_REVISION_AGENT_STATUS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); trace=data.get("lastRunTrace") or {}; events=trace.get("nodeEvents") or []; print("yes" if trace.get("operation") == "trip_revision" and any(event.get("nodeName") in {"trip_validation", "plan_quality"} for event in events) else "no")')"
+if [ "${HAS_TRIP_REVISION_TRACE}" != "yes" ]; then
+  echo "Agent status API did not record trip revision trace" >&2
+  exit 1
+fi
+STALE_TRIP_REVISION_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}/revise" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: ${USER_ID}" \
+  -d "${TRIP_PLAN_REVISION_JSON}")"
+if [ "${STALE_TRIP_REVISION_STATUS}" != "409" ]; then
+  echo "Trip plan revision API accepted a stale version" >&2
+  exit 1
+fi
+echo
+
 echo "Checking trip plan day regeneration API"
-DAY_REGENERATION_JSON="$(EDITED_TRIP_PLAN_VERSION="${EDITED_TRIP_PLAN_VERSION}" python3 -c 'import json, os; print(json.dumps({"instruction": "Make this day slower and add a local food stop", "expectedVersion": int(os.environ["EDITED_TRIP_PLAN_VERSION"])}, separators=(",", ":")))')"
+DAY_REGENERATION_JSON="$(REVISED_TRIP_PLAN_VERSION="${REVISED_TRIP_PLAN_VERSION}" python3 -c 'import json, os; print(json.dumps({"instruction": "Make this day slower and add a local food stop", "expectedVersion": int(os.environ["REVISED_TRIP_PLAN_VERSION"])}, separators=(",", ":")))')"
 REGENERATED_TRIP_PLAN_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/trip-plans/${TRIP_PLAN_ID}/days/2/regenerate" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: ${USER_ID}" \
@@ -737,7 +769,7 @@ if [ "${REGENERATED_DAY_VALID}" != "yes" ]; then
   echo "Trip plan day regeneration API did not update day 2" >&2
   exit 1
 fi
-if [ "${REGENERATED_TRIP_PLAN_VERSION}" -ne "$((EDITED_TRIP_PLAN_VERSION + 1))" ]; then
+if [ "${REGENERATED_TRIP_PLAN_VERSION}" -ne "$((REVISED_TRIP_PLAN_VERSION + 1))" ]; then
   echo "Trip plan day regeneration API did not increment the version" >&2
   exit 1
 fi

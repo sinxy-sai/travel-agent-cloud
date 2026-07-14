@@ -22,6 +22,7 @@
 
 - `GET /health` exposes the selected agent engine and engine capabilities.
 - `GET /api/v1/agent/status` exposes the current engine, capabilities, the latest privacy-safe run trace, recent run traces, and `runSummary` / `qualitySummary` aggregates.
+- `POST /api/v1/trip-plans/{id}/revise` rewrites a saved itinerary from an agent instruction while preserving optimistic version control.
 - Run traces and summaries are in-memory only and do not include prompts, messages, user ids, API keys, or generated itinerary content.
 
 ## 当前模块

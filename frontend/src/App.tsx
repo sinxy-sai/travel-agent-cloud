@@ -55,6 +55,7 @@ import {
   regenerateTripPlanDay,
   requestEmailVerification,
   requestPasswordReset,
+  reviseTripPlan,
   revokeAuthSession,
   revokeOtherAuthSessions,
   sendChatMessage,
@@ -133,6 +134,9 @@ export default function App() {
   const [regeneratingTripDay, setRegeneratingTripDay] = useState<number | null>(null);
   const [tripDayRegenerateInstruction, setTripDayRegenerateInstruction] = useState('');
   const [tripDayRegenerateError, setTripDayRegenerateError] = useState('');
+  const [tripPlanReviseModalOpen, setTripPlanReviseModalOpen] = useState(false);
+  const [tripPlanReviseInstruction, setTripPlanReviseInstruction] = useState('');
+  const [tripPlanReviseError, setTripPlanReviseError] = useState('');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -510,6 +514,9 @@ export default function App() {
       setRegeneratingTripDay(null);
       setTripDayRegenerateInstruction('');
       setTripDayRegenerateError('');
+      setTripPlanReviseModalOpen(false);
+      setTripPlanReviseInstruction('');
+      setTripPlanReviseError('');
       setConversationPage(1);
       setTripPlanPage(1);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
@@ -572,6 +579,9 @@ export default function App() {
       setRegeneratingTripDay(null);
       setTripDayRegenerateInstruction('');
       setTripDayRegenerateError('');
+      setTripPlanReviseModalOpen(false);
+      setTripPlanReviseInstruction('');
+      setTripPlanReviseError('');
       if (savedTripPlan.conversationId) {
         setConversationId(savedTripPlan.conversationId);
         setConversationSummary(null);
@@ -640,6 +650,9 @@ export default function App() {
         setRegeneratingTripDay(null);
         setTripDayRegenerateInstruction('');
         setTripDayRegenerateError('');
+        setTripPlanReviseModalOpen(false);
+        setTripPlanReviseInstruction('');
+        setTripPlanReviseError('');
       }
       queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
     },
@@ -718,6 +731,40 @@ export default function App() {
         isApiErrorStatus(error, 409)
           ? 'This itinerary changed elsewhere. Reload the saved itinerary before regenerating this day.'
           : 'Could not regenerate this day. Adjust the instruction and try again.',
+      );
+    },
+  });
+
+  const reviseTripPlanMutation = useMutation({
+    mutationFn: ({
+      tripPlanId,
+      instruction,
+      expectedVersion,
+    }: {
+      tripPlanId: string;
+      instruction: string;
+      expectedVersion: number;
+    }) => reviseTripPlan(tripPlanId, { instruction, expectedVersion }),
+    onMutate: () => {
+      setTripPlanReviseError('');
+    },
+    onSuccess: (savedTripPlan) => {
+      setPlan(savedTripPlan.plan);
+      setSelectedTripPlanVersion(savedTripPlan.version);
+      setTripPlanReviseModalOpen(false);
+      setTripPlanReviseInstruction('');
+      setTripPlanReviseError('');
+      queryClient.invalidateQueries({ queryKey: ['trip-plans'] });
+      queryClient.invalidateQueries({ queryKey: ['agent-status'] });
+      if (savedTripPlan.conversationId) {
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      }
+    },
+    onError: (error) => {
+      setTripPlanReviseError(
+        isApiErrorStatus(error, 409)
+          ? 'This itinerary changed elsewhere. Reload the saved itinerary before revising it.'
+          : 'Could not revise this itinerary. Adjust the instruction and try again.',
       );
     },
   });
@@ -1088,6 +1135,9 @@ export default function App() {
     setRegeneratingTripDay(null);
     setTripDayRegenerateInstruction('');
     setTripDayRegenerateError('');
+    setTripPlanReviseModalOpen(false);
+    setTripPlanReviseInstruction('');
+    setTripPlanReviseError('');
     setConversationPage(1);
     setTripPlanPage(1);
   }
@@ -1517,6 +1567,25 @@ export default function App() {
     ? recalculateBudget(editingTripPlan.budget, normalizeTripPlanDays(editingTripPlan.days))
     : null;
 
+  const openTripPlanReviser = () => {
+    setTripPlanReviseModalOpen(true);
+    setTripPlanReviseInstruction('');
+    setTripPlanReviseError('');
+    reviseTripPlanMutation.reset();
+  };
+
+  const submitTripPlanRevision = () => {
+    const instruction = tripPlanReviseInstruction.trim();
+    if (!selectedTripPlanId || !instruction) {
+      return;
+    }
+    reviseTripPlanMutation.mutate({
+      tripPlanId: selectedTripPlanId,
+      instruction,
+      expectedVersion: selectedTripPlanVersion,
+    });
+  };
+
   const openTripDayRegenerator = (day: number) => {
     setRegeneratingTripDay(day);
     setTripDayRegenerateInstruction('');
@@ -1914,6 +1983,15 @@ export default function App() {
                   {selectedTripPlanId && (
                     <Button icon={<EditOutlined />} onClick={openTripPlanEditor}>
                       Edit
+                    </Button>
+                  )}
+                  {selectedTripPlanId && (
+                    <Button
+                      icon={<SyncOutlined />}
+                      loading={reviseTripPlanMutation.isPending}
+                      onClick={openTripPlanReviser}
+                    >
+                      Revise
                     </Button>
                   )}
                   {selectedTripPlanId && (
@@ -2877,6 +2955,35 @@ export default function App() {
             )}
           </div>
         )}
+      </Modal>
+      <Modal
+        title="Revise itinerary"
+        open={tripPlanReviseModalOpen}
+        okText="Revise"
+        onOk={submitTripPlanRevision}
+        confirmLoading={reviseTripPlanMutation.isPending}
+        okButtonProps={{ disabled: !tripPlanReviseInstruction.trim() }}
+        onCancel={() => {
+          setTripPlanReviseModalOpen(false);
+          setTripPlanReviseInstruction('');
+          setTripPlanReviseError('');
+          reviseTripPlanMutation.reset();
+        }}
+      >
+        <div className="space-y-3">
+          <Input.TextArea
+            rows={4}
+            maxLength={1000}
+            value={tripPlanReviseInstruction}
+            onChange={(event) => setTripPlanReviseInstruction(event.target.value)}
+            placeholder="Make the itinerary more relaxed, lower the budget, add more local food stops..."
+          />
+          {tripPlanReviseError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {tripPlanReviseError}
+            </div>
+          )}
+        </div>
       </Modal>
       <Modal
         title={regeneratingTripDay === null ? 'Regenerate day' : `Regenerate day ${regeneratingTripDay}`}

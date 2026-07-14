@@ -229,6 +229,51 @@ class LLMClient:
         except (json.JSONDecodeError, ValidationError, TypeError):
             return None
 
+    def revise_trip_plan(self, saved_trip_plan: SavedTripPlan, instruction: str) -> TripPlanResponse | None:
+        if not self.enabled:
+            return None
+
+        current_plan = saved_trip_plan.plan
+        schema_hint = current_plan.model_dump(mode="json", by_alias=True)
+        schema_hint["title"] = "Revised itinerary title"
+        schema_hint["summary"] = "Revised itinerary overview"
+        itinerary = current_plan.model_dump(mode="json", by_alias=True)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a travel itinerary revision agent. Return only valid JSON for the full itinerary. "
+                    "Preserve the same response schema, keep day numbers sequential, and do not include markdown fences."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Revise this itinerary according to the user instruction. "
+                    f"Destination: {saved_trip_plan.destination}. Budget: {saved_trip_plan.budget}. "
+                    f"Interests: {saved_trip_plan.interests or 'local culture'}. "
+                    f"User instruction: {instruction}. "
+                    f"Current itinerary: {json.dumps(itinerary, ensure_ascii=False)}. "
+                    f"JSON schema example: {json.dumps(schema_hint, ensure_ascii=False)}"
+                ),
+            },
+        ]
+
+        content = self._chat_completion(messages, response_format={"type": "json_object"}) or self._chat_completion(
+            messages,
+            response_format=None,
+        )
+        if not content:
+            return None
+
+        try:
+            payload = json.loads(_extract_json(content))
+            payload["savedTripPlanId"] = saved_trip_plan.id
+            payload["conversationId"] = saved_trip_plan.conversation_id
+            return TripPlanResponse.model_validate(payload)
+        except (json.JSONDecodeError, ValidationError, TypeError):
+            return None
+
     def _chat_completion(self, messages: list[dict[str, Any]], response_format: dict[str, str] | None) -> str | None:
         endpoint = f"{self.settings.llm_base_url.rstrip('/')}/chat/completions"
         payload: dict[str, Any] = {

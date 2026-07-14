@@ -9,6 +9,7 @@ class TravelAgentEngineCapabilities:
     supports_chat: bool
     supports_trip_planning: bool
     supports_day_regeneration: bool
+    supports_trip_revision: bool
     workflow_nodes: tuple[str, ...]
     dependency_mode: str
 
@@ -17,6 +18,7 @@ class TravelAgentEngineCapabilities:
             "supportsChat": self.supports_chat,
             "supportsTripPlanning": self.supports_trip_planning,
             "supportsDayRegeneration": self.supports_day_regeneration,
+            "supportsTripRevision": self.supports_trip_revision,
             "workflowNodes": list(self.workflow_nodes),
             "dependencyMode": self.dependency_mode,
         }
@@ -236,4 +238,7 @@ class TravelAgentEngine(Protocol):
         ...
 
     def regenerate_trip_day(self, saved_trip_plan: SavedTripPlan, day: int, instruction: str) -> TripDay:
+        ...
+
+    def revise_trip_plan(self, saved_trip_plan: SavedTripPlan, instruction: str) -> TripPlanResponse:
         ...
