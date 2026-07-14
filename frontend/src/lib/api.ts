@@ -261,6 +261,14 @@ export interface AgentRunSummary {
   operationCounts: Record<string, number>;
 }
 
+export interface AgentToolCallSummary {
+  windowSize: number;
+  totalToolCalls: number;
+  failedToolCalls: number;
+  toolCounts: Record<string, number>;
+  statusCounts: Record<string, number>;
+}
+
 export interface AgentToolDefinition {
   name: string;
   category: string;
@@ -280,6 +288,7 @@ export interface AgentStatusResponse {
   lastRunTrace?: AgentRunTrace | null;
   recentRunTraces: AgentRunTrace[];
   runSummary?: AgentRunSummary;
+  toolCallSummary?: AgentToolCallSummary;
   toolCatalog?: AgentToolCatalog;
 }
 

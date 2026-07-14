@@ -115,6 +115,46 @@ class TravelAgentRunSummary:
         }
 
 
+@dataclass(frozen=True)
+class TravelAgentToolCallSummary:
+    window_size: int
+    total_tool_calls: int
+    failed_tool_calls: int
+    tool_counts: dict[str, int]
+    status_counts: dict[str, int]
+
+    @classmethod
+    def from_traces(cls, traces: tuple[TravelAgentRunTrace, ...]) -> "TravelAgentToolCallSummary":
+        tool_counts: dict[str, int] = {}
+        status_counts: dict[str, int] = {}
+        total_tool_calls = 0
+        failed_tool_calls = 0
+        for trace in traces:
+            for tool_call in trace.tool_calls:
+                total_tool_calls += 1
+                tool_counts[tool_call.tool_name] = tool_counts.get(tool_call.tool_name, 0) + 1
+                status_counts[tool_call.status] = status_counts.get(tool_call.status, 0) + 1
+                if tool_call.status == "FAILED":
+                    failed_tool_calls += 1
+
+        return cls(
+            window_size=len(traces),
+            total_tool_calls=total_tool_calls,
+            failed_tool_calls=failed_tool_calls,
+            tool_counts=tool_counts,
+            status_counts=status_counts,
+        )
+
+    def to_dict(self) -> dict[str, int | dict[str, int]]:
+        return {
+            "windowSize": self.window_size,
+            "totalToolCalls": self.total_tool_calls,
+            "failedToolCalls": self.failed_tool_calls,
+            "toolCounts": self.tool_counts,
+            "statusCounts": self.status_counts,
+        }
+
+
 class TravelAgentEngine(Protocol):
     name: str
 

@@ -338,7 +338,9 @@ if (
   -not $tripPlanAgentStatus.lastRunTrace -or
   $tripPlanAgentStatus.lastRunTrace.operation -ne "trip_plan" -or
   -not $tripPlanAgentStatus.lastRunTrace.toolCalls -or
-  $tripPlanAgentStatus.lastRunTrace.toolCalls.Count -lt 1
+  $tripPlanAgentStatus.lastRunTrace.toolCalls.Count -lt 1 -or
+  -not $tripPlanAgentStatus.toolCallSummary -or
+  $tripPlanAgentStatus.toolCallSummary.totalToolCalls -lt 1
 ) {
   throw "Agent status API did not record trip plan tool calls"
 }

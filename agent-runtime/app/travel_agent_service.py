@@ -4,6 +4,7 @@ from app.agent_engines.types import (
     TravelAgentEngineCapabilities,
     TravelAgentRunSummary,
     TravelAgentRunTrace,
+    TravelAgentToolCallSummary,
 )
 from app.schemas import ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
@@ -37,6 +38,10 @@ class TravelAgentService:
     @property
     def run_summary(self) -> TravelAgentRunSummary:
         return TravelAgentRunSummary.from_traces(self._engine.recent_run_traces)
+
+    @property
+    def tool_call_summary(self) -> TravelAgentToolCallSummary:
+        return TravelAgentToolCallSummary.from_traces(self._engine.recent_run_traces)
 
     @property
     def llm_enabled(self) -> bool:

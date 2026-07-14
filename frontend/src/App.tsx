@@ -3630,6 +3630,8 @@ function RuntimeStatus({
   const recentRunTraces = agentStatus?.recentRunTraces?.slice(0, 3) ?? [];
   const runSummary = agentStatus?.runSummary;
   const operationSummary = Object.entries(runSummary?.operationCounts ?? {}).slice(0, 3);
+  const toolCallSummary = agentStatus?.toolCallSummary;
+  const toolUsageSummary = Object.entries(toolCallSummary?.toolCounts ?? {}).slice(0, 3);
   const toolCatalog = agentStatus?.toolCatalog;
   const visibleTools = toolCatalog?.tools.slice(0, 4) ?? [];
 
@@ -3744,6 +3746,18 @@ function RuntimeStatus({
                   <p className="text-[11px] text-slate-400">+{toolCalls.length - visibleToolCalls.length} more</p>
                 )}
               </div>
+            </div>
+          )}
+          {toolCallSummary && toolCallSummary.totalToolCalls > 0 && (
+            <div className="mt-2 rounded border border-slate-200 bg-white px-2 py-1.5">
+              <p className="text-[11px] text-slate-500">
+                Tool calls: {toolCallSummary.totalToolCalls} / failed {toolCallSummary.failedToolCalls}
+              </p>
+              {toolUsageSummary.length > 0 && (
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {toolUsageSummary.map(([toolName, count]) => `${toolName} ${count}`).join(' / ')}
+                </p>
+              )}
             </div>
           )}
           {runSummary && runSummary.totalRuns > 0 && (

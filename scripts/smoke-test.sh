@@ -429,7 +429,7 @@ if [ "${CREATED_TRIP_PLAN_RICH_VALID}" != "yes" ]; then
   exit 1
 fi
 TRIP_PLAN_AGENT_STATUS_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/status")"
-HAS_TRIP_PLAN_TOOL_CALLS="$(printf '%s' "${TRIP_PLAN_AGENT_STATUS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin).get("lastRunTrace") or {}; print("yes" if data.get("operation") == "trip_plan" and data.get("toolCalls") else "no")')"
+HAS_TRIP_PLAN_TOOL_CALLS="$(printf '%s' "${TRIP_PLAN_AGENT_STATUS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); trace=data.get("lastRunTrace") or {}; summary=data.get("toolCallSummary") or {}; print("yes" if trace.get("operation") == "trip_plan" and trace.get("toolCalls") and summary.get("totalToolCalls", 0) > 0 else "no")')"
 if [ "${HAS_TRIP_PLAN_TOOL_CALLS}" != "yes" ]; then
   echo "Agent status API did not record trip plan tool calls" >&2
   exit 1

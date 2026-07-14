@@ -196,6 +196,7 @@ def agent_status() -> dict[str, object]:
         "lastRunTrace": last_run_trace.to_dict() if last_run_trace else None,
         "recentRunTraces": [trace.to_dict() for trace in travel_agent_service.recent_run_traces],
         "runSummary": travel_agent_service.run_summary.to_dict(),
+        "toolCallSummary": travel_agent_service.tool_call_summary.to_dict(),
         "toolCatalog": _travel_tool_catalog(),
     }
 
