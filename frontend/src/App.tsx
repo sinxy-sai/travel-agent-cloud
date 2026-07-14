@@ -3137,7 +3137,9 @@ export default function App() {
                   )}
                 </div>
               </div>
-              {previewTripPlanVersionId === version.id && <TripPlanVersionPreview version={version} />}
+              {previewTripPlanVersionId === version.id && (
+                <TripPlanVersionPreview currentPlan={plan} version={version} />
+              )}
             </div>
           ))}
           {tripPlanVersionsTotalItems > tripPlanVersionsPageSize && (
@@ -3654,13 +3656,22 @@ export default function App() {
   );
 }
 
-function TripPlanVersionPreview({ version }: { version: TripPlanVersion }) {
+function TripPlanVersionPreview({
+  currentPlan,
+  version,
+}: {
+  currentPlan: TripPlanResponse | null;
+  version: TripPlanVersion;
+}) {
   const plan = version.plan;
   const firstDays = (plan.days ?? []).slice(0, 4);
   const remainingDayCount = Math.max(0, (plan.days?.length ?? 0) - firstDays.length);
+  const diffItems = currentPlan ? getTripPlanDiffItems(currentPlan, plan) : [];
 
   return (
     <div className="mt-3 space-y-3 border-t border-slate-200 pt-3">
+      {currentPlan && <TripPlanVersionDiff items={diffItems} />}
+
       <div>
         <h3 className="text-base font-semibold text-ink">{plan.title || version.title}</h3>
         {plan.summary && <p className="mt-1 text-sm leading-6 text-slate-600">{plan.summary}</p>}
@@ -3727,6 +3738,188 @@ function TripPlanVersionPreview({ version }: { version: TripPlanVersion }) {
       )}
     </div>
   );
+}
+
+function TripPlanVersionDiff({ items }: { items: TripPlanDiffItem[] }) {
+  return (
+    <section className="rounded-md border border-slate-200 bg-slate-50 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-ink">Compared with current itinerary</p>
+        <span className="shrink-0 rounded bg-white px-2 py-1 text-xs text-slate-500">
+          {items.length === 0 ? 'No visible changes' : `${items.length} changes`}
+        </span>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm text-slate-500">This version matches the current visible itinerary fields.</p>
+      ) : (
+        <div className="grid gap-2">
+          {items.map((item) => (
+            <div key={item.label} className="grid gap-2 rounded-md bg-white p-2 text-xs md:grid-cols-[120px_1fr_1fr]">
+              <span className="font-semibold text-ink">{item.label}</span>
+              <DiffValue label="Current" value={item.current} tone="current" />
+              <DiffValue label="Version" value={item.version} tone="version" />
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DiffValue({
+  label,
+  tone,
+  value,
+}: {
+  label: string;
+  tone: 'current' | 'version';
+  value: string;
+}) {
+  const toneClass = tone === 'current' ? 'border-blue-100 bg-blue-50 text-blue-900' : 'border-amber-100 bg-amber-50 text-amber-900';
+
+  return (
+    <div className={`min-w-0 rounded border px-2 py-1 ${toneClass}`}>
+      <span className="block text-[11px] font-medium uppercase opacity-60">{label}</span>
+      <span className="mt-1 block break-words leading-5">{value || '-'}</span>
+    </div>
+  );
+}
+
+interface TripPlanDiffItem {
+  label: string;
+  current: string;
+  version: string;
+}
+
+function getTripPlanDiffItems(currentPlan: TripPlanResponse, versionPlan: TripPlanResponse): TripPlanDiffItem[] {
+  const items: TripPlanDiffItem[] = [];
+
+  const addIfChanged = (label: string, current: string, version: string) => {
+    const normalizedCurrent = normalizeDiffValue(current);
+    const normalizedVersion = normalizeDiffValue(version);
+    if (normalizedCurrent !== normalizedVersion) {
+      items.push({
+        label,
+        current: normalizedCurrent,
+        version: normalizedVersion,
+      });
+    }
+  };
+
+  addIfChanged('Title', currentPlan.title, versionPlan.title);
+  addIfChanged('Summary', summarizeDiffText(currentPlan.summary), summarizeDiffText(versionPlan.summary));
+  addIfChanged('Dates', formatDateRange(currentPlan.startDate, currentPlan.endDate), formatDateRange(versionPlan.startDate, versionPlan.endDate));
+  addIfChanged('Transit', currentPlan.transportation || '', versionPlan.transportation || '');
+  addIfChanged('Stay', currentPlan.accommodation || '', versionPlan.accommodation || '');
+  addIfChanged('Preferences', (currentPlan.preferences ?? []).join(', '), (versionPlan.preferences ?? []).join(', '));
+  addIfChanged('Days', String(currentPlan.days?.length ?? 0), String(versionPlan.days?.length ?? 0));
+  addIfChanged(
+    'Budget',
+    currentPlan.budget ? formatCost(currentPlan.budget.total) : '',
+    versionPlan.budget ? formatCost(versionPlan.budget.total) : '',
+  );
+
+  const changedDays = summarizeChangedTripDays(currentPlan, versionPlan);
+  if (changedDays.current !== changedDays.version) {
+    items.push({
+      label: 'Daily plan',
+      current: changedDays.current,
+      version: changedDays.version,
+    });
+  }
+
+  addIfChanged('Travel notes', summarizeTips(currentPlan.tips), summarizeTips(versionPlan.tips));
+
+  return items.slice(0, 10);
+}
+
+function summarizeChangedTripDays(currentPlan: TripPlanResponse, versionPlan: TripPlanResponse): TripPlanDiffItem {
+  const currentDays = currentPlan.days ?? [];
+  const versionDays = versionPlan.days ?? [];
+  const maxDays = Math.max(currentDays.length, versionDays.length);
+  const changedDayIndexes: number[] = [];
+
+  for (let index = 0; index < maxDays; index += 1) {
+    if (tripDayDiffSignature(currentDays[index]) !== tripDayDiffSignature(versionDays[index])) {
+      changedDayIndexes.push(index);
+    }
+  }
+
+  if (changedDayIndexes.length === 0) {
+    return {
+      label: 'Daily plan',
+      current: 'No daily changes',
+      version: 'No daily changes',
+    };
+  }
+
+  const summarize = (days: TripPlanResponse['days']) =>
+    changedDayIndexes
+      .slice(0, 5)
+      .map((index) => `Day ${index + 1}: ${summarizeTripDayForDiff(days[index])}`)
+      .join('; ') + (changedDayIndexes.length > 5 ? '; ...' : '');
+
+  return {
+    label: 'Daily plan',
+    current: summarize(currentDays),
+    version: summarize(versionDays),
+  };
+}
+
+function summarizeTripDayForDiff(day?: TripPlanResponse['days'][number]): string {
+  if (!day) {
+    return 'Not present';
+  }
+
+  const namedStops = [
+    ...(day.attractions ?? []).slice(0, 2).map((attraction) => attraction.name),
+    ...(day.meals ?? []).slice(0, 2).map((meal) => meal.name),
+  ].filter(Boolean);
+
+  return summarizeDiffText(
+    [day.theme, day.morning, day.afternoon, day.evening, namedStops.join(', ')].filter(Boolean).join(' / '),
+    180,
+  );
+}
+
+function tripDayDiffSignature(day?: TripPlanResponse['days'][number]): string {
+  if (!day) {
+    return '';
+  }
+  return [
+    day.date,
+    day.theme,
+    day.description,
+    day.transportation,
+    day.accommodation,
+    day.hotel?.name,
+    day.morning,
+    day.afternoon,
+    day.evening,
+    (day.attractions ?? []).map((attraction) => attraction.name).join('|'),
+    (day.meals ?? []).map((meal) => `${meal.type}:${meal.name}`).join('|'),
+  ]
+    .map((value) => normalizeDiffValue(value ?? ''))
+    .join('\n');
+}
+
+function summarizeTips(tips?: string[]): string {
+  if (!tips?.length) {
+    return '';
+  }
+  return `${tips.length} notes: ${summarizeDiffText(tips.slice(0, 3).join('; '), 140)}`;
+}
+
+function summarizeDiffText(value?: string | null, maxLength = 120): string {
+  const normalized = normalizeDiffValue(value ?? '');
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 3)}...`;
+}
+
+function normalizeDiffValue(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 function PlanBlock({ title, value }: { title: string; value: string }) {
