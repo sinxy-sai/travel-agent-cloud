@@ -10,6 +10,7 @@ from app.agent_engines.types import (
     TravelAgentToolCall,
 )
 from app.llm import LLMClient
+from app.planning_context import build_travel_planning_context
 from app.planner import build_mock_regenerated_trip_day, build_mock_trip_plan, enrich_trip_plan_response
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
@@ -36,7 +37,7 @@ class BasicTravelAgentEngine:
             supports_chat=True,
             supports_trip_planning=True,
             supports_day_regeneration=True,
-            workflow_nodes=("llm_call", "tool_enrichment", "mock_fallback"),
+            workflow_nodes=("request_context", "llm_call", "tool_enrichment", "mock_fallback"),
             dependency_mode="builtin",
         )
 
@@ -77,14 +78,17 @@ class BasicTravelAgentEngine:
         started = perf_counter()
         tool_calls: list[TravelAgentToolCall] = []
         traced_tools = TracingTravelToolProvider(self._travel_tools, tool_calls)
-        llm_response = self._llm_client.generate_trip_plan(request)
+        planning_context = build_travel_planning_context(request)
+        context_event = _node_event("request_context", "SUCCEEDED", planning_context.to_trace_detail())
+        llm_response = self._llm_client.generate_trip_plan(request, planning_context)
         if llm_response:
-            response = enrich_trip_plan_response(llm_response, request, traced_tools)
+            response = enrich_trip_plan_response(llm_response, request, traced_tools, planning_context)
             self._record_trace(self._build_trace(
                 operation="trip_plan",
-                completed_nodes=("llm_call", "tool_enrichment"),
+                completed_nodes=("request_context", "llm_call", "tool_enrichment"),
                 fallback_used=False,
                 node_events=(
+                    context_event,
                     _node_event("llm_call", "SUCCEEDED", "trip_plan_json_generated"),
                     _node_event("tool_enrichment", "SUCCEEDED", "travel_tools_applied"),
                     _node_event("mock_fallback", "SKIPPED", "llm_plan_available"),
@@ -94,12 +98,13 @@ class BasicTravelAgentEngine:
                 duration_ms=_elapsed_ms(started),
             ))
             return response
-        response = build_mock_trip_plan(request, traced_tools)
+        response = build_mock_trip_plan(request, traced_tools, planning_context)
         self._record_trace(self._build_trace(
             operation="trip_plan",
-            completed_nodes=("llm_call", "mock_fallback"),
+            completed_nodes=("request_context", "llm_call", "mock_fallback"),
             fallback_used=True,
             node_events=(
+                context_event,
                 _node_event("llm_call", "SKIPPED", "llm_disabled_or_invalid_response"),
                 _node_event("tool_enrichment", "SKIPPED", "no_llm_plan_to_enrich"),
                 _node_event("mock_fallback", "FALLBACK", "mock_trip_plan_generated"),

@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
+from app.planning_context import TravelPlanningContext, build_travel_planning_context
 from app.schemas import AgentMode, ChatMessage, MessageRole, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
 
@@ -57,9 +58,14 @@ class LLMClient:
         content = self._chat_completion(prompt_messages, response_format=None)
         return _trim_text(content) if content else None
 
-    def generate_trip_plan(self, request: TripPlanRequest) -> TripPlanResponse | None:
+    def generate_trip_plan(
+        self,
+        request: TripPlanRequest,
+        planning_context: TravelPlanningContext | None = None,
+    ) -> TripPlanResponse | None:
         if not self.enabled:
             return None
+        planning_context = planning_context or build_travel_planning_context(request)
 
         schema_hint = {
             "title": "3-day Chengdu itinerary",
@@ -130,6 +136,7 @@ class LLMClient:
             },
             "tips": ["Practical tip"],
         }
+        planning_context_prompt = "\n".join(planning_context.to_prompt_lines())
         messages = [
             {
                 "role": "system",
@@ -141,12 +148,8 @@ class LLMClient:
             {
                 "role": "user",
                 "content": (
-                    f"Create a {request.days}-day itinerary for {request.destination}. "
-                    f"Budget: {request.budget}. Interests: {request.interests or 'local culture'}. "
-                    f"Dates: {request.start_date or 'not specified'} to {request.end_date or 'not specified'}. "
-                    f"Transportation: {request.transportation or 'not specified'}. "
-                    f"Accommodation: {request.accommodation or 'not specified'}. "
-                    f"Preferences: {', '.join(request.preferences) if request.preferences else 'not specified'}. "
+                    "Create an itinerary from this normalized planning context:\n"
+                    f"{planning_context_prompt}\n"
                     f"Additional constraints: {request.free_text_input or 'none'}. "
                     "Include hotel, attractions, meals, weatherInfo, overallSuggestions, and budget when possible. "
                     f"JSON schema example: {json.dumps(schema_hint, ensure_ascii=False)}"

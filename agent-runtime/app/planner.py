@@ -1,3 +1,4 @@
+from app.planning_context import TravelPlanningContext, build_travel_planning_context
 from app.schemas import SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.travel_tools import MockTravelToolProvider, TravelToolProvider
 
@@ -5,11 +6,13 @@ from app.travel_tools import MockTravelToolProvider, TravelToolProvider
 def build_mock_trip_plan(
     request: TripPlanRequest,
     travel_tools: TravelToolProvider | None = None,
+    planning_context: TravelPlanningContext | None = None,
 ) -> TripPlanResponse:
     travel_tools = travel_tools or MockTravelToolProvider()
-    interests = request.interests or "local culture"
-    transportation = request.transportation or "mixed transit"
-    accommodation = request.accommodation or "comfortable hotel"
+    planning_context = planning_context or build_travel_planning_context(request)
+    interests = planning_context.interest_summary
+    transportation = planning_context.transportation
+    accommodation = planning_context.accommodation
     days = [
         TripDay(
             day=day,
@@ -33,19 +36,20 @@ def build_mock_trip_plan(
     return TripPlanResponse(
         title=f"{request.days}-day {request.destination} itinerary",
         summary=(
-            "This is the first mock response from the Agent Runtime. "
-            "Later it will be replaced by LLM planning, tool calls, weather, maps, and RAG retrieval."
+            f"A structured {planning_context.date_window} draft for {planning_context.destination}, "
+            f"optimized for {interests}."
         ),
         days=days,
         start_date=request.start_date,
         end_date=request.end_date,
         transportation=transportation,
         accommodation=accommodation,
-        preferences=request.preferences,
+        preferences=list(planning_context.preference_terms),
         free_text_input=request.free_text_input,
         weather_info=weather_info,
         overall_suggestions=(
-            f"Use this as a structured draft for {request.destination}. "
+            f"Use this as a structured draft for {planning_context.destination}. "
+            f"Planning style: {', '.join(planning_context.style_tags) if planning_context.style_tags else 'general'}. "
             "Tool-backed POI, weather, route, hotel, and price enrichment will replace mock values later."
         ),
         budget=budget,
@@ -61,16 +65,18 @@ def enrich_trip_plan_response(
     plan: TripPlanResponse,
     request: TripPlanRequest,
     travel_tools: TravelToolProvider | None = None,
+    planning_context: TravelPlanningContext | None = None,
 ) -> TripPlanResponse:
     travel_tools = travel_tools or MockTravelToolProvider()
-    transportation = plan.transportation or request.transportation or "mixed transit"
-    accommodation = plan.accommodation or request.accommodation or "comfortable hotel"
+    planning_context = planning_context or build_travel_planning_context(request)
+    transportation = plan.transportation or planning_context.transportation
+    accommodation = plan.accommodation or planning_context.accommodation
     days = [
         day.model_copy(
             update={
                 "date": day.date or travel_tools.date_for_day(request, day.day),
                 "description": day.description
-                or f"Day {day.day} balances {request.interests or 'local culture'} with practical pacing.",
+                or f"Day {day.day} balances {planning_context.interest_summary} with practical pacing.",
                 "transportation": day.transportation or transportation,
                 "accommodation": day.accommodation or accommodation,
                 "hotel": day.hotel or travel_tools.hotel_for_day(request, day.day),
@@ -87,7 +93,7 @@ def enrich_trip_plan_response(
             "end_date": plan.end_date or request.end_date,
             "transportation": transportation,
             "accommodation": accommodation,
-            "preferences": plan.preferences or request.preferences,
+            "preferences": plan.preferences or list(planning_context.preference_terms),
             "free_text_input": plan.free_text_input or request.free_text_input,
             "weather_info": plan.weather_info or travel_tools.weather_for_trip(request),
             "overall_suggestions": plan.overall_suggestions

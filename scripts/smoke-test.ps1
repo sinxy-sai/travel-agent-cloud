@@ -409,6 +409,12 @@ if (
 ) {
   throw "Agent status API did not record trip plan tool calls"
 }
+$tripPlanContextNode = $tripPlanAgentStatus.lastRunTrace.nodeEvents | Where-Object {
+  $_.nodeName -eq "trip_context" -or $_.nodeName -eq "request_context"
+} | Select-Object -First 1
+if (-not $tripPlanContextNode -or $tripPlanContextNode.status -ne "SUCCEEDED") {
+  throw "Agent status API did not record trip planning context node"
+}
 
 Write-Host "Checking conversation list API"
 $conversations = Invoke-RestMethod -Uri "$BaseUrl/api/v1/conversations?page=1&pageSize=20" -Headers $headers
