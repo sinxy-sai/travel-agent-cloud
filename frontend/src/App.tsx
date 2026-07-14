@@ -3121,7 +3121,9 @@ export default function App() {
                   {selectedTripPlanId && (
                     <Popconfirm
                       title={`Restore version ${version.version}?`}
+                      description={getTripPlanRestoreDescription(plan, selectedTripPlanVersion, version)}
                       okText="Restore"
+                      okButtonProps={{ danger: true }}
                       onConfirm={() =>
                         restoreTripPlanVersionMutation.mutate({
                           tripPlanId: selectedTripPlanId,
@@ -3763,6 +3765,30 @@ function TripPlanVersionDiff({ items }: { items: TripPlanDiffItem[] }) {
         </div>
       )}
     </section>
+  );
+}
+
+function getTripPlanRestoreDescription(
+  currentPlan: TripPlanResponse | null,
+  currentVersion: number,
+  targetVersion: TripPlanVersion,
+): ReactNode {
+  const diffItems = currentPlan ? getTripPlanDiffItems(currentPlan, targetVersion.plan) : [];
+  const changeText = currentPlan
+    ? diffItems.length === 0
+      ? 'No visible field changes were detected.'
+      : `${diffItems.length} visible ${diffItems.length === 1 ? 'field' : 'fields'} will change.`
+    : 'The current itinerary is not loaded, so visible changes cannot be compared.';
+
+  return (
+    <div className="space-y-2 text-sm">
+      <p>
+        This will replace current version {currentVersion} with version {targetVersion.version}.
+      </p>
+      <p className="font-medium text-slate-700">{targetVersion.title}</p>
+      <p>{changeText}</p>
+      <p className="text-slate-500">The current itinerary will be saved as a new version before restore.</p>
+    </div>
   );
 }
 
