@@ -102,6 +102,8 @@ class BasicTravelAgentEngine:
                         "plan_quality",
                         "FALLBACK" if quality_report.repaired else "SUCCEEDED",
                         quality_report.to_trace_detail(),
+                        score=quality_report.score,
+                        grade=quality_report.grade,
                     ),
                     _node_event("mock_fallback", "SKIPPED", "llm_plan_available"),
                 ),
@@ -125,7 +127,13 @@ class BasicTravelAgentEngine:
                 context_event,
                 _node_event("llm_call", "SKIPPED", "llm_disabled_or_invalid_response"),
                 _node_event("tool_enrichment", "SKIPPED", "no_llm_plan_to_enrich"),
-                _node_event("plan_quality", "SUCCEEDED", quality_report.to_trace_detail()),
+                _node_event(
+                    "plan_quality",
+                    "SUCCEEDED",
+                    quality_report.to_trace_detail(),
+                    score=quality_report.score,
+                    grade=quality_report.grade,
+                ),
                 _node_event("mock_fallback", "FALLBACK", "mock_trip_plan_generated"),
             ),
             tool_calls=tuple(tool_calls),
@@ -216,5 +224,12 @@ def _elapsed_ms(started: float) -> int:
     return max(0, round((perf_counter() - started) * 1000))
 
 
-def _node_event(node_name: str, status: str, detail: str) -> TravelAgentNodeEvent:
-    return TravelAgentNodeEvent(node_name=node_name, status=status, detail=detail)
+def _node_event(
+    node_name: str,
+    status: str,
+    detail: str,
+    *,
+    score: int | None = None,
+    grade: str | None = None,
+) -> TravelAgentNodeEvent:
+    return TravelAgentNodeEvent(node_name=node_name, status=status, detail=detail, score=score, grade=grade)

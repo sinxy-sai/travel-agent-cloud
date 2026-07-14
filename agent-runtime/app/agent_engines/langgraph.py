@@ -355,6 +355,8 @@ def _trip_node_events(state: TripPlanningWorkflowState) -> tuple[TravelAgentNode
             "trip_validation",
             "FALLBACK" if state.quality_report and state.quality_report.repaired else "SUCCEEDED",
             state.quality_report.to_trace_detail() if state.quality_report else "quality_report_missing",
+            score=state.quality_report.score if state.quality_report else None,
+            grade=state.quality_report.grade if state.quality_report else None,
         )
     )
     return (context_event, draft_event, enrichment_event, validation_event)
@@ -374,5 +376,12 @@ def _day_node_events(state: DayRegenerationWorkflowState) -> tuple[TravelAgentNo
     return (generation_event, fallback_event)
 
 
-def _node_event(node_name: str, status: str, detail: str) -> TravelAgentNodeEvent:
-    return TravelAgentNodeEvent(node_name=node_name, status=status, detail=detail)
+def _node_event(
+    node_name: str,
+    status: str,
+    detail: str,
+    *,
+    score: int | None = None,
+    grade: str | None = None,
+) -> TravelAgentNodeEvent:
+    return TravelAgentNodeEvent(node_name=node_name, status=status, detail=detail, score=score, grade=grade)

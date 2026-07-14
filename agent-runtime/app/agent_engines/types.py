@@ -27,13 +27,20 @@ class TravelAgentNodeEvent:
     node_name: str
     status: str
     detail: str = ""
+    score: int | None = None
+    grade: str | None = None
 
-    def to_dict(self) -> dict[str, str]:
-        return {
+    def to_dict(self) -> dict[str, str | int]:
+        payload: dict[str, str | int] = {
             "nodeName": self.node_name,
             "status": self.status,
             "detail": self.detail,
         }
+        if self.score is not None:
+            payload["score"] = self.score
+        if self.grade is not None:
+            payload["grade"] = self.grade
+        return payload
 
 
 @dataclass(frozen=True)

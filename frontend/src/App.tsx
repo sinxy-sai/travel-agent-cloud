@@ -3756,7 +3756,7 @@ function RuntimeStatus({
                 >
                   <span className="truncate text-slate-500">{event.nodeName}</span>
                   <span className={`shrink-0 rounded px-1.5 py-0.5 ${agentNodeStatusClass(event.status)}`}>
-                    {formatAgentOperation(event.status)}
+                    {formatAgentNodeEventStatus(event)}
                   </span>
                 </p>
               ))}
@@ -4371,6 +4371,13 @@ function formatSummaryJobStatus(status?: ConversationSummaryJob['status']): stri
 
 function formatAgentOperation(value: string): string {
   return value.replace(/_/g, ' ');
+}
+
+function formatAgentNodeEventStatus(event: { status: string; score?: number; grade?: string }): string {
+  if (typeof event.score === 'number' && event.grade) {
+    return `${formatAgentOperation(event.grade)} ${event.score}`;
+  }
+  return formatAgentOperation(event.status);
 }
 
 function agentNodeStatusClass(status: string): string {

@@ -245,6 +245,8 @@ export interface AgentNodeEvent {
   nodeName: string;
   status: string;
   detail: string;
+  score?: number;
+  grade?: string;
 }
 
 export interface AgentToolCall {

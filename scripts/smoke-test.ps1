@@ -421,7 +421,9 @@ $tripPlanQualityNode = $tripPlanAgentStatus.lastRunTrace.nodeEvents | Where-Obje
 if (
   -not $tripPlanQualityNode -or
   -not ($tripPlanQualityNode.detail -like "issues=*") -or
-  -not ($tripPlanQualityNode.detail -like "*score=*")
+  -not ($tripPlanQualityNode.detail -like "*score=*") -or
+  $null -eq $tripPlanQualityNode.score -or
+  -not $tripPlanQualityNode.grade
 ) {
   throw "Agent status API did not record trip plan quality node"
 }
