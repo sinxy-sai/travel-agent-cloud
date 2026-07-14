@@ -116,6 +116,7 @@ type ConversationSummaryJobUiStatus = 'IDLE' | 'POLLING' | 'FAILED' | 'TIMEOUT';
 type AttractionTextField = 'name' | 'address' | 'description' | 'category';
 type HotelTextField = 'name' | 'address' | 'priceRange' | 'rating' | 'distance' | 'type';
 type MealTextField = 'type' | 'name' | 'address' | 'description';
+type RouteTextField = 'fromName' | 'toName' | 'mode' | 'instruction';
 type WeatherTextField = 'date' | 'dayWeather' | 'nightWeather' | 'windDirection' | 'windPower';
 
 export default function App() {
@@ -1607,6 +1608,67 @@ export default function App() {
     });
   };
 
+  const updateEditingDayRoutes = (
+    dayIndex: number,
+    updater: (routes: RouteLeg[], day: TripPlanResponse['days'][number]) => RouteLeg[],
+  ) => {
+    setEditingTripPlan((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        days: current.days.map((day, index) =>
+          index === dayIndex
+            ? {
+                ...day,
+                routes: updater([...(day.routes ?? [])], day),
+              }
+            : day,
+        ),
+      };
+    });
+  };
+
+  const updateEditingRouteText = (dayIndex: number, routeIndex: number, field: RouteTextField, value: string) => {
+    updateEditingDayRoutes(dayIndex, (routes) =>
+      routes.map((route, index) => (index === routeIndex ? { ...route, [field]: value } : route)),
+    );
+  };
+
+  const updateEditingRouteNumber = (
+    dayIndex: number,
+    routeIndex: number,
+    field: 'distanceMeters' | 'durationMinutes' | 'estimatedCost',
+    value: number | string | null,
+  ) => {
+    const numericValue = typeof value === 'string' ? Number(value) : value;
+    updateEditingDayRoutes(dayIndex, (routes) =>
+      routes.map((route, index) => (index === routeIndex ? { ...route, [field]: numericValue ?? 0 } : route)),
+    );
+  };
+
+  const addEditingRoute = (dayIndex: number) => {
+    updateEditingDayRoutes(dayIndex, (routes, day) => [...routes, createDraftRoute(day, routes.length + 1)]);
+  };
+
+  const deleteEditingRoute = (dayIndex: number, routeIndex: number) => {
+    updateEditingDayRoutes(dayIndex, (routes) => routes.filter((_route, index) => index !== routeIndex));
+  };
+
+  const moveEditingRoute = (dayIndex: number, routeIndex: number, direction: -1 | 1) => {
+    updateEditingDayRoutes(dayIndex, (routes) => {
+      const nextIndex = routeIndex + direction;
+      if (nextIndex < 0 || nextIndex >= routes.length) {
+        return routes;
+      }
+      const reordered = [...routes];
+      const [item] = reordered.splice(routeIndex, 1);
+      reordered.splice(nextIndex, 0, item);
+      return reordered;
+    });
+  };
+
   const submitTripPlanEdit = () => {
     if (!selectedTripPlanId || !editingTripPlan || !isTripPlanDraftValid(editingTripPlan, editingTripPlanTips)) {
       return;
@@ -2825,6 +2887,146 @@ export default function App() {
                                 value={attraction.description}
                                 onChange={(event) =>
                                   updateEditingAttractionText(index, attractionIndex, 'description', event.target.value)
+                                }
+                              />
+                            </label>
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-ink">Routes</h4>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Edit map segments, transit time, distance, and route detail costs.
+                      </p>
+                    </div>
+                    <Button
+                      size="small"
+                      icon={<PlusOutlined />}
+                      disabled={(day.routes?.length ?? 0) >= 16}
+                      onClick={() => addEditingRoute(index)}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  {(day.routes ?? []).length === 0 ? (
+                    <div className="rounded-md border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
+                      No route segments yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {(day.routes ?? []).map((route, routeIndex) => (
+                        <section key={`${day.day}-route-${routeIndex}`} className="rounded-md bg-white p-3">
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-ink">Segment {routeIndex + 1}</p>
+                            <div className="flex gap-2">
+                              <Button
+                                size="small"
+                                icon={<ArrowUpOutlined />}
+                                disabled={routeIndex === 0}
+                                onClick={() => moveEditingRoute(index, routeIndex, -1)}
+                                aria-label="Move route up"
+                              />
+                              <Button
+                                size="small"
+                                icon={<ArrowDownOutlined />}
+                                disabled={routeIndex === (day.routes?.length ?? 0) - 1}
+                                onClick={() => moveEditingRoute(index, routeIndex, 1)}
+                                aria-label="Move route down"
+                              />
+                              <Popconfirm title="Delete this route?" onConfirm={() => deleteEditingRoute(index, routeIndex)}>
+                                <Button size="small" danger icon={<DeleteOutlined />} aria-label="Delete route" />
+                              </Popconfirm>
+                            </div>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">From</span>
+                              <Input
+                                maxLength={160}
+                                value={route.fromName}
+                                onChange={(event) =>
+                                  updateEditingRouteText(index, routeIndex, 'fromName', event.target.value)
+                                }
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">To</span>
+                              <Input
+                                maxLength={160}
+                                value={route.toName}
+                                onChange={(event) =>
+                                  updateEditingRouteText(index, routeIndex, 'toName', event.target.value)
+                                }
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Mode</span>
+                              <Select
+                                value={route.mode || 'walking'}
+                                onChange={(value) => updateEditingRouteText(index, routeIndex, 'mode', value)}
+                                className="w-full"
+                                options={[
+                                  { value: 'walking', label: 'Walking' },
+                                  { value: 'driving', label: 'Driving' },
+                                  { value: 'taxi', label: 'Taxi' },
+                                  { value: 'transit', label: 'Transit' },
+                                  { value: 'subway', label: 'Subway' },
+                                  { value: 'bike', label: 'Bike' },
+                                ]}
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Duration</span>
+                              <InputNumber
+                                min={0}
+                                max={10000}
+                                value={route.durationMinutes}
+                                onChange={(value) =>
+                                  updateEditingRouteNumber(index, routeIndex, 'durationMinutes', value)
+                                }
+                                addonAfter="min"
+                                className="w-full"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Distance</span>
+                              <InputNumber
+                                min={0}
+                                max={1000000}
+                                value={route.distanceMeters}
+                                onChange={(value) =>
+                                  updateEditingRouteNumber(index, routeIndex, 'distanceMeters', value)
+                                }
+                                addonAfter="m"
+                                className="w-full"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Segment cost</span>
+                              <InputNumber
+                                min={0}
+                                max={100000}
+                                value={route.estimatedCost}
+                                onChange={(value) =>
+                                  updateEditingRouteNumber(index, routeIndex, 'estimatedCost', value)
+                                }
+                                addonAfter="CNY"
+                                className="w-full"
+                              />
+                            </label>
+                            <label className="block md:col-span-2">
+                              <span className="mb-1 block text-xs font-medium text-slate-600">Instruction</span>
+                              <Input.TextArea
+                                rows={2}
+                                maxLength={1000}
+                                value={route.instruction}
+                                onChange={(event) =>
+                                  updateEditingRouteText(index, routeIndex, 'instruction', event.target.value)
                                 }
                               />
                             </label>
@@ -4194,6 +4396,28 @@ function createDraftMeal(day: number, index: number): Meal {
     location: null,
     description: '',
     estimatedCost: 0,
+  };
+}
+
+function createDraftRoute(day: TripPlanResponse['days'][number], index: number): RouteLeg {
+  const stopNames = [
+    day.hotel?.name,
+    ...(day.attractions ?? []).map((attraction) => attraction.name),
+    ...(day.meals ?? []).map((meal) => meal.name),
+  ]
+    .map((name) => name?.trim())
+    .filter((name): name is string => Boolean(name));
+  const fromName = stopNames[index - 1] ?? stopNames[0] ?? `Day ${day.day} start`;
+  const toName = stopNames[index] ?? `Day ${day.day} stop ${index + 1}`;
+
+  return {
+    fromName,
+    toName,
+    mode: 'walking',
+    distanceMeters: 0,
+    durationMinutes: 0,
+    estimatedCost: 0,
+    instruction: '',
   };
 }
 

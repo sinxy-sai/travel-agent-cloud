@@ -22,7 +22,7 @@ This project should first preserve the prototype's user-facing travel planning c
 | Hotel details | Name, address, type, price range, rating, distance | Supported |
 | Weather | Day/night weather, temperatures, wind | Supported |
 | Map view | Map markers and route polylines for attractions | Basic per-day schematic map preview is implemented; real Amap/MapLibre rendering is pending |
-| Editing | Edit itinerary, move/delete attractions, save/cancel changes | Supported at trip/day level; attraction-level reorder/delete parity still pending |
+| Editing | Edit itinerary, move/delete attractions, save/cancel changes | Supported for trip/day fields, hotels, attractions, meals, weather, and route segments |
 | Export | Export result as image and PDF | Markdown export supported; image/PDF export parity pending |
 
 ## Recommended Implementation Order
@@ -31,7 +31,7 @@ This project should first preserve the prototype's user-facing travel planning c
 2. Stabilize the travel tool interface around POI, hotel, meal, weather, route, and budget calls. Initial route contracts are now in place.
 3. Upgrade the map preview from schematic rendering to a real map SDK view once route geometry is stable.
 4. Add prototype-compatible image/PDF export after map rendering is stable.
-5. Add finer-grained attraction editing, including reorder and delete.
+5. Add image rendering for attraction details after a stable asset provider is selected.
 
 ## Non-Goals For Direct Copy
 
