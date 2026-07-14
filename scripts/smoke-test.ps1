@@ -103,6 +103,9 @@ if (-not $agentStatus.engine -or -not $agentStatus.capabilities) {
 if (-not $agentStatus.toolCatalog -or -not $agentStatus.toolCatalog.tools -or $agentStatus.toolCatalog.toolCount -lt 1) {
   throw "Agent status API did not return tool catalog"
 }
+if (-not $agentStatus.qualitySummary -or -not ($agentStatus.qualitySummary.PSObject.Properties.Name -contains "scoredRuns")) {
+  throw "Agent status API did not return quality summary"
+}
 $agentTools = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/tools"
 if (-not $agentTools.provider -or -not $agentTools.tools -or $agentTools.toolCount -lt 1) {
   throw "Agent tools API did not return tool definitions"
@@ -116,6 +119,9 @@ if (-not ($agentDiagnostics.checks | Where-Object { $_.name -eq "workflow" })) {
 }
 if (-not $agentDiagnostics.toolCatalog -or $agentDiagnostics.toolCatalog.toolCount -lt 1) {
   throw "Agent diagnostics API did not include tool catalog"
+}
+if (-not $agentDiagnostics.qualitySummary -or -not ($agentDiagnostics.qualitySummary.PSObject.Properties.Name -contains "averageScore")) {
+  throw "Agent diagnostics API did not include quality summary"
 }
 
 Write-Host "Preparing anonymous local data"
@@ -426,6 +432,15 @@ if (
   -not $tripPlanQualityNode.grade
 ) {
   throw "Agent status API did not record trip plan quality node"
+}
+if (
+  -not $tripPlanAgentStatus.qualitySummary -or
+  $tripPlanAgentStatus.qualitySummary.scoredRuns -lt 1 -or
+  $tripPlanAgentStatus.qualitySummary.averageScore -lt 1 -or
+  $null -eq $tripPlanAgentStatus.qualitySummary.latestScore -or
+  -not $tripPlanAgentStatus.qualitySummary.latestGrade
+) {
+  throw "Agent status API did not aggregate trip plan quality summary"
 }
 
 Write-Host "Checking conversation list API"

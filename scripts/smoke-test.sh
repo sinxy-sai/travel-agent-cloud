@@ -70,6 +70,11 @@ if [ "${HAS_AGENT_STATUS_TOOL_CATALOG}" != "yes" ]; then
   echo "Agent status API did not return tool catalog" >&2
   exit 1
 fi
+HAS_AGENT_STATUS_QUALITY_SUMMARY="$(printf '%s' "${AGENT_STATUS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin).get("qualitySummary", {}); print("yes" if "scoredRuns" in data and "averageScore" in data else "no")')"
+if [ "${HAS_AGENT_STATUS_QUALITY_SUMMARY}" != "yes" ]; then
+  echo "Agent status API did not return quality summary" >&2
+  exit 1
+fi
 AGENT_TOOLS_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/tools")"
 HAS_AGENT_TOOLS="$(printf '%s' "${AGENT_TOOLS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); print("yes" if data.get("provider") and data.get("tools") and data.get("toolCount", 0) > 0 else "no")')"
 if [ "${HAS_AGENT_TOOLS}" != "yes" ]; then
@@ -77,7 +82,7 @@ if [ "${HAS_AGENT_TOOLS}" != "yes" ]; then
   exit 1
 fi
 AGENT_DIAGNOSTICS_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/diagnostics")"
-HAS_AGENT_DIAGNOSTICS="$(printf '%s' "${AGENT_DIAGNOSTICS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); checks=data.get("checks", []); tool_catalog=data.get("toolCatalog", {}); print("yes" if data.get("status") and checks and any(check.get("name") == "workflow" for check in checks) and tool_catalog.get("toolCount", 0) > 0 else "no")')"
+HAS_AGENT_DIAGNOSTICS="$(printf '%s' "${AGENT_DIAGNOSTICS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); checks=data.get("checks", []); tool_catalog=data.get("toolCatalog", {}); quality_summary=data.get("qualitySummary", {}); print("yes" if data.get("status") and checks and any(check.get("name") == "workflow" for check in checks) and tool_catalog.get("toolCount", 0) > 0 and "averageScore" in quality_summary else "no")')"
 if [ "${HAS_AGENT_DIAGNOSTICS}" != "yes" ]; then
   echo "Agent diagnostics API did not return checks" >&2
   exit 1
@@ -448,6 +453,11 @@ fi
 HAS_TRIP_PLAN_QUALITY_NODE="$(printf '%s' "${TRIP_PLAN_AGENT_STATUS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); events=(data.get("lastRunTrace") or {}).get("nodeEvents") or []; print("yes" if any(event.get("nodeName") in {"trip_validation", "plan_quality"} and str(event.get("detail", "")).startswith("issues=") and "score=" in str(event.get("detail", "")) and isinstance(event.get("score"), int) and event.get("grade") for event in events) else "no")')"
 if [ "${HAS_TRIP_PLAN_QUALITY_NODE}" != "yes" ]; then
   echo "Agent status API did not record trip plan quality node" >&2
+  exit 1
+fi
+HAS_TRIP_PLAN_QUALITY_SUMMARY="$(printf '%s' "${TRIP_PLAN_AGENT_STATUS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); summary=data.get("qualitySummary") or {}; print("yes" if summary.get("scoredRuns", 0) > 0 and summary.get("averageScore", 0) > 0 and isinstance(summary.get("latestScore"), int) and summary.get("latestGrade") else "no")')"
+if [ "${HAS_TRIP_PLAN_QUALITY_SUMMARY}" != "yes" ]; then
+  echo "Agent status API did not aggregate trip plan quality summary" >&2
   exit 1
 fi
 echo

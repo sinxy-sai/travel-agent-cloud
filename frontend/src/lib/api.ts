@@ -263,6 +263,15 @@ export interface AgentRunSummary {
   operationCounts: Record<string, number>;
 }
 
+export interface AgentQualitySummary {
+  windowSize: number;
+  scoredRuns: number;
+  averageScore: number;
+  latestScore?: number | null;
+  latestGrade: string;
+  gradeCounts: Record<string, number>;
+}
+
 export interface AgentToolCallSummary {
   windowSize: number;
   totalToolCalls: number;
@@ -290,6 +299,7 @@ export interface AgentStatusResponse {
   lastRunTrace?: AgentRunTrace | null;
   recentRunTraces: AgentRunTrace[];
   runSummary?: AgentRunSummary;
+  qualitySummary?: AgentQualitySummary;
   toolCallSummary?: AgentToolCallSummary;
   toolCatalog?: AgentToolCatalog;
 }
@@ -313,6 +323,7 @@ export interface AgentDiagnosticsResponse {
   capabilities: AgentEngineCapabilities;
   toolCatalog: AgentToolCatalog;
   runSummary: AgentRunSummary;
+  qualitySummary: AgentQualitySummary;
   lastRunTrace?: AgentRunTrace | null;
 }
 

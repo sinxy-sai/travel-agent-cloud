@@ -123,6 +123,54 @@ class TravelAgentRunSummary:
 
 
 @dataclass(frozen=True)
+class TravelAgentQualitySummary:
+    window_size: int
+    scored_runs: int
+    average_score: int
+    latest_score: int | None
+    latest_grade: str
+    grade_counts: dict[str, int]
+
+    @classmethod
+    def from_traces(cls, traces: tuple[TravelAgentRunTrace, ...]) -> "TravelAgentQualitySummary":
+        scores: list[int] = []
+        grade_counts: dict[str, int] = {}
+        latest_score: int | None = None
+        latest_grade = ""
+
+        for trace in traces:
+            scored_event = next((event for event in trace.node_events if event.score is not None), None)
+            if scored_event is None:
+                continue
+            score = int(scored_event.score)
+            grade = scored_event.grade or "unknown"
+            if latest_score is None:
+                latest_score = score
+                latest_grade = grade
+            scores.append(score)
+            grade_counts[grade] = grade_counts.get(grade, 0) + 1
+
+        return cls(
+            window_size=len(traces),
+            scored_runs=len(scores),
+            average_score=round(sum(scores) / len(scores)) if scores else 0,
+            latest_score=latest_score,
+            latest_grade=latest_grade,
+            grade_counts=grade_counts,
+        )
+
+    def to_dict(self) -> dict[str, int | str | None | dict[str, int]]:
+        return {
+            "windowSize": self.window_size,
+            "scoredRuns": self.scored_runs,
+            "averageScore": self.average_score,
+            "latestScore": self.latest_score,
+            "latestGrade": self.latest_grade,
+            "gradeCounts": self.grade_counts,
+        }
+
+
+@dataclass(frozen=True)
 class TravelAgentToolCallSummary:
     window_size: int
     total_tool_calls: int

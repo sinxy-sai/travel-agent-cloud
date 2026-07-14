@@ -2,6 +2,7 @@ from app.agent_engines import create_travel_agent_engine
 from app.agent_engines.types import (
     TravelAgentEngine,
     TravelAgentEngineCapabilities,
+    TravelAgentQualitySummary,
     TravelAgentRunSummary,
     TravelAgentRunTrace,
     TravelAgentToolCallSummary,
@@ -38,6 +39,10 @@ class TravelAgentService:
     @property
     def run_summary(self) -> TravelAgentRunSummary:
         return TravelAgentRunSummary.from_traces(self._engine.recent_run_traces)
+
+    @property
+    def quality_summary(self) -> TravelAgentQualitySummary:
+        return TravelAgentQualitySummary.from_traces(self._engine.recent_run_traces)
 
     @property
     def tool_call_summary(self) -> TravelAgentToolCallSummary:

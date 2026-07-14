@@ -196,6 +196,7 @@ def agent_status() -> dict[str, object]:
         "lastRunTrace": last_run_trace.to_dict() if last_run_trace else None,
         "recentRunTraces": [trace.to_dict() for trace in travel_agent_service.recent_run_traces],
         "runSummary": travel_agent_service.run_summary.to_dict(),
+        "qualitySummary": travel_agent_service.quality_summary.to_dict(),
         "toolCallSummary": travel_agent_service.tool_call_summary.to_dict(),
         "toolCatalog": _travel_tool_catalog(),
     }
@@ -210,8 +211,9 @@ def agent_tools() -> dict[str, object]:
 def agent_diagnostics() -> dict[str, object]:
     capabilities = travel_agent_service.engine_capabilities
     run_summary = travel_agent_service.run_summary
+    quality_summary = travel_agent_service.quality_summary
     tool_catalog = _travel_tool_catalog()
-    checks = _agent_diagnostic_checks(capabilities, run_summary.total_runs, tool_catalog)
+    checks = _agent_diagnostic_checks(capabilities, run_summary.total_runs, quality_summary, tool_catalog)
     status_counts: dict[str, int] = {}
     for check in checks:
         status_value = str(check["status"])
@@ -235,6 +237,7 @@ def agent_diagnostics() -> dict[str, object]:
         "capabilities": capabilities.to_dict(),
         "toolCatalog": tool_catalog,
         "runSummary": run_summary.to_dict(),
+        "qualitySummary": quality_summary.to_dict(),
         "lastRunTrace": last_run_trace.to_dict() if last_run_trace else None,
     }
 
@@ -1444,9 +1447,13 @@ def _travel_tool_catalog() -> dict[str, object]:
 def _agent_diagnostic_checks(
     capabilities: object,
     total_runs: int,
+    quality_summary: object,
     tool_catalog: dict[str, object],
 ) -> list[dict[str, str]]:
     workflow_nodes = getattr(capabilities, "workflow_nodes", ())
+    scored_runs = int(getattr(quality_summary, "scored_runs", 0))
+    latest_grade = str(getattr(quality_summary, "latest_grade", ""))
+    latest_score = getattr(quality_summary, "latest_score", None)
     checks = [
         {
             "name": "runtime",
@@ -1486,8 +1493,27 @@ def _agent_diagnostic_checks(
                 else "No agent run has been recorded since startup."
             ),
         },
+        {
+            "name": "plan_quality",
+            "status": _plan_quality_diagnostic_status(scored_runs, latest_grade),
+            "detail": _plan_quality_diagnostic_detail(scored_runs, latest_grade, latest_score),
+        },
     ]
     return checks
+
+
+def _plan_quality_diagnostic_status(scored_runs: int, latest_grade: str) -> str:
+    if scored_runs <= 0:
+        return "DISABLED"
+    if latest_grade == "ready":
+        return "OK"
+    return "DEGRADED"
+
+
+def _plan_quality_diagnostic_detail(scored_runs: int, latest_grade: str, latest_score: object) -> str:
+    if scored_runs <= 0:
+        return "No trip plan quality score has been recorded since startup."
+    return f"{scored_runs} scored trip plan runs; latest grade {latest_grade or 'unknown'} score {latest_score}."
 
 
 def _travel_tools_diagnostic_status(provider: str, tool_count: int) -> str:

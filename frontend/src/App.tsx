@@ -3642,6 +3642,8 @@ function RuntimeStatus({
   const recentRunTraces = agentStatus?.recentRunTraces?.slice(0, 3) ?? [];
   const runSummary = agentStatus?.runSummary;
   const operationSummary = Object.entries(runSummary?.operationCounts ?? {}).slice(0, 3);
+  const qualitySummary = agentStatus?.qualitySummary ?? agentDiagnostics?.qualitySummary;
+  const qualityGradeSummary = Object.entries(qualitySummary?.gradeCounts ?? {}).slice(0, 3);
   const toolCallSummary = agentStatus?.toolCallSummary;
   const toolUsageSummary = Object.entries(toolCallSummary?.toolCounts ?? {}).slice(0, 3);
   const toolCatalog = agentStatus?.toolCatalog;
@@ -3806,6 +3808,22 @@ function RuntimeStatus({
                 <p className="mt-1 text-[11px] text-slate-400">
                   {operationSummary
                     .map(([operation, count]) => `${formatAgentOperation(operation)} ${count}`)
+                    .join(' / ')}
+                </p>
+              )}
+            </div>
+          )}
+          {qualitySummary && qualitySummary.scoredRuns > 0 && (
+            <div className="mt-2 rounded border border-slate-200 bg-white px-2 py-1.5">
+              <p className="text-[11px] text-slate-500">
+                Plan quality: avg {qualitySummary.averageScore} / latest{' '}
+                {formatAgentOperation(qualitySummary.latestGrade || 'unknown')}
+                {typeof qualitySummary.latestScore === 'number' ? ` ${qualitySummary.latestScore}` : ''}
+              </p>
+              {qualityGradeSummary.length > 0 && (
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {qualityGradeSummary
+                    .map(([grade, count]) => `${formatAgentOperation(grade)} ${count}`)
                     .join(' / ')}
                 </p>
               )}

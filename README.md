@@ -21,7 +21,7 @@
 ## Agent Runtime status
 
 - `GET /health` exposes the selected agent engine and engine capabilities.
-- `GET /api/v1/agent/status` exposes the current engine, capabilities, the latest privacy-safe run trace, recent run traces, and a `runSummary` aggregate.
+- `GET /api/v1/agent/status` exposes the current engine, capabilities, the latest privacy-safe run trace, recent run traces, and `runSummary` / `qualitySummary` aggregates.
 - Run traces and summaries are in-memory only and do not include prompts, messages, user ids, API keys, or generated itinerary content.
 
 ## 当前模块
