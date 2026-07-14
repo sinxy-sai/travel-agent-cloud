@@ -3,7 +3,10 @@
 Local MCP-compatible travel tool server for Agent Runtime development.
 
 This service exposes a minimal JSON-RPC endpoint at `/mcp` with `tools/list`
-and `tools/call`. It returns deterministic Amap-style stub data for:
+and `tools/call`. When `AMAP_WEB_SERVICE_KEY` is configured it calls Amap Web
+Service APIs for POI search, weather, and basic walking/driving routes. Without
+that key, or when an upstream call fails, it returns deterministic Amap-style
+stub data for:
 
 - `travel.search_attractions`
 - `travel.search_hotel`
@@ -12,9 +15,17 @@ and `tools/call`. It returns deterministic Amap-style stub data for:
 - `travel.get_weather`
 - `travel.estimate_budget`
 
-The service is intentionally stateless and does not persist user data. Replace
-the stub handlers with real Amap/FastMCP tool calls later while keeping the
-tool names and response schemas stable.
+The service is intentionally stateless and does not persist user data. Keep the
+tool names and response schemas stable while replacing or expanding provider
+logic.
+
+Configuration:
+
+```text
+AMAP_WEB_SERVICE_KEY=
+AMAP_BASE_URL=https://restapi.amap.com
+AMAP_TIMEOUT_SECONDS=8
+```
 
 Local run:
 
@@ -22,6 +33,7 @@ Local run:
 cd services/travel-mcp
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
+$env:AMAP_WEB_SERVICE_KEY="your-amap-web-service-key"
 .\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8100
 ```
 

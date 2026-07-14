@@ -51,6 +51,10 @@ services:
     container_name: travel-agent-mcp
     profiles:
       - tools
+    environment:
+      AMAP_WEB_SERVICE_KEY: ${AMAP_WEB_SERVICE_KEY:-}
+      AMAP_BASE_URL: https://restapi.amap.com
+      AMAP_TIMEOUT_SECONDS: 8
     ports:
       - "8100:8100"
 

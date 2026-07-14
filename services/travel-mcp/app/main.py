@@ -1,10 +1,13 @@
+import os
 from typing import Any, Callable
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 
 app = FastAPI(title="Travel MCP Tool Server", version="0.1.0")
+amap_client = None
 
 
 class JsonRpcRequest(BaseModel):
@@ -29,7 +32,8 @@ def health() -> dict[str, object]:
         "status": "ok",
         "service": "Travel MCP Tool Server",
         "toolCount": len(TOOLS),
-        "provider": "amap-stub",
+        "provider": "amap" if _amap_client().enabled else "amap-stub",
+        "amapEnabled": _amap_client().enabled,
     }
 
 
@@ -69,6 +73,13 @@ def search_attractions(arguments: dict[str, Any]) -> dict[str, object]:
     destination = _required_text(arguments, "destination")
     day = _int_arg(arguments, "day", 1)
     interests = str(arguments.get("interests") or "local culture")
+    real_items = _amap_client().search_pois(destination, interests, day)
+    if real_items:
+        return {"items": real_items}
+    return _stub_attractions(destination, day, interests)
+
+
+def _stub_attractions(destination: str, day: int, interests: str) -> dict[str, object]:
     base_lng = 104.0668
     base_lat = 30.5728
     items = [
@@ -137,6 +148,10 @@ def plan_routes(arguments: dict[str, Any]) -> dict[str, object]:
     if not stop_names:
         stop_names = [f"{destination} route stop"]
 
+    real_items = _amap_client().plan_routes(mode, hotel, attractions)
+    if real_items:
+        return {"items": real_items}
+
     stops = [hotel_name, *stop_names, hotel_name]
     items = [
         {
@@ -154,9 +169,12 @@ def plan_routes(arguments: dict[str, Any]) -> dict[str, object]:
 
 
 def get_weather(arguments: dict[str, Any]) -> dict[str, object]:
-    _required_text(arguments, "destination")
+    destination = _required_text(arguments, "destination")
     days = _int_arg(arguments, "days", 1)
     start_date = str(arguments.get("startDate") or "")
+    real_items = _amap_client().weather(destination, days, start_date)
+    if real_items:
+        return {"items": real_items}
     items = [
         {
             "date": start_date if index == 1 and start_date else f"Day {index}",
@@ -258,3 +276,242 @@ def _route_leg_cost(mode: str, index: int) -> int:
     if any(keyword in normalized for keyword in ("taxi", "ride", "car")):
         return 25 + index * 10
     return 3 + index * 2
+
+
+def _amap_client() -> "AmapWebServiceClient":
+    global amap_client
+    if amap_client is None:
+        amap_client = AmapWebServiceClient(
+            key=os.getenv("AMAP_WEB_SERVICE_KEY", ""),
+            base_url=os.getenv("AMAP_BASE_URL", "https://restapi.amap.com").rstrip("/"),
+            timeout_seconds=float(os.getenv("AMAP_TIMEOUT_SECONDS", "8")),
+        )
+    return amap_client
+
+
+class AmapWebServiceClient:
+    def __init__(self, key: str, base_url: str, timeout_seconds: float) -> None:
+        self._key = key.strip()
+        self._base_url = base_url
+        self._timeout_seconds = timeout_seconds
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self._key)
+
+    def search_pois(self, destination: str, interests: str, day: int) -> list[dict[str, object]]:
+        if not self.enabled:
+            return []
+        keywords = _poi_keywords(destination, interests)
+        payload = self._get(
+            "/v3/place/text",
+            {
+                "keywords": keywords,
+                "city": destination,
+                "citylimit": "true",
+                "offset": 8,
+                "page": max(1, day),
+                "extensions": "all",
+            },
+        )
+        pois = payload.get("pois") if isinstance(payload, dict) else None
+        if not isinstance(pois, list):
+            return []
+
+        items: list[dict[str, object]] = []
+        for index, poi in enumerate(pois[:4], start=1):
+            if not isinstance(poi, dict):
+                continue
+            name = str(poi.get("name") or "").strip()
+            if not name:
+                continue
+            location = _parse_location(str(poi.get("location") or ""))
+            biz_ext = poi.get("biz_ext") if isinstance(poi.get("biz_ext"), dict) else {}
+            rating = _optional_float(biz_ext.get("rating") if isinstance(biz_ext, dict) else None)
+            cost = _optional_int(biz_ext.get("cost") if isinstance(biz_ext, dict) else None)
+            items.append(
+                {
+                    "name": name,
+                    "address": _safe_text(poi.get("address")),
+                    "location": location,
+                    "visitDuration": 90 + index * 15,
+                    "description": f"Amap POI result for {destination}; type={_safe_text(poi.get('type')) or 'attraction'}.",
+                    "category": _safe_text(poi.get("type")) or "attraction",
+                    "rating": rating,
+                    "ticketPrice": cost or 0,
+                }
+            )
+        return items
+
+    def weather(self, destination: str, days: int, start_date: str) -> list[dict[str, object]]:
+        if not self.enabled:
+            return []
+        adcode = self._adcode_for_destination(destination)
+        if not adcode:
+            return []
+        payload = self._get("/v3/weather/weatherInfo", {"city": adcode, "extensions": "all"})
+        forecasts = payload.get("forecasts") if isinstance(payload, dict) else None
+        if not isinstance(forecasts, list) or not forecasts:
+            return []
+        casts = forecasts[0].get("casts") if isinstance(forecasts[0], dict) else None
+        if not isinstance(casts, list):
+            return []
+
+        items: list[dict[str, object]] = []
+        for index, cast in enumerate(casts[: min(days, 4)], start=1):
+            if not isinstance(cast, dict):
+                continue
+            items.append(
+                {
+                    "date": _safe_text(cast.get("date")) or (start_date if index == 1 and start_date else f"Day {index}"),
+                    "dayWeather": _safe_text(cast.get("dayweather")),
+                    "nightWeather": _safe_text(cast.get("nightweather")),
+                    "dayTemp": _optional_int(cast.get("daytemp")) or 0,
+                    "nightTemp": _optional_int(cast.get("nighttemp")) or 0,
+                    "windDirection": _safe_text(cast.get("daywind")),
+                    "windPower": _safe_text(cast.get("daypower")),
+                }
+            )
+        return items
+
+    def plan_routes(self, mode: str, hotel: Any, attractions: Any) -> list[dict[str, object]]:
+        if not self.enabled:
+            return []
+        stops = _route_stops(hotel, attractions)
+        if len(stops) < 2:
+            return []
+
+        items: list[dict[str, object]] = []
+        for index in range(len(stops) - 1):
+            origin = stops[index]
+            destination = stops[index + 1]
+            route = self._route_leg(mode, origin, destination)
+            if route is None:
+                return []
+            items.append(
+                {
+                    "fromName": origin["name"],
+                    "toName": destination["name"],
+                    "mode": mode,
+                    "distanceMeters": route["distanceMeters"],
+                    "durationMinutes": route["durationMinutes"],
+                    "estimatedCost": _route_leg_cost(mode, index),
+                    "instruction": route["instruction"],
+                }
+            )
+        return items
+
+    def _route_leg(self, mode: str, origin: dict[str, Any], destination: dict[str, Any]) -> dict[str, object] | None:
+        normalized = mode.lower()
+        endpoint = "/v3/direction/driving" if any(item in normalized for item in ("car", "taxi", "ride", "drive")) else "/v3/direction/walking"
+        payload = self._get(
+            endpoint,
+            {
+                "origin": f"{origin['longitude']},{origin['latitude']}",
+                "destination": f"{destination['longitude']},{destination['latitude']}",
+                "extensions": "base",
+            },
+        )
+        route = payload.get("route") if isinstance(payload, dict) else None
+        paths = route.get("paths") if isinstance(route, dict) else None
+        if not isinstance(paths, list) or not paths:
+            return None
+        path = paths[0] if isinstance(paths[0], dict) else {}
+        steps = path.get("steps") if isinstance(path, dict) else None
+        instruction = ""
+        if isinstance(steps, list) and steps and isinstance(steps[0], dict):
+            instruction = _safe_text(steps[0].get("instruction"))
+        return {
+            "distanceMeters": _optional_int(path.get("distance")) or 0,
+            "durationMinutes": round((_optional_int(path.get("duration")) or 0) / 60),
+            "instruction": instruction or f"Amap route from {origin['name']} to {destination['name']}.",
+        }
+
+    def _adcode_for_destination(self, destination: str) -> str:
+        payload = self._get("/v3/geocode/geo", {"address": destination})
+        geocodes = payload.get("geocodes") if isinstance(payload, dict) else None
+        if isinstance(geocodes, list) and geocodes and isinstance(geocodes[0], dict):
+            return _safe_text(geocodes[0].get("adcode"))
+        return ""
+
+    def _get(self, path: str, params: dict[str, object]) -> dict[str, Any]:
+        if not self.enabled:
+            return {}
+        request_params = {"key": self._key, "output": "JSON", **params}
+        try:
+            with httpx.Client(timeout=self._timeout_seconds) as client:
+                response = client.get(f"{self._base_url}{path}", params=request_params)
+                response.raise_for_status()
+                payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return {}
+        if not isinstance(payload, dict) or str(payload.get("status")) != "1":
+            return {}
+        return payload
+
+
+def _poi_keywords(destination: str, interests: str) -> str:
+    terms = [item.strip() for item in interests.replace("，", ",").split(",") if item.strip()]
+    if not terms:
+        return f"{destination} 景点"
+    return f"{destination} {terms[0]}"
+
+
+def _route_stops(hotel: Any, attractions: Any) -> list[dict[str, Any]]:
+    stops: list[dict[str, Any]] = []
+    hotel_stop = _place_stop(hotel, "Hotel")
+    if hotel_stop:
+        stops.append(hotel_stop)
+    if isinstance(attractions, list):
+        for attraction in attractions:
+            stop = _place_stop(attraction, "Attraction")
+            if stop:
+                stops.append(stop)
+    if hotel_stop and len(stops) > 1:
+        stops.append(hotel_stop)
+    return stops
+
+
+def _place_stop(value: Any, fallback_name: str) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    location = value.get("location")
+    if not isinstance(location, dict):
+        return None
+    longitude = _optional_float(location.get("longitude"))
+    latitude = _optional_float(location.get("latitude"))
+    if longitude is None or latitude is None:
+        return None
+    return {
+        "name": _safe_text(value.get("name")) or fallback_name,
+        "longitude": longitude,
+        "latitude": latitude,
+    }
+
+
+def _parse_location(value: str) -> dict[str, float] | None:
+    try:
+        longitude, latitude = value.split(",", 1)
+        return {"longitude": float(longitude), "latitude": float(latitude)}
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_text(value: Any) -> str:
+    if value is None or isinstance(value, list | dict):
+        return ""
+    return str(value).strip()
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
