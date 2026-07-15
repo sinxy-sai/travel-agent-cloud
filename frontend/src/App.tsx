@@ -124,6 +124,16 @@ type MealTextField = 'type' | 'name' | 'address' | 'description';
 type RouteTextField = 'fromName' | 'toName' | 'mode' | 'instruction';
 type WeatherTextField = 'date' | 'dayWeather' | 'nightWeather' | 'windDirection' | 'windPower';
 type TripPlanMediaExportFormat = 'png' | 'pdf';
+type PlanningStage = { label: string; detail: string };
+
+const planningStages: PlanningStage[] = [
+  { label: 'Understanding your trip', detail: 'Normalizing dates, preferences, and constraints' },
+  { label: 'Finding attractions', detail: 'Searching travel tools for relevant places' },
+  { label: 'Checking weather', detail: 'Matching forecasts to each itinerary day' },
+  { label: 'Selecting stays and meals', detail: 'Balancing location, budget, and travel style' },
+  { label: 'Building routes and budget', detail: 'Connecting stops and estimating costs' },
+  { label: 'Quality checking', detail: 'Validating the final itinerary before saving' },
+];
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -159,6 +169,7 @@ export default function App() {
   const [tripPlanVersionsError, setTripPlanVersionsError] = useState('');
   const [tripPlanMediaExportFormat, setTripPlanMediaExportFormat] = useState<TripPlanMediaExportFormat | null>(null);
   const [tripPlanMediaExportError, setTripPlanMediaExportError] = useState('');
+  const [planningStageIndex, setPlanningStageIndex] = useState(0);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -553,6 +564,17 @@ export default function App() {
     },
   });
 
+  useEffect(() => {
+    if (!tripPlanMutation.isPending) {
+      setPlanningStageIndex(0);
+      return;
+    }
+    const interval = window.setInterval(() => {
+      setPlanningStageIndex((current) => Math.min(current + 1, planningStages.length - 1));
+    }, 1800);
+    return () => window.clearInterval(interval);
+  }, [tripPlanMutation.isPending]);
+
   const chatMutation = useMutation({
     mutationFn: sendChatMessage,
     onSuccess: (response) => {
@@ -901,6 +923,23 @@ export default function App() {
     },
     [accommodation, budget, days, destination, endDate, interests, startDate, transportation],
   );
+  const lastTripPlanTrace =
+    agentStatusQuery.data?.lastRunTrace?.operation === 'trip_plan' ? agentStatusQuery.data.lastRunTrace : null;
+  const submitTripPlan = () => {
+    tripPlanMutation.mutate({
+      destination,
+      days,
+      budget,
+      interests: interests.join(', '),
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      transportation,
+      accommodation,
+      preferences: interests,
+      freeTextInput,
+      conversationId,
+    });
+  };
   const conversations = conversationsQuery.data?.data ?? [];
   const tripPlans = tripPlansQuery.data?.data ?? [];
 
@@ -2002,21 +2041,7 @@ export default function App() {
               type="primary"
               icon={<SendOutlined />}
               loading={tripPlanMutation.isPending}
-              onClick={() =>
-                tripPlanMutation.mutate({
-                  destination,
-                  days,
-                  budget,
-                  interests: interests.join(', '),
-                  startDate: startDate || undefined,
-                  endDate: endDate || undefined,
-                  transportation,
-                  accommodation,
-                  preferences: interests,
-                  freeTextInput,
-                  conversationId,
-                })
-              }
+              onClick={submitTripPlan}
               className="w-full"
             >
               Generate itinerary
@@ -2148,8 +2173,25 @@ export default function App() {
           </div>
 
           {tripPlanMutation.isPending && (
-            <div className="flex h-80 items-center justify-center">
-              <Spin tip="Planning route..." />
+            <div className="flex min-h-80 items-center justify-center">
+              <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-slate-50 p-6">
+                <div className="flex items-center gap-3">
+                  <Spin size="small" />
+                  <div>
+                    <p className="font-semibold text-ink">{planningStages[planningStageIndex].label}</p>
+                    <p className="mt-1 text-sm text-slate-500">{planningStages[planningStageIndex].detail}</p>
+                  </div>
+                </div>
+                <div className="mt-5 grid grid-cols-6 gap-2" aria-label="Itinerary generation progress">
+                  {planningStages.map((stage, index) => (
+                    <div
+                      key={stage.label}
+                      className={`h-1.5 rounded-full ${index <= planningStageIndex ? 'bg-coral' : 'bg-slate-200'}`}
+                    />
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-slate-400">Stage {planningStageIndex + 1} of {planningStages.length}</p>
+              </div>
             </div>
           )}
 
@@ -2171,6 +2213,31 @@ export default function App() {
                 <div>
                   <h2 className="text-2xl font-semibold text-ink">{plan.title}</h2>
                   <p className="mt-2 max-w-3xl text-slate-600">{plan.summary}</p>
+                  {lastTripPlanTrace && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2" data-export-ignore="true">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                          lastTripPlanTrace.fallbackUsed
+                            ? 'bg-amber-50 text-amber-700'
+                            : 'bg-emerald-50 text-emerald-700'
+                        }`}
+                      >
+                        {lastTripPlanTrace.fallbackUsed
+                          ? 'Some live data was unavailable; verified fallback data is shown'
+                          : 'Enriched with live travel tools'}
+                      </span>
+                      {lastTripPlanTrace.fallbackUsed && (
+                        <Button
+                          size="small"
+                          icon={<SyncOutlined />}
+                          loading={tripPlanMutation.isPending}
+                          onClick={submitTripPlan}
+                        >
+                          Retry live data
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2 md:justify-end" data-export-ignore="true">
                   {selectedTripPlanId && (
@@ -2328,27 +2395,34 @@ export default function App() {
                         <h4 className="mb-2 text-sm font-semibold text-ink">Attractions</h4>
                         <div className="grid gap-3 md:grid-cols-2">
                           {day.attractions?.map((attraction) => (
-                            <div key={`${day.day}-${attraction.name}`} className="rounded-md bg-slate-50 p-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <p className="font-medium text-ink">{attraction.name}</p>
-                                  {attraction.address && (
-                                    <p className="mt-1 text-xs text-slate-500">{attraction.address}</p>
+                            <div key={`${day.day}-${attraction.name}`} className="overflow-hidden rounded-md bg-slate-50">
+                              <AttractionImage
+                                attraction={attraction}
+                                destination={destination}
+                                forcePlaceholder={Boolean(tripPlanMediaExportFormat)}
+                              />
+                              <div className="p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="font-medium text-ink">{attraction.name}</p>
+                                    {attraction.address && (
+                                      <p className="mt-1 text-xs text-slate-500">{attraction.address}</p>
+                                    )}
+                                  </div>
+                                  {attraction.rating !== null && attraction.rating !== undefined && (
+                                    <span className="rounded-full bg-white px-2 py-1 text-xs text-trail">
+                                      {attraction.rating.toFixed(1)}
+                                    </span>
                                   )}
                                 </div>
-                                {attraction.rating !== null && attraction.rating !== undefined && (
-                                  <span className="rounded-full bg-white px-2 py-1 text-xs text-trail">
-                                    {attraction.rating.toFixed(1)}
-                                  </span>
+                                {attraction.description && (
+                                  <p className="mt-2 text-sm leading-6 text-slate-600">{attraction.description}</p>
                                 )}
+                                <p className="mt-2 text-xs text-slate-500">
+                                  {attraction.category || 'attraction'} / {attraction.visitDuration} min
+                                  {attraction.ticketPrice ? ` / ${formatCost(attraction.ticketPrice)}` : ''}
+                                </p>
                               </div>
-                              {attraction.description && (
-                                <p className="mt-2 text-sm leading-6 text-slate-600">{attraction.description}</p>
-                              )}
-                              <p className="mt-2 text-xs text-slate-500">
-                                {attraction.category || 'attraction'} / {attraction.visitDuration} min
-                                {attraction.ticketPrice ? ` / ${formatCost(attraction.ticketPrice)}` : ''}
-                              </p>
                             </div>
                           ))}
                         </div>
@@ -4344,6 +4418,43 @@ declare global {
 
 let amapLoaderPromise: Promise<AMapLoaderNamespace> | null = null;
 
+function AttractionImage({
+  attraction,
+  destination,
+  forcePlaceholder = false,
+}: {
+  attraction: Attraction;
+  destination: string;
+  forcePlaceholder?: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+  const imageUrl = attraction.imageUrl?.trim();
+
+  if (forcePlaceholder || !imageUrl || failed) {
+    return (
+      <div
+        className="flex aspect-[16/7] items-center justify-center bg-mist px-4 text-center text-sm font-medium text-trail"
+        role="img"
+        aria-label={`${attraction.name} image unavailable`}
+      >
+        <span>{destination || attraction.category || 'Travel'} / {attraction.name}</span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt={attraction.name}
+      className="aspect-[16/7] w-full object-cover"
+      crossOrigin="anonymous"
+      referrerPolicy="no-referrer"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 function TripMapPreview({ plan, forceSchematic = false }: { plan: TripPlanResponse; forceSchematic?: boolean }) {
   const mapDays = (plan.days ?? []).filter(
     (day) =>
@@ -4351,13 +4462,36 @@ function TripMapPreview({ plan, forceSchematic = false }: { plan: TripPlanRespon
       (day.attractions ?? []).some((attraction) => Boolean(attraction.location)) ||
       (day.routes?.length ?? 0) > 0,
   );
-  const [selectedMapDay, setSelectedMapDay] = useState<number | null>(mapDays[0]?.day ?? null);
-  const selectedDay = mapDays.find((day) => day.day === selectedMapDay) ?? mapDays[0];
+  const aggregateDay = mapDays.length > 0
+    ? {
+        day: 0,
+        theme: 'Complete itinerary',
+        morning: '',
+        afternoon: '',
+        evening: '',
+        date: null,
+        description: '',
+        attractions: mapDays.flatMap((day) => day.attractions ?? []),
+        routes: mapDays.flatMap((day) => day.routes ?? []),
+        meals: [],
+        hotel: null,
+      }
+    : undefined;
+  const [selectedMapDay, setSelectedMapDay] = useState<number>(0);
+  const selectedDay = selectedMapDay === 0
+    ? aggregateDay
+    : mapDays.find((day) => day.day === selectedMapDay) ?? aggregateDay;
   const [amapUnavailable, setAmapUnavailable] = useState('');
 
   useEffect(() => {
     setAmapUnavailable('');
   }, [selectedDay?.day]);
+
+  useEffect(() => {
+    if (forceSchematic) {
+      setSelectedMapDay(0);
+    }
+  }, [forceSchematic]);
 
   if (!selectedDay) {
     return null;
@@ -4370,6 +4504,7 @@ function TripMapPreview({ plan, forceSchematic = false }: { plan: TripPlanRespon
   const hasAmapKey = Boolean(amapJsKey);
   const hasCoordinates = mapModel.stops.some(hasCoordinateStop);
   const canUseAmap = Boolean(hasAmapKey && hasCoordinates && !amapUnavailable && !forceSchematic);
+  const mapLabel = selectedDay.day === 0 ? 'All days' : `Day ${selectedDay.day}`;
   const mapFallbackReason = getMapFallbackReason({
     hasAmapKey,
     hasCoordinates,
@@ -4382,7 +4517,7 @@ function TripMapPreview({ plan, forceSchematic = false }: { plan: TripPlanRespon
         <div>
           <h3 className="font-semibold text-ink">Map preview</h3>
           <p className="mt-1 text-sm text-slate-500">
-            Day {selectedDay.day}
+            {mapLabel}
             {selectedDay.date ? ` / ${selectedDay.date}` : ''} / {mapModel.stops.length} stops
           </p>
         </div>
@@ -4390,7 +4525,10 @@ function TripMapPreview({ plan, forceSchematic = false }: { plan: TripPlanRespon
           <Segmented
             size="small"
             value={selectedDay.day}
-            options={mapDays.map((day) => ({ label: `Day ${day.day}`, value: day.day }))}
+            options={[
+              { label: 'All days', value: 0 },
+              ...mapDays.map((day) => ({ label: `Day ${day.day}`, value: day.day })),
+            ]}
             onChange={(value) => setSelectedMapDay(Number(value))}
           />
         )}
@@ -6143,6 +6281,7 @@ function downloadTextFile(content: string, filename: string) {
 
 async function renderElementAsPng(element: HTMLElement): Promise<string> {
   const { toPng } = await import('html-to-image');
+  await waitForExportImages(element);
   const bounds = element.getBoundingClientRect();
   return toPng(element, {
     backgroundColor: '#ffffff',
@@ -6157,6 +6296,23 @@ async function renderElementAsPng(element: HTMLElement): Promise<string> {
       return node.dataset.exportIgnore !== 'true' && !node.closest('[data-export-ignore="true"]');
     },
   });
+}
+
+async function waitForExportImages(element: HTMLElement): Promise<void> {
+  const images = Array.from(element.querySelectorAll('img'));
+  await Promise.all(
+    images.map((image) => {
+      if (image.complete) {
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        const finish = () => resolve();
+        image.addEventListener('load', finish, { once: true });
+        image.addEventListener('error', finish, { once: true });
+        window.setTimeout(finish, 5000);
+      });
+    }),
+  );
 }
 
 function downloadDataUrlFile(dataUrl: string, filename: string) {

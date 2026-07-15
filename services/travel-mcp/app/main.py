@@ -94,6 +94,7 @@ def _stub_attractions(destination: str, day: int, interests: str) -> dict[str, o
             "description": f"Stub attraction matched to {interests}. Replace with Amap POI search later.",
             "category": "attraction",
             "rating": 4.4 + index * 0.1,
+            "imageUrl": None,
             "ticketPrice": 30 + index * 25,
         }
         for index in range(1, 3)
@@ -327,6 +328,15 @@ class AmapWebServiceClient:
                 continue
             location = _parse_location(str(poi.get("location") or ""))
             biz_ext = poi.get("biz_ext") if isinstance(poi.get("biz_ext"), dict) else {}
+            photos = poi.get("photos") if isinstance(poi.get("photos"), list) else []
+            image_url = next(
+                (
+                    _safe_text(photo.get("url"))
+                    for photo in photos
+                    if isinstance(photo, dict) and _safe_text(photo.get("url"))
+                ),
+                "",
+            )
             rating = _optional_float(biz_ext.get("rating") if isinstance(biz_ext, dict) else None)
             cost = _optional_int(biz_ext.get("cost") if isinstance(biz_ext, dict) else None)
             items.append(
@@ -338,6 +348,7 @@ class AmapWebServiceClient:
                     "description": f"Amap POI result for {destination}; type={_safe_text(poi.get('type')) or 'attraction'}.",
                     "category": _safe_text(poi.get("type")) or "attraction",
                     "rating": rating,
+                    "imageUrl": image_url or None,
                     "ticketPrice": cost or 0,
                 }
             )
