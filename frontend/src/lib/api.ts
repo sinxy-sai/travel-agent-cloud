@@ -95,6 +95,16 @@ export interface TripDay {
   routes?: RouteLeg[];
 }
 
+export type TripPlanDataSourceStatus = 'LIVE' | 'FALLBACK' | 'FAILED' | 'UNKNOWN';
+
+export interface TripPlanDataSource {
+  key: string;
+  label: string;
+  status: TripPlanDataSourceStatus;
+  detail: string;
+  toolNames: string[];
+}
+
 export interface TripPlanResponse {
   title: string;
   summary: string;
@@ -109,6 +119,7 @@ export interface TripPlanResponse {
   weatherInfo?: WeatherInfo[];
   overallSuggestions?: string;
   budget?: Budget | null;
+  dataSources?: TripPlanDataSource[];
   savedTripPlanId?: string;
   conversationId?: string;
 }
@@ -552,9 +563,10 @@ export interface AnonymousDataSummary {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
 const LONG_RUNNING_REQUEST_TIMEOUT_MS = 120000;
+const API_BASE_URL = import.meta.env.VITE_AGENT_API_BASE_URL ?? '';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_AGENT_API_BASE_URL ?? '',
+  baseURL: API_BASE_URL,
   timeout: DEFAULT_REQUEST_TIMEOUT_MS,
   withCredentials: true,
 });
@@ -579,6 +591,54 @@ export async function createTripPlanJob(request: TripPlanRequest): Promise<TripP
 export async function getTripPlanJob(jobId: string): Promise<TripPlanJob> {
   const response = await api.get<TripPlanJob>(`/api/v1/trip-plan-jobs/${jobId}`);
   return response.data;
+}
+
+export async function streamTripPlanJob(
+  jobId: string,
+  onUpdate: (job: TripPlanJob) => void,
+): Promise<TripPlanResponse> {
+  const response = await fetch(buildApiUrl(`/api/v1/trip-plan-jobs/${jobId}/events`), {
+    credentials: 'include',
+    headers: {
+      Accept: 'text/event-stream',
+      'X-User-Id': getAnonymousUserId(),
+    },
+  });
+  if (!response.ok || !response.body) {
+    throw new Error('Trip plan progress stream could not be opened.');
+  }
+
+  const decoder = new TextDecoder();
+  const reader = response.body.getReader();
+  let buffer = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() ?? '';
+    for (const event of events) {
+      const payload = event
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trim())
+        .join('\n');
+      if (!payload) {
+        continue;
+      }
+      const job = JSON.parse(payload) as TripPlanJob;
+      onUpdate(job);
+      if (job.status === 'SUCCEEDED' && job.plan) {
+        return job.plan;
+      }
+      if (job.status === 'FAILED') {
+        throw new Error(job.errorMessage || 'Trip plan generation failed.');
+      }
+    }
+  }
+  throw new Error('Trip plan progress stream ended before the itinerary was ready.');
 }
 
 export async function getHealth(): Promise<HealthResponse> {
@@ -912,9 +972,8 @@ export function getGithubOAuthStartUrl(): string {
 }
 
 function buildApiUrl(path: string): string {
-  const baseUrl = import.meta.env.VITE_AGENT_API_BASE_URL ?? '';
-  if (!baseUrl) {
+  if (!API_BASE_URL) {
     return path;
   }
-  return `${baseUrl.replace(/\/$/, '')}${path}`;
+  return `${API_BASE_URL.replace(/\/$/, '')}${path}`;
 }

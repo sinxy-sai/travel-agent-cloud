@@ -66,6 +66,7 @@ import {
   revokeAuthSession,
   revokeOtherAuthSessions,
   sendChatMessage,
+  streamTripPlanJob,
   unlinkAuthIdentity,
   updateConversationTitle,
   updateCurrentAuthUser,
@@ -88,6 +89,7 @@ import {
   type Meal,
   type RouteLeg,
   type SavedTripPlan,
+  type TripPlanDataSource,
   type TripPlanJob,
   type TripPlanResponse,
   type TripPlanVersion,
@@ -149,6 +151,11 @@ async function waitForTripPlanJob(
   jobId: string,
   onUpdate: (job: TripPlanJob) => void,
 ): Promise<TripPlanResponse> {
+  try {
+    return await streamTripPlanJob(jobId, onUpdate);
+  } catch (_streamError) {
+    // Fall back to polling when a proxy or local server buffers/blocks event streams.
+  }
   const startedAt = Date.now();
   while (Date.now() - startedAt < tripPlanJobPollingTimeoutMs) {
     await wait(tripPlanJobPollingIntervalMs);
@@ -2218,7 +2225,7 @@ export default function App() {
 
           {tripPlanMutation.isPending && (
             <div className="flex min-h-80 items-center justify-center">
-              <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-slate-50 p-6">
+              <div className="w-full max-w-xl rounded-lg border border-slate-200 bg-slate-50 p-6">
                 <div className="flex items-center gap-3">
                   <Spin size="small" />
                   <div>
@@ -2242,6 +2249,20 @@ export default function App() {
                   Stage {planningStageIndex + 1} of {activePlanningStages.length}
                   {tripPlanJob ? ' / live backend progress' : ''}
                 </p>
+                <div className="mt-5 grid gap-2">
+                  {activePlanningStages.map((stage, index) => (
+                    <PlanningStageRow
+                      key={stage.key}
+                      label={stage.label}
+                      detail={stage.detail}
+                      status={
+                        'status' in stage
+                          ? (stage.status as PlanningStageStatus)
+                          : fallbackPlanningStageStatus(index, planningStageIndex)
+                      }
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -2365,7 +2386,10 @@ export default function App() {
                 <div className="mb-5 grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
                   {plan.budget && (
                     <section className="rounded-lg border border-slate-200 p-4">
-                      <h3 className="font-semibold text-ink">Budget estimate</h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-semibold text-ink">Budget estimate</h3>
+                        <DataSourceBadge source={getPlanDataSource(plan, 'budget')} />
+                      </div>
                       <div className="mt-3 grid gap-2 text-sm text-slate-600">
                         <PlanCost label="Attractions" value={plan.budget.totalAttractions} />
                         <PlanCost label="Hotels" value={plan.budget.totalHotels} />
@@ -2380,7 +2404,10 @@ export default function App() {
                   )}
 
                   <section className="rounded-lg border border-slate-200 p-4">
-                    <h3 className="font-semibold text-ink">Weather and planning notes</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold text-ink">Weather and planning notes</h3>
+                      <DataSourceBadge source={getPlanDataSource(plan, 'weather')} />
+                    </div>
                     {plan.weatherInfo?.length ? (
                       <div className="mt-3 grid gap-2 md:grid-cols-2">
                         {plan.weatherInfo.map((weather) => (
@@ -2412,7 +2439,12 @@ export default function App() {
                   <article key={day.day} className="rounded-lg border border-slate-200 p-4">
                     <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div>
-                        <h3 className="text-lg font-semibold text-ink">Day {day.day}</h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-lg font-semibold text-ink">Day {day.day}</h3>
+                          <DataSourceBadge source={getPlanDataSource(plan, 'attractions')} />
+                          <DataSourceBadge source={getPlanDataSource(plan, 'lodging_meals')} />
+                          <DataSourceBadge source={getPlanDataSource(plan, 'routes')} />
+                        </div>
                         {day.date && <p className="text-sm text-slate-500">{day.date}</p>}
                       </div>
                       <div className="flex flex-wrap items-center gap-2 md:justify-end">
@@ -4398,6 +4430,94 @@ function PlanBlock({ title, value }: { title: string; value: string }) {
   );
 }
 
+function getPlanDataSource(plan: TripPlanResponse, key: string): TripPlanDataSource | undefined {
+  return plan.dataSources?.find((source) => source.key === key);
+}
+
+function DataSourceBadge({ source }: { source?: TripPlanDataSource }) {
+  if (!source) {
+    return null;
+  }
+  const tone =
+    source.status === 'LIVE'
+      ? 'bg-emerald-50 text-emerald-700'
+      : source.status === 'FALLBACK'
+        ? 'bg-amber-50 text-amber-700'
+        : source.status === 'FAILED'
+          ? 'bg-red-50 text-red-700'
+          : 'bg-slate-100 text-slate-600';
+  const label =
+    source.status === 'LIVE'
+      ? 'Live data'
+      : source.status === 'FALLBACK'
+        ? 'Fallback'
+        : source.status === 'FAILED'
+          ? 'Tool failed'
+          : 'Unverified';
+  return (
+    <span
+      title={`${source.label}: ${source.detail}`}
+      className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+type PlanningStageStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+
+function fallbackPlanningStageStatus(index: number, currentIndex: number): PlanningStageStatus {
+  if (index < currentIndex) {
+    return 'SUCCEEDED';
+  }
+  if (index === currentIndex) {
+    return 'RUNNING';
+  }
+  return 'PENDING';
+}
+
+function PlanningStageRow({
+  label,
+  detail,
+  status,
+}: {
+  label: string;
+  detail: string;
+  status: PlanningStageStatus;
+}) {
+  const tone =
+    status === 'SUCCEEDED'
+      ? 'border-emerald-200 bg-white text-emerald-700'
+      : status === 'RUNNING'
+        ? 'border-coral/40 bg-white text-coral'
+        : status === 'FAILED'
+          ? 'border-red-200 bg-white text-red-700'
+          : 'border-slate-200 bg-white text-slate-400';
+  const dot =
+    status === 'SUCCEEDED'
+      ? 'bg-emerald-500'
+      : status === 'RUNNING'
+        ? 'bg-coral'
+        : status === 'FAILED'
+          ? 'bg-red-500'
+          : 'bg-slate-300';
+  const statusLabel =
+    status === 'SUCCEEDED' ? 'Done' : status === 'RUNNING' ? 'Running' : status === 'FAILED' ? 'Failed' : 'Queued';
+
+  return (
+    <div className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${tone}`}>
+      <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-medium text-ink">{label}</p>
+          <span className="text-xs font-medium">{statusLabel}</span>
+        </div>
+        <p className="mt-0.5 text-xs text-slate-500">{detail}</p>
+      </div>
+    </div>
+  );
+}
+
 function PlanMeta({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md bg-slate-50 p-3">
@@ -4569,7 +4689,10 @@ function TripMapPreview({ plan, forceSchematic = false }: { plan: TripPlanRespon
     <section className="mb-5 rounded-lg border border-slate-200 p-4">
       <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h3 className="font-semibold text-ink">Map preview</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-semibold text-ink">Map preview</h3>
+            <DataSourceBadge source={getPlanDataSource(plan, 'routes')} />
+          </div>
           <p className="mt-1 text-sm text-slate-500">
             {mapLabel}
             {selectedDay.date ? ` / ${selectedDay.date}` : ''} / {mapModel.stops.length} stops

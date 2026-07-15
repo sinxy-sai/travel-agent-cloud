@@ -404,6 +404,12 @@ if (-not $createdTripPlan.days[0].attractions -or $createdTripPlan.days[0].attra
 if (-not $createdTripPlan.days[0].meals -or $createdTripPlan.days[0].meals.Count -lt 1) {
   throw "Trip plan API did not return day meals"
 }
+if (-not $createdTripPlan.dataSources -or -not ($createdTripPlan.dataSources | Where-Object { $_.key -eq "attractions" })) {
+  throw "Trip plan API did not return data source status"
+}
+if (-not ($createdTripPlan.dataSources | Where-Object { $_.status -in @("LIVE", "FALLBACK", "FAILED", "UNKNOWN") })) {
+  throw "Trip plan API returned invalid data source status"
+}
 
 Write-Host "Checking trip plan async job API"
 $tripJob = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plan-jobs" -Method Post -ContentType "application/json" -Headers $headers -Body $tripBody
@@ -421,8 +427,15 @@ if ($tripJob.status -ne "SUCCEEDED") {
 if (-not $tripJob.plan -or -not $tripJob.plan.savedTripPlanId) {
   throw "Trip plan job API did not return the generated plan"
 }
+if (-not $tripJob.plan.dataSources -or -not ($tripJob.plan.dataSources | Where-Object { $_.key -eq "budget" })) {
+  throw "Trip plan job API did not return data source status"
+}
 if (-not ($tripJob.stages | Where-Object { $_.status -eq "SUCCEEDED" })) {
   throw "Trip plan job API did not return completed progress stages"
+}
+$tripJobEvents = Invoke-WebRequest -Uri "$BaseUrl/api/v1/trip-plan-jobs/$($tripJob.id)/events" -Headers $headers
+if (-not ($tripJobEvents.Content -like "data: *")) {
+  throw "Trip plan job SSE API did not return event data"
 }
 
 $tripPlanAgentStatus = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/status"

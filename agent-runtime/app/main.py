@@ -1,3 +1,4 @@
+import asyncio
 import hmac
 import json
 from datetime import UTC, datetime, timedelta
@@ -6,7 +7,7 @@ from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Path, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse, StreamingResponse
 from pydantic import ValidationError
 
 from app.agent import handle_chat
@@ -47,6 +48,7 @@ from app.conversations import (
     TripPlanVersionConflictError,
     TripPlanVersionNotFoundError,
 )
+from app.data_sources import summarize_trip_plan_data_sources
 from app.data_importer import UserDataImporter
 from app.db import maybe_create_session_factory
 from app.events import CONVERSATION_SUMMARY_REQUESTED_EVENT, create_event_publisher
@@ -759,6 +761,32 @@ def get_trip_plan_job(job_id: str, user_id: str = Depends(get_user_id)) -> TripP
         raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_JOB_NOT_FOUND", "message": "Trip plan job not found"}) from exc
 
 
+@app.get("/api/v1/trip-plan-jobs/{job_id}/events")
+def stream_trip_plan_job(job_id: str, user_id: str = Depends(get_user_id)) -> StreamingResponse:
+    try:
+        trip_plan_job_store.get(user_id, job_id)
+    except TripPlanJobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_JOB_NOT_FOUND", "message": "Trip plan job not found"}) from exc
+    return StreamingResponse(
+        _trip_plan_job_event_stream(user_id, job_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+async def _trip_plan_job_event_stream(user_id: str, job_id: str):
+    while True:
+        try:
+            job = trip_plan_job_store.get(user_id, job_id)
+        except TripPlanJobNotFoundError:
+            yield 'event: error\ndata: {"message":"Trip plan job not found"}\n\n'
+            return
+        yield f"data: {job.model_dump_json(by_alias=True)}\n\n"
+        if job.status in {"SUCCEEDED", "FAILED"}:
+            return
+        await asyncio.sleep(0.8)
+
+
 def _run_trip_plan_job(user_id: str, job_id: str, request: TripPlanRequest) -> None:
     try:
         trip_plan_job_store.mark_running(user_id, job_id)
@@ -779,6 +807,8 @@ def _create_trip_plan_for_user(
 ) -> TripPlanResponse:
     with trip_plan_progress(on_stage):
         response = travel_agent_service.generate_trip_plan(request)
+    if travel_agent_service.last_run_trace and travel_agent_service.last_run_trace.operation == "trip_plan":
+        response.data_sources = summarize_trip_plan_data_sources(travel_agent_service.last_run_trace)
     if on_stage:
         on_stage("saving")
     try:

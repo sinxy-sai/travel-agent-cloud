@@ -123,6 +123,21 @@ class TripDay(APIModel):
     routes: list[RouteLeg] = Field(default_factory=list, max_length=16)
 
 
+class TripPlanDataSourceStatus(StrEnum):
+    LIVE = "LIVE"
+    FALLBACK = "FALLBACK"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+
+
+class TripPlanDataSource(APIModel):
+    key: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=120)
+    status: TripPlanDataSourceStatus
+    detail: str = Field(default="", max_length=500)
+    tool_names: list[str] = Field(default_factory=list, max_length=12)
+
+
 class TripPlanResponse(APIModel):
     title: str
     summary: str
@@ -137,6 +152,7 @@ class TripPlanResponse(APIModel):
     weather_info: list[WeatherInfo] = Field(default_factory=list, max_length=30)
     overall_suggestions: str = Field(default="", max_length=4000)
     budget: Budget | None = None
+    data_sources: list[TripPlanDataSource] = Field(default_factory=list, max_length=12)
     saved_trip_plan_id: str | None = None
     conversation_id: str | None = None
 

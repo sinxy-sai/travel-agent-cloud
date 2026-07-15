@@ -12,12 +12,12 @@ This project should first preserve the prototype's user-facing travel planning c
 | --- | --- | --- |
 | Trip input | Destination city, start date, end date, auto-calculated travel days | Supported with destination, dates, days, transport, stay, interests, free text |
 | Preferences | Transport preference, accommodation preference, travel style tags, extra requirements | Supported with transport, accommodation, interests, profile preferences, free text |
-| Planning progress | Step-style progress text while generating: attractions, weather, hotels, itinerary | Supported with backend trip-plan jobs and polled stage progress; SSE/WebSocket streaming remains a later upgrade |
+| Planning progress | Step-style progress text while generating: attractions, weather, hotels, itinerary | Supported with backend trip-plan jobs, SSE progress streaming, and polling fallback |
 | Agent planning | Multi-agent flow: attraction search, weather query, hotel search, final planner | Supported through LangGraph workflow nodes and FastMCP travel tools, with deterministic fallback data when tools fail |
 | Map tools | Amap MCP tools for POI, weather, walking/driving/transit routes | FastMCP travel tool server is wired with Amap support and deterministic fallback data |
 | Result overview | Overview, date range, suggestions, budget | Supported |
 | Budget | Attraction, hotel, meal, transportation, total cost | Supported |
-| Daily itinerary | Per-day description, transport, accommodation, attractions, hotel, meals, routes | Supported with mock route summaries |
+| Daily itinerary | Per-day description, transport, accommodation, attractions, hotel, meals, routes | Supported with section-level data source badges for attractions, hotels/meals, and routes |
 | Attraction details | Name, address, duration, description, rating, ticket price, image | Supported; AMap POI photos render when available, with stable placeholders and export-safe fallback |
 | Hotel details | Name, address, type, price range, rating, distance | Supported |
 | Weather | Day/night weather, temperatures, wind | Supported |
@@ -27,8 +27,8 @@ This project should first preserve the prototype's user-facing travel planning c
 
 ## Recommended Implementation Order
 
-1. Upgrade trip-plan job polling to SSE or WebSocket if progress latency or infrastructure cost justifies it.
-2. Expand data-source transparency from the current plan-level fallback badge into per-section or per-tool status where it is useful to users.
+1. Expand data-source transparency from section-level badges into targeted retry actions for individual failed data sources.
+2. Browser-verify SSE progress updates through Docker Compose, local Vite proxying, and production ingress.
 3. Browser-verify PNG/PDF export across long itineraries, Chinese text, AMap-enabled runs, fallback-map runs, and remote POI photos.
 4. Continue improving FastMCP tool coverage for POI, hotel, meal, weather, route, and budget calls while keeping provider-specific details inside the tool layer.
 
