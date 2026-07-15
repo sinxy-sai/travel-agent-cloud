@@ -113,6 +113,29 @@ export interface TripPlanResponse {
   conversationId?: string;
 }
 
+export type TripPlanJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+export type TripPlanJobStageStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+
+export interface TripPlanJobStage {
+  key: string;
+  label: string;
+  detail: string;
+  status: TripPlanJobStageStatus;
+}
+
+export interface TripPlanJob {
+  id: string;
+  status: TripPlanJobStatus;
+  currentStageKey: string;
+  stages: TripPlanJobStage[];
+  plan?: TripPlanResponse | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+}
+
 export interface SavedTripPlan {
   id: string;
   conversationId?: string;
@@ -545,6 +568,16 @@ export async function createTripPlan(request: TripPlanRequest): Promise<TripPlan
   const response = await api.post<TripPlanResponse>('/api/v1/trip-plan', request, {
     timeout: LONG_RUNNING_REQUEST_TIMEOUT_MS,
   });
+  return response.data;
+}
+
+export async function createTripPlanJob(request: TripPlanRequest): Promise<TripPlanJob> {
+  const response = await api.post<TripPlanJob>('/api/v1/trip-plan-jobs', request);
+  return response.data;
+}
+
+export async function getTripPlanJob(jobId: string): Promise<TripPlanJob> {
+  const response = await api.get<TripPlanJob>(`/api/v1/trip-plan-jobs/${jobId}`);
   return response.data;
 }
 

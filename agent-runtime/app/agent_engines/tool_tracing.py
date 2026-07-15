@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import TypeVar
 
 from app.agent_engines.types import TravelAgentToolCall
+from app.progress import notify_trip_plan_progress
 from app.schemas import Attraction, Budget, Hotel, Meal, RouteLeg, TripPlanRequest, WeatherInfo
 from app.travel_tools import TravelToolDefinition, TravelToolProvider
 
@@ -53,6 +54,9 @@ class TracingTravelToolProvider:
         return self._record("estimate_budget", f"days={request.days}", lambda: self._delegate.estimate_budget(request))
 
     def _record(self, tool_name: str, detail: str, call: Callable[[], T]) -> T:
+        stage_key = _stage_for_tool(tool_name)
+        if stage_key:
+            notify_trip_plan_progress(stage_key)
         try:
             result = call()
         except Exception:
@@ -60,3 +64,15 @@ class TracingTravelToolProvider:
             raise
         self._tool_calls.append(TravelAgentToolCall(tool_name=tool_name, status="SUCCEEDED", detail=detail))
         return result
+
+
+def _stage_for_tool(tool_name: str) -> str | None:
+    if tool_name == "attractions_for_day":
+        return "finding_attractions"
+    if tool_name == "weather_for_trip":
+        return "checking_weather"
+    if tool_name in {"hotel_for_day", "meals_for_day"}:
+        return "selecting_stays_meals"
+    if tool_name in {"routes_for_day", "estimate_budget"}:
+        return "building_routes_budget"
+    return None

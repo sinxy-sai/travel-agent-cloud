@@ -23,7 +23,7 @@ import {
   confirmEmailVerification,
   confirmPasswordReset,
   createCurrentUserExportFile,
-  createTripPlan,
+  createTripPlanJob,
   createConversationSummary,
   createConversationSummaryJob,
   deleteCurrentAuthUser,
@@ -43,6 +43,7 @@ import {
   getAnonymousUserDataSummary,
   getAnonymousUserId,
   getTripPlan,
+  getTripPlanJob,
   getUserProfile,
   importAnonymousUserData,
   importCurrentUserData,
@@ -87,6 +88,7 @@ import {
   type Meal,
   type RouteLeg,
   type SavedTripPlan,
+  type TripPlanJob,
   type TripPlanResponse,
   type TripPlanVersion,
   type WeatherInfo,
@@ -124,16 +126,43 @@ type MealTextField = 'type' | 'name' | 'address' | 'description';
 type RouteTextField = 'fromName' | 'toName' | 'mode' | 'instruction';
 type WeatherTextField = 'date' | 'dayWeather' | 'nightWeather' | 'windDirection' | 'windPower';
 type TripPlanMediaExportFormat = 'png' | 'pdf';
-type PlanningStage = { label: string; detail: string };
+type PlanningStage = { key: string; label: string; detail: string };
 
 const planningStages: PlanningStage[] = [
-  { label: 'Understanding your trip', detail: 'Normalizing dates, preferences, and constraints' },
-  { label: 'Finding attractions', detail: 'Searching travel tools for relevant places' },
-  { label: 'Checking weather', detail: 'Matching forecasts to each itinerary day' },
-  { label: 'Selecting stays and meals', detail: 'Balancing location, budget, and travel style' },
-  { label: 'Building routes and budget', detail: 'Connecting stops and estimating costs' },
-  { label: 'Quality checking', detail: 'Validating the final itinerary before saving' },
+  { key: 'understanding', label: 'Understanding your trip', detail: 'Normalizing dates, preferences, and constraints' },
+  { key: 'finding_attractions', label: 'Finding attractions', detail: 'Searching travel tools for relevant places' },
+  { key: 'checking_weather', label: 'Checking weather', detail: 'Matching forecasts to each itinerary day' },
+  { key: 'selecting_stays_meals', label: 'Selecting stays and meals', detail: 'Balancing location, budget, and travel style' },
+  { key: 'building_routes_budget', label: 'Building routes and budget', detail: 'Connecting stops and estimating costs' },
+  { key: 'quality_checking', label: 'Quality checking', detail: 'Validating the final itinerary before saving' },
+  { key: 'saving', label: 'Saving itinerary', detail: 'Persisting the plan and conversation history' },
 ];
+
+const tripPlanJobPollingIntervalMs = 800;
+const tripPlanJobPollingTimeoutMs = 130000;
+
+async function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function waitForTripPlanJob(
+  jobId: string,
+  onUpdate: (job: TripPlanJob) => void,
+): Promise<TripPlanResponse> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < tripPlanJobPollingTimeoutMs) {
+    await wait(tripPlanJobPollingIntervalMs);
+    const job = await getTripPlanJob(jobId);
+    onUpdate(job);
+    if (job.status === 'SUCCEEDED' && job.plan) {
+      return job.plan;
+    }
+    if (job.status === 'FAILED') {
+      throw new Error(job.errorMessage || 'Trip plan generation failed.');
+    }
+  }
+  throw new Error('Trip plan generation is still running. Try loading the saved itinerary later.');
+}
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -170,6 +199,7 @@ export default function App() {
   const [tripPlanMediaExportFormat, setTripPlanMediaExportFormat] = useState<TripPlanMediaExportFormat | null>(null);
   const [tripPlanMediaExportError, setTripPlanMediaExportError] = useState('');
   const [planningStageIndex, setPlanningStageIndex] = useState(0);
+  const [tripPlanJob, setTripPlanJob] = useState<TripPlanJob | null>(null);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [chatInput, setChatInput] = useState('I want a relaxed 3-day Chengdu food trip.');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -535,8 +565,14 @@ export default function App() {
   });
 
   const tripPlanMutation = useMutation({
-    mutationFn: createTripPlan,
+    mutationFn: async (request: Parameters<typeof createTripPlanJob>[0]) => {
+      setTripPlanJob(null);
+      const job = await createTripPlanJob(request);
+      setTripPlanJob(job);
+      return waitForTripPlanJob(job.id, setTripPlanJob);
+    },
     onSuccess: (response) => {
+      setTripPlanJob(null);
       setPlan(response);
       setSelectedTripPlanId(response.savedTripPlanId);
       setSelectedTripPlanFavorite(false);
@@ -569,11 +605,17 @@ export default function App() {
       setPlanningStageIndex(0);
       return;
     }
+    const stages = tripPlanJob?.stages?.length ? tripPlanJob.stages : planningStages;
+    const currentStageIndex = tripPlanJob ? stages.findIndex((stage) => stage.key === tripPlanJob.currentStageKey) : -1;
+    if (currentStageIndex >= 0) {
+      setPlanningStageIndex(currentStageIndex);
+      return;
+    }
     const interval = window.setInterval(() => {
       setPlanningStageIndex((current) => Math.min(current + 1, planningStages.length - 1));
     }, 1800);
     return () => window.clearInterval(interval);
-  }, [tripPlanMutation.isPending]);
+  }, [tripPlanJob, tripPlanMutation.isPending]);
 
   const chatMutation = useMutation({
     mutationFn: sendChatMessage,
@@ -925,6 +967,8 @@ export default function App() {
   );
   const lastTripPlanTrace =
     agentStatusQuery.data?.lastRunTrace?.operation === 'trip_plan' ? agentStatusQuery.data.lastRunTrace : null;
+  const activePlanningStages = tripPlanJob?.stages?.length ? tripPlanJob.stages : planningStages;
+  const activePlanningStage = activePlanningStages[planningStageIndex] ?? activePlanningStages[0];
   const submitTripPlan = () => {
     tripPlanMutation.mutate({
       destination,
@@ -2178,19 +2222,26 @@ export default function App() {
                 <div className="flex items-center gap-3">
                   <Spin size="small" />
                   <div>
-                    <p className="font-semibold text-ink">{planningStages[planningStageIndex].label}</p>
-                    <p className="mt-1 text-sm text-slate-500">{planningStages[planningStageIndex].detail}</p>
+                    <p className="font-semibold text-ink">{activePlanningStage.label}</p>
+                    <p className="mt-1 text-sm text-slate-500">{activePlanningStage.detail}</p>
                   </div>
                 </div>
-                <div className="mt-5 grid grid-cols-6 gap-2" aria-label="Itinerary generation progress">
-                  {planningStages.map((stage, index) => (
+                <div
+                  className="mt-5 grid gap-2"
+                  style={{ gridTemplateColumns: `repeat(${activePlanningStages.length}, minmax(0, 1fr))` }}
+                  aria-label="Itinerary generation progress"
+                >
+                  {activePlanningStages.map((stage, index) => (
                     <div
-                      key={stage.label}
+                      key={stage.key}
                       className={`h-1.5 rounded-full ${index <= planningStageIndex ? 'bg-coral' : 'bg-slate-200'}`}
                     />
                   ))}
                 </div>
-                <p className="mt-3 text-xs text-slate-400">Stage {planningStageIndex + 1} of {planningStages.length}</p>
+                <p className="mt-3 text-xs text-slate-400">
+                  Stage {planningStageIndex + 1} of {activePlanningStages.length}
+                  {tripPlanJob ? ' / live backend progress' : ''}
+                </p>
               </div>
             </div>
           )}
@@ -4037,6 +4088,9 @@ function getTripPlanErrorMessage(error: unknown): string {
   }
   if (isApiErrorStatus(error, 401)) {
     return 'Sign in again before generating a new itinerary.';
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
   }
   return 'Could not generate this itinerary. Check the Agent Runtime logs and try again.';
 }

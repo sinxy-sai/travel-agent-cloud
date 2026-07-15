@@ -28,6 +28,7 @@ from app.planner import (
     enrich_trip_plan_response,
     trip_plan_request_from_saved,
 )
+from app.progress import notify_trip_plan_progress
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
 from app.travel_tools import TravelToolProvider
@@ -370,6 +371,7 @@ class LangGraphTravelAgentEngine:
         )
 
     def _trip_context_node(self, state: TripPlanningWorkflowState) -> TripPlanningWorkflowState:
+        notify_trip_plan_progress("understanding")
         return TripPlanningWorkflowState(
             request=state.request,
             planning_context=build_travel_planning_context(state.request),
@@ -380,6 +382,7 @@ class LangGraphTravelAgentEngine:
         )
 
     def _trip_draft_node(self, state: TripPlanningWorkflowState) -> TripPlanningWorkflowState:
+        notify_trip_plan_progress("finding_attractions")
         draft_plan = self._llm_client.generate_trip_plan(state.request, state.planning_context)
         return TripPlanningWorkflowState(
             request=state.request,
@@ -395,6 +398,7 @@ class LangGraphTravelAgentEngine:
     ) -> TripPlanningWorkflowState:
         if not state.draft_plan:
             return state
+        notify_trip_plan_progress("finding_attractions")
         final_plan = enrich_trip_plan_response(
             state.draft_plan,
             state.request,
@@ -415,6 +419,7 @@ class LangGraphTravelAgentEngine:
         state: TripPlanningWorkflowState,
         travel_tools: TravelToolProvider,
     ) -> TripPlanningWorkflowState:
+        notify_trip_plan_progress("quality_checking")
         fallback_used = state.fallback_used
         candidate_plan = state.final_plan
         if candidate_plan is None or not candidate_plan.days:
@@ -427,6 +432,7 @@ class LangGraphTravelAgentEngine:
             travel_tools,
             state.planning_context,
         )
+        notify_trip_plan_progress("quality_checking")
         return TripPlanningWorkflowState(
             request=state.request,
             planning_context=state.planning_context,

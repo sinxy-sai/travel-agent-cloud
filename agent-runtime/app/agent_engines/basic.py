@@ -19,6 +19,7 @@ from app.planner import (
     enrich_trip_plan_response,
     trip_plan_request_from_saved,
 )
+from app.progress import notify_trip_plan_progress
 from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
 from app.travel_tools import TravelToolProvider
@@ -86,17 +87,21 @@ class BasicTravelAgentEngine:
         started = perf_counter()
         tool_calls: list[TravelAgentToolCall] = []
         traced_tools = TracingTravelToolProvider(self._travel_tools, tool_calls)
+        notify_trip_plan_progress("understanding")
         planning_context = build_travel_planning_context(request)
         context_event = _node_event("request_context", "SUCCEEDED", planning_context.to_trace_detail())
+        notify_trip_plan_progress("finding_attractions")
         llm_response = self._llm_client.generate_trip_plan(request, planning_context)
         if llm_response:
             enriched_response = enrich_trip_plan_response(llm_response, request, traced_tools, planning_context)
+            notify_trip_plan_progress("quality_checking")
             response, quality_report = assure_trip_plan_quality(
                 enriched_response,
                 request,
                 traced_tools,
                 planning_context,
             )
+            notify_trip_plan_progress("quality_checking")
             self._record_trace(self._build_trace(
                 operation="trip_plan",
                 completed_nodes=("request_context", "llm_call", "tool_enrichment", "plan_quality"),
@@ -120,12 +125,14 @@ class BasicTravelAgentEngine:
             ))
             return response
         mock_response = build_mock_trip_plan(request, traced_tools, planning_context)
+        notify_trip_plan_progress("quality_checking")
         response, quality_report = assure_trip_plan_quality(
             mock_response,
             request,
             traced_tools,
             planning_context,
         )
+        notify_trip_plan_progress("quality_checking")
         self._record_trace(self._build_trace(
             operation="trip_plan",
             completed_nodes=("request_context", "llm_call", "plan_quality", "mock_fallback"),

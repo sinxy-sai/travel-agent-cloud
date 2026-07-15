@@ -141,6 +141,40 @@ class TripPlanResponse(APIModel):
     conversation_id: str | None = None
 
 
+class TripPlanJobStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class TripPlanJobStageStatus(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class TripPlanJobStage(APIModel):
+    key: str
+    label: str
+    detail: str
+    status: TripPlanJobStageStatus
+
+
+class TripPlanJob(APIModel):
+    id: str
+    status: TripPlanJobStatus
+    current_stage_key: str
+    stages: list[TripPlanJobStage]
+    plan: TripPlanResponse | None = None
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
 class SavedTripPlan(APIModel):
     id: str
     conversation_id: str | None = None

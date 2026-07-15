@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, urlencode
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Response, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Path, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from pydantic import ValidationError
@@ -67,6 +67,7 @@ from app.oauth import (
     verify_oauth_state,
 )
 from app.profiles import DatabaseUserProfileStore, UserProfileStore
+from app.progress import trip_plan_progress
 from app.schemas import (
     AuthAccountDeleteRequest,
     AuthEmailActionResponse,
@@ -94,6 +95,7 @@ from app.schemas import (
     MessageRole,
     SavedTripPlan,
     TripPlanListResponse,
+    TripPlanJob,
     TripPlanReviseRequest,
     TripPlanRestoreRequest,
     TripDayRegenerateRequest,
@@ -123,6 +125,7 @@ from app.summary_jobs import (
     ConversationSummaryJobStore,
     DatabaseConversationSummaryJobStore,
 )
+from app.trip_plan_jobs import TripPlanJobNotFoundError, TripPlanJobStore
 from app.travel_agent_service import TravelAgentService
 from app.travel_tools import create_travel_tool_provider
 from app.users import DEFAULT_USER_ID, USER_ID_PATTERN, get_user_id
@@ -137,6 +140,7 @@ summary_store = DatabaseConversationSummaryStore(session_factory) if session_fac
 summary_job_store = (
     DatabaseConversationSummaryJobStore(session_factory) if session_factory else ConversationSummaryJobStore()
 )
+trip_plan_job_store = TripPlanJobStore()
 user_store = DatabaseUserStore(session_factory) if session_factory else UserStore()
 security_event_store = (
     DatabaseUserSecurityEventStore(session_factory) if session_factory else UserSecurityEventStore()
@@ -733,7 +737,50 @@ def logout(request: Request, response: Response) -> Response:
 
 @app.post("/api/v1/trip-plan", response_model=TripPlanResponse)
 def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_id)) -> TripPlanResponse:
-    response = travel_agent_service.generate_trip_plan(request)
+    return _create_trip_plan_for_user(request, user_id)
+
+
+@app.post("/api/v1/trip-plan-jobs", response_model=TripPlanJob, status_code=status.HTTP_202_ACCEPTED)
+def create_trip_plan_job(
+    request: TripPlanRequest,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_user_id),
+) -> TripPlanJob:
+    job = trip_plan_job_store.create(user_id)
+    background_tasks.add_task(_run_trip_plan_job, user_id, job.id, request.model_copy(deep=True))
+    return job
+
+
+@app.get("/api/v1/trip-plan-jobs/{job_id}", response_model=TripPlanJob)
+def get_trip_plan_job(job_id: str, user_id: str = Depends(get_user_id)) -> TripPlanJob:
+    try:
+        return trip_plan_job_store.get(user_id, job_id)
+    except TripPlanJobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_JOB_NOT_FOUND", "message": "Trip plan job not found"}) from exc
+
+
+def _run_trip_plan_job(user_id: str, job_id: str, request: TripPlanRequest) -> None:
+    try:
+        trip_plan_job_store.mark_running(user_id, job_id)
+        response = _create_trip_plan_for_user(
+            request,
+            user_id,
+            on_stage=lambda stage_key: trip_plan_job_store.mark_stage_running(user_id, job_id, stage_key),
+        )
+        trip_plan_job_store.mark_succeeded(user_id, job_id, response)
+    except Exception as exc:
+        trip_plan_job_store.mark_failed(user_id, job_id, str(exc) or exc.__class__.__name__)
+
+
+def _create_trip_plan_for_user(
+    request: TripPlanRequest,
+    user_id: str,
+    on_stage=None,
+) -> TripPlanResponse:
+    with trip_plan_progress(on_stage):
+        response = travel_agent_service.generate_trip_plan(request)
+    if on_stage:
+        on_stage("saving")
     try:
         conversation = conversation_store.get_or_create(
             user_id=user_id,

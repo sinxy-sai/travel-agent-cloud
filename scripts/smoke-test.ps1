@@ -404,6 +404,27 @@ if (-not $createdTripPlan.days[0].attractions -or $createdTripPlan.days[0].attra
 if (-not $createdTripPlan.days[0].meals -or $createdTripPlan.days[0].meals.Count -lt 1) {
   throw "Trip plan API did not return day meals"
 }
+
+Write-Host "Checking trip plan async job API"
+$tripJob = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plan-jobs" -Method Post -ContentType "application/json" -Headers $headers -Body $tripBody
+if (-not $tripJob.id -or -not $tripJob.stages -or $tripJob.stages.Count -lt 1) {
+  throw "Trip plan job API did not create a progress-tracked job"
+}
+$tripJobDeadline = (Get-Date).AddSeconds(140)
+do {
+  Start-Sleep -Milliseconds 800
+  $tripJob = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plan-jobs/$($tripJob.id)" -Headers $headers
+} while ($tripJob.status -in @("QUEUED", "RUNNING") -and (Get-Date) -lt $tripJobDeadline)
+if ($tripJob.status -ne "SUCCEEDED") {
+  throw "Trip plan job API did not succeed"
+}
+if (-not $tripJob.plan -or -not $tripJob.plan.savedTripPlanId) {
+  throw "Trip plan job API did not return the generated plan"
+}
+if (-not ($tripJob.stages | Where-Object { $_.status -eq "SUCCEEDED" })) {
+  throw "Trip plan job API did not return completed progress stages"
+}
+
 $tripPlanAgentStatus = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/status"
 if (
   -not $tripPlanAgentStatus.lastRunTrace -or
@@ -769,6 +790,9 @@ if (-not ($markdown -like "*## Budget*") -or -not ($markdown -like "*#### Attrac
 Write-Host "Checking trip plan delete API"
 $tripPlanId = $createdTripPlan.savedTripPlanId
 Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$tripPlanId" -Method Delete -Headers $headers
+if ($tripJob.plan.savedTripPlanId -and $tripJob.plan.savedTripPlanId -ne $tripPlanId) {
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$($tripJob.plan.savedTripPlanId)" -Method Delete -Headers $headers
+}
 try {
   Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plans/$tripPlanId" -Headers $headers
   throw "Deleted trip plan was still readable"
