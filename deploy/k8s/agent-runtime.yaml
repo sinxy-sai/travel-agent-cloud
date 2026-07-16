@@ -36,6 +36,10 @@ spec:
               value: fastmcp
             - name: FASTMCP_BASE_URL
               value: http://travel-mcp:8100/mcp
+            - name: TRAVEL_TRIP_URL
+              value: http://travel-trip:8200
+            - name: TRAVEL_TRIP_TIMEOUT_SECONDS
+              value: "10"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

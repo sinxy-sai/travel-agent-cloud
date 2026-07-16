@@ -10,6 +10,7 @@ from app.models import TripPlanRecord, TripPlanVersionRecord
 from app.schemas import (
     Budget,
     SavedTripPlan,
+    TripPlanCreateRequest,
     TripPlanListResponse,
     TripPlanResponse,
     TripPlanUpdateRequest,
@@ -33,6 +34,29 @@ class TripPlanVersionNotFoundError(Exception):
 class TripPlanStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self._session_factory = session_factory
+
+    def create(self, user_id: str, payload: TripPlanCreateRequest) -> SavedTripPlan:
+        with session_scope(self._session_factory) as session:
+            trip_plan_id = str(uuid4())
+            canonical_plan = _canonicalize_trip_plan(
+                payload.plan,
+                saved_trip_plan_id=trip_plan_id,
+                conversation_id=payload.conversation_id,
+            )
+            record = TripPlanRecord(
+                id=trip_plan_id,
+                user_id=user_id,
+                conversation_id=payload.conversation_id,
+                title=canonical_plan.title.strip(),
+                destination=payload.request.destination,
+                days=payload.request.days,
+                budget=payload.request.budget,
+                interests=payload.request.interests,
+                plan=canonical_plan.model_dump(mode="json", by_alias=True),
+            )
+            session.add(record)
+            session.flush()
+            return _to_trip_plan(record)
 
     def list(
         self,

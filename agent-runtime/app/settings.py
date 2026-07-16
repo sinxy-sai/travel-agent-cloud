@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     fastmcp_routes_tool: str = "travel.plan_routes"
     fastmcp_weather_tool: str = "travel.get_weather"
     fastmcp_budget_tool: str = "travel.estimate_budget"
+    travel_trip_url: str = ""
+    travel_trip_timeout_seconds: float = 10.0
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

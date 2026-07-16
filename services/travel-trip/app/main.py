@@ -11,6 +11,7 @@ from app.db import create_session_factory
 from app.exporter import saved_trip_plan_to_markdown
 from app.schemas import (
     SavedTripPlan,
+    TripPlanCreateRequest,
     TripPlanListResponse,
     TripPlanRestoreRequest,
     TripPlanUpdateRequest,
@@ -62,6 +63,22 @@ async def proxy_trip_plan_jobs_root(request: Request) -> Response:
 @app.api_route("/api/v1/trip-plan-jobs/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_trip_plan_jobs(path: str, request: Request) -> Response:
     return await _proxy(request, f"/api/v1/trip-plan-jobs/{path}")
+
+
+@app.post("/internal/v1/trip-plans", response_model=SavedTripPlan)
+async def create_internal_trip_plan(payload: TripPlanCreateRequest, request: Request) -> SavedTripPlan:
+    if not trip_plan_store:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "TRIP_STORE_UNAVAILABLE", "message": "Trip store is not configured"},
+        )
+    user_id = request.headers.get("X-User-Id", "").strip()
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "USER_ID_REQUIRED", "message": "X-User-Id header is required"},
+        )
+    return trip_plan_store.create(user_id, payload)
 
 
 @app.api_route("/api/v1/trip-plans", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])

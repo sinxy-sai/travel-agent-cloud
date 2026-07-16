@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, urlencode
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Path, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, RedirectResponse, StreamingResponse
@@ -826,7 +827,7 @@ def _create_trip_plan_for_user(
         f"Plan {request.days} days in {request.destination}, budget={request.budget}, interests={request.interests}",
     )
     conversation_store.append_message(conversation, MessageRole.ASSISTANT, response.summary)
-    saved_trip_plan = conversation_store.save_trip_plan(user_id, conversation, request, response)
+    saved_trip_plan = _save_generated_trip_plan(user_id, conversation.id, request, response)
     response.saved_trip_plan_id = saved_trip_plan.id
     response.conversation_id = conversation.id
     event_publisher.publish(
@@ -840,6 +841,33 @@ def _create_trip_plan_for_user(
         },
     )
     return response
+
+
+def _save_generated_trip_plan(
+    user_id: str,
+    conversation_id: str,
+    request: TripPlanRequest,
+    response: TripPlanResponse,
+) -> SavedTripPlan:
+    if settings.travel_trip_url.strip():
+        try:
+            with httpx.Client(timeout=settings.travel_trip_timeout_seconds) as client:
+                trip_response = client.post(
+                    f"{settings.travel_trip_url.rstrip('/')}/internal/v1/trip-plans",
+                    headers={"X-User-Id": user_id},
+                    json={
+                        "request": request.model_dump(mode="json", by_alias=True),
+                        "plan": response.model_dump(mode="json", by_alias=True),
+                        "conversationId": conversation_id,
+                    },
+                )
+                trip_response.raise_for_status()
+            return SavedTripPlan.model_validate(trip_response.json())
+        except (httpx.HTTPError, ValueError):
+            pass
+
+    conversation = conversation_store.get(user_id, conversation_id)
+    return conversation_store.save_trip_plan(user_id, conversation, request, response)
 
 
 @app.post("/api/v1/chat", response_model=ChatResponse)

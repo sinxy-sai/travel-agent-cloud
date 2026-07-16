@@ -195,6 +195,8 @@ services:
       WORKER_RECONNECT_MAX_SECONDS: 30
       TRAVEL_TOOL_PROVIDER: fastmcp
       FASTMCP_BASE_URL: http://travel-mcp:8100/mcp
+      TRAVEL_TRIP_URL: http://travel-trip:8200
+      TRAVEL_TRIP_TIMEOUT_SECONDS: 10
     depends_on:
       postgres:
         condition: service_healthy

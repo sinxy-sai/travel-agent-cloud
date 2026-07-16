@@ -13,6 +13,20 @@ class APIModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
+class TripPlanRequest(APIModel):
+    destination: str = Field(min_length=1, max_length=80)
+    days: int = Field(ge=1, le=30)
+    budget: str = Field(min_length=1, max_length=40)
+    interests: str = Field(default="", max_length=300)
+    start_date: str | None = Field(default=None, max_length=20)
+    end_date: str | None = Field(default=None, max_length=20)
+    transportation: str = Field(default="", max_length=80)
+    accommodation: str = Field(default="", max_length=80)
+    preferences: list[str] = Field(default_factory=list, max_length=12)
+    free_text_input: str = Field(default="", max_length=1000)
+    conversation_id: str | None = Field(default=None, max_length=80)
+
+
 class Location(APIModel):
     longitude: float
     latitude: float
@@ -167,6 +181,12 @@ class TripPlanListResponse(APIModel):
     page_size: int
     total_items: int
     total_pages: int
+
+
+class TripPlanCreateRequest(APIModel):
+    request: TripPlanRequest
+    plan: TripPlanResponse
+    conversation_id: str | None = Field(default=None, max_length=80)
 
 
 class TripPlanUpdateRequest(APIModel):
