@@ -25,6 +25,7 @@ agent-runtime
 - `agent-runtime`：当前承载认证、行程、聊天、导出和 Agent 编排 API。
 - `travel-mcp`：旅行工具服务，当前支持高德数据和确定性 fallback。
 - `agent-runtime-worker`：消费 RabbitMQ 任务的后台 worker。
+- `services/common`：微服务共享 Python 包，存放跨服务基础设施工具，不放业务逻辑。
 - `travel-auth`：规划中的认证服务，等认证边界稳定后再拆。
 - `travel-trip`：当前已作为行程 API 门面服务运行，内部暂时代理到 `agent-runtime`，后续迁移真实行程持久化逻辑。
 - `travel-agent`：规划中的 Agent 门面服务，用于配额、审计、权限和请求策略。
@@ -36,6 +37,7 @@ agent-runtime
 - 配置通过环境变量注入，敏感信息放在 Kubernetes Secret。
 - 异步任务通过 RabbitMQ，不依赖进程内调用。
 - 共享基础设施包括 PostgreSQL、Redis、MinIO 和 RabbitMQ。
+- 跨服务通用代码放在 `services/common`，业务逻辑仍留在各自服务内。
 
 ## 迁移顺序
 

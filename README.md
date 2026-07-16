@@ -33,6 +33,7 @@ Travel Agent Cloud 是一个面向旅行规划场景的 AI 助手项目。当前
 - `agent-runtime`：核心 FastAPI 服务，当前承载认证、行程、聊天、导出和 Agent 编排。
 - `services/travel-gateway`：轻量 FastAPI 网关，本地和 K3s 的后端入口。
 - `services/travel-mcp`：旅行工具微服务，负责高德 POI、天气、路线等工具数据。
+- `services/common`：Python 微服务共享工具包，当前包含 HTTP 代理、header 转发和 upstream 健康检查。
 - `services/travel-auth`：规划中的认证服务。
 - `services/travel-trip`：已运行的行程管理门面服务，当前代理到 `agent-runtime`，后续迁移真实行程存储逻辑。
 - `services/travel-agent`：规划中的 Agent 门面服务。

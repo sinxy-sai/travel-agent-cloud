@@ -22,6 +22,8 @@ $env:TRAVEL_MCP_URL="http://localhost:8100"
 .\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
+`requirements.txt` 会以 editable 方式安装 `../common`，因此本地运行时要保持 `services/common` 目录存在。
+
 ## Kubernetes 路由
 
 ```text

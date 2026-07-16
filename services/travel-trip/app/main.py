@@ -1,9 +1,9 @@
 import os
 from typing import Any
 
-import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from travel_common.proxy import check_upstream, proxy_request
 
 
 APP_NAME = "Travel Trip Service"
@@ -62,53 +62,14 @@ async def proxy_trip_plans(path: str, request: Request) -> Response:
 
 
 async def _check_upstream(url: str) -> dict[str, Any]:
-    try:
-        async with httpx.AsyncClient(timeout=3) as client:
-            response = await client.get(url)
-        return {"ok": response.status_code < 500, "statusCode": response.status_code}
-    except httpx.HTTPError as exc:
-        return {"ok": False, "error": exc.__class__.__name__}
+    return await check_upstream(url)
 
 
 async def _proxy(request: Request, path: str) -> Response:
-    body = await request.body()
-    timeout = httpx.Timeout(REQUEST_TIMEOUT_SECONDS)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-        upstream_response = await client.request(
-            request.method,
-            f"{AGENT_RUNTIME_URL}{path}",
-            params=request.query_params,
-            content=body,
-            headers=_forward_headers(request),
-        )
-    return Response(
-        content=upstream_response.content,
-        status_code=upstream_response.status_code,
-        headers=_response_headers(upstream_response),
-        media_type=upstream_response.headers.get("content-type"),
+    return await proxy_request(
+        request,
+        upstream_base_url=AGENT_RUNTIME_URL,
+        path=path,
+        timeout_seconds=REQUEST_TIMEOUT_SECONDS,
+        service_boundary="travel-trip",
     )
-
-
-def _forward_headers(request: Request) -> dict[str, str]:
-    skipped = {"host", "content-length", "connection"}
-    headers = {key: value for key, value in request.headers.items() if key.lower() not in skipped}
-    client_host = request.client.host if request.client else ""
-    if client_host:
-        existing_forwarded_for = headers.get("x-forwarded-for")
-        headers["x-forwarded-for"] = (
-            f"{existing_forwarded_for}, {client_host}" if existing_forwarded_for else client_host
-        )
-        headers["x-real-ip"] = client_host
-    headers["x-forwarded-proto"] = request.url.scheme
-    headers["x-travel-service-boundary"] = "travel-trip"
-    return headers
-
-
-def _response_headers(response: httpx.Response) -> dict[str, str]:
-    skipped = {
-        "content-encoding",
-        "content-length",
-        "connection",
-        "transfer-encoding",
-    }
-    return {key: value for key, value in response.headers.items() if key.lower() not in skipped}

@@ -1,14 +1,15 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+WORKDIR /app/travel-trip
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-COPY requirements.txt .
+COPY common ../common
+COPY travel-trip/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app
+COPY travel-trip/app ./app
 
 EXPOSE 8200
 

@@ -54,7 +54,8 @@ jobs:
       - name: Build and push travel gateway image
         uses: docker/build-push-action@v6
         with:
-          context: ./services/travel-gateway
+          context: ./services
+          file: ./services/travel-gateway/Dockerfile
           push: true
           tags: |
             ${{ env.TRAVEL_GATEWAY_IMAGE }}:latest
@@ -63,7 +64,8 @@ jobs:
       - name: Build and push travel trip image
         uses: docker/build-push-action@v6
         with:
-          context: ./services/travel-trip
+          context: ./services
+          file: ./services/travel-trip/Dockerfile
           push: true
           tags: |
             ${{ env.TRAVEL_TRIP_IMAGE }}:latest

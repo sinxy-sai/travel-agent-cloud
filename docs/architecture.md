@@ -96,4 +96,10 @@ POST /api/v1/conversations/{conversationId}/summary-jobs
 PostgreSQL, Redis, RabbitMQ, MinIO, pgvector, Docker Compose, K3s, Ingress, GitHub Actions
 ```
 
+## 代码组织原则
+
+- `services/common` 只放跨服务基础设施代码，例如 HTTP 代理、header 转发、健康检查和后续通用错误结构。
+- 业务规则不能放入 `services/common`，避免共享包变成隐形单体。
+- 新服务应优先复用 `services/common` 中的基础设施能力，但保持自己的路由、配置和业务模块独立。
+
 API 规范见 [api-guidelines.md](api-guidelines.md)，服务通信细节见 [service-communication.md](service-communication.md)。

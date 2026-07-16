@@ -75,7 +75,8 @@ services:
 
   travel-gateway:
     build:
-      context: ./services/travel-gateway
+      context: ./services
+      dockerfile: travel-gateway/Dockerfile
     container_name: travel-agent-gateway
     environment:
       AGENT_RUNTIME_URL: http://agent-runtime:8000
@@ -101,7 +102,8 @@ services:
 
   travel-trip:
     build:
-      context: ./services/travel-trip
+      context: ./services
+      dockerfile: travel-trip/Dockerfile
     container_name: travel-agent-trip
     environment:
       AGENT_RUNTIME_URL: http://agent-runtime:8000

@@ -34,3 +34,5 @@ python -m venv .venv
 $env:AGENT_RUNTIME_URL="http://localhost:8000"
 .\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8200
 ```
+
+`requirements.txt` 会以 editable 方式安装 `../common`，因此本地运行时要保持 `services/common` 目录存在。
