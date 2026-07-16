@@ -6,7 +6,7 @@
 
 - `travel-gateway`：前端访问后端的统一入口，负责按路径把请求转发到领域服务。
 - `travel-auth`：认证领域门面，当前代理登录、注册、用户资料、密码和 OAuth 相关接口。
-- `travel-trip`：行程领域门面，当前代理行程生成、异步任务、历史、编辑和导出相关接口。
+- `travel-trip`：行程领域服务，当前已直接处理匿名本地用户的行程历史、编辑、版本、恢复、删除和 Markdown 导出；生成和 AI 修订相关接口仍代理到 `agent-runtime`。
 - `travel-agent`：Agent 领域门面，当前代理聊天、会话和 Agent 状态相关接口。
 - `travel-mcp`：真实旅行工具服务，封装高德数据、工具调用和 fallback 行为。
 - `common`：跨服务共享 Python 包，只放基础设施工具，不放业务逻辑。
@@ -22,6 +22,6 @@
 ## 后续迁移方向
 
 1. 继续稳定 `travel-auth`、`travel-trip`、`travel-agent` 的服务边界。
-2. 优先把 `travel-trip` 的行程持久化和版本控制迁出 `agent-runtime`。
+2. 继续把 `travel-trip` 的登录用户行程持久化、生成后保存和导出元数据迁出 `agent-runtime`。
 3. 再迁移 `travel-agent` 的配额、审计、权限和 Agent 请求策略。
 4. 最后迁移 `travel-auth` 的用户、会话和 OAuth identity 存储逻辑。

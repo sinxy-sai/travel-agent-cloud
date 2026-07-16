@@ -5,11 +5,13 @@ Travel Agent Cloud 当前从一个可部署核心开始：
 ```text
 frontend -> travel-gateway -> agent-runtime -> PostgreSQL
                     -> travel-auth -> agent-runtime
-                    -> travel-trip -> agent-runtime
+                    -> travel-trip -> PostgreSQL / agent-runtime
                     -> travel-agent -> agent-runtime
                     -> travel-mcp
                                  -> Redis / RabbitMQ / MinIO
 ```
+
+`travel-trip` 已经开始从纯代理服务转为领域服务：匿名本地用户的行程读写、版本、恢复、删除和 Markdown 导出直接由 `travel-trip` 处理。仍需要 Agent 执行或登录身份校验的路径暂时回落到 `agent-runtime`。
 
 ## 当前 Agent Runtime API
 
