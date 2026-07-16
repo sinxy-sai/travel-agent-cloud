@@ -13,6 +13,8 @@ env:
   REGISTRY: ghcr.io
   FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/travel-agent-cloud-frontend
   AGENT_RUNTIME_IMAGE: ghcr.io/${{ github.repository_owner }}/travel-agent-cloud-agent-runtime
+  TRAVEL_GATEWAY_IMAGE: ghcr.io/${{ github.repository_owner }}/travel-agent-cloud-travel-gateway
+  TRAVEL_MCP_IMAGE: ghcr.io/${{ github.repository_owner }}/travel-agent-cloud-travel-mcp
 
 jobs:
   build-images:
@@ -47,3 +49,21 @@ jobs:
           tags: |
             ${{ env.AGENT_RUNTIME_IMAGE }}:latest
             ${{ env.AGENT_RUNTIME_IMAGE }}:${{ github.sha }}
+
+      - name: Build and push travel gateway image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/travel-gateway
+          push: true
+          tags: |
+            ${{ env.TRAVEL_GATEWAY_IMAGE }}:latest
+            ${{ env.TRAVEL_GATEWAY_IMAGE }}:${{ github.sha }}
+
+      - name: Build and push travel MCP image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/travel-mcp
+          push: true
+          tags: |
+            ${{ env.TRAVEL_MCP_IMAGE }}:latest
+            ${{ env.TRAVEL_MCP_IMAGE }}:${{ github.sha }}

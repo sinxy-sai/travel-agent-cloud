@@ -1,10 +1,18 @@
 # travel-auth
 
-Authentication service. Planned responsibilities include login, JWT issuing, Sa-Token integration, and Redis-backed sessions.
+Planned Python/FastAPI authentication service.
 
-Planned communication:
+This is not a running service yet. Authentication currently lives in `agent-runtime`.
 
-- Provides REST APIs consumed through `travel-gateway`.
-- Exposes internal user/session validation APIs for Java services through Spring Cloud OpenFeign.
-- Stores sessions and login state in Redis.
-- Publishes user lifecycle events to RabbitMQ, such as `user.profile.updated`, after real account binding is implemented.
+Future responsibilities:
+
+- Register, login, logout, email verification, password reset, and OAuth callbacks.
+- JWT/session issuing and validation.
+- Redis-backed rate limiting and session state where needed.
+- User profile and account lifecycle events through RabbitMQ.
+
+Migration rule:
+
+- Keep the current `agent-runtime` API contract stable.
+- Move endpoints behind `travel-gateway` route by route.
+- Do not duplicate password/session logic in two running services at the same time.

@@ -4,7 +4,9 @@ resources:
   - addons/rabbitmq.yaml
   - addons/redis.yaml
   - addons/minio.yaml
+  - travel-mcp.yaml
   - agent-runtime.yaml
   - addons/agent-runtime-worker.yaml
+  - travel-gateway.yaml
   - frontend.yaml
   - ingress.yaml

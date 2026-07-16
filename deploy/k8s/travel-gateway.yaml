@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: travel-gateway
+  namespace: travel-agent-cloud
+  labels:
+    app: travel-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: travel-gateway
+  template:
+    metadata:
+      labels:
+        app: travel-gateway
+    spec:
+      containers:
+        - name: travel-gateway
+          image: docker.io/sinxysai/travel-agent-cloud-travel-gateway:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: AGENT_RUNTIME_URL
+              value: http://agent-runtime:8000
+            - name: TRAVEL_MCP_URL
+              value: http://travel-mcp:8100
+            - name: ALLOWED_ORIGINS
+              value: "*"
+            - name: GATEWAY_REQUEST_TIMEOUT_SECONDS
+              value: "180"
+          readinessProbe:
+            httpGet:
+              path: /gateway/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /gateway/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: travel-gateway
+  namespace: travel-agent-cloud
+spec:
+  selector:
+    app: travel-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

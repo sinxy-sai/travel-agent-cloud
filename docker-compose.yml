@@ -65,8 +65,6 @@ services:
     build:
       context: ./services/travel-mcp
     container_name: travel-agent-mcp
-    profiles:
-      - tools
     env_file:
       - ./services/travel-mcp/.env
     environment:
@@ -74,6 +72,29 @@ services:
       AMAP_TIMEOUT_SECONDS: 8
     ports:
       - "8100:8100"
+
+  travel-gateway:
+    build:
+      context: ./services/travel-gateway
+    container_name: travel-agent-gateway
+    environment:
+      AGENT_RUNTIME_URL: http://agent-runtime:8000
+      TRAVEL_MCP_URL: http://travel-mcp:8100
+      ALLOWED_ORIGINS: http://localhost:5173
+      GATEWAY_REQUEST_TIMEOUT_SECONDS: 180
+    ports:
+      - "8080:8080"
+    depends_on:
+      agent-runtime:
+        condition: service_healthy
+      travel-mcp:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/gateway/health', timeout=2).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   agent-runtime:
     build:
@@ -96,6 +117,8 @@ services:
       RPC_TIMEOUT_SECONDS: 5
       WORKER_RECONNECT_INITIAL_SECONDS: 2
       WORKER_RECONNECT_MAX_SECONDS: 30
+      TRAVEL_TOOL_PROVIDER: fastmcp
+      FASTMCP_BASE_URL: http://travel-mcp:8100/mcp
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,6 +152,8 @@ services:
       WORKER_RECONNECT_INITIAL_SECONDS: 2
       WORKER_RECONNECT_MAX_SECONDS: 30
       LOG_LEVEL: INFO
+      TRAVEL_TOOL_PROVIDER: fastmcp
+      FASTMCP_BASE_URL: http://travel-mcp:8100/mcp
     depends_on:
       postgres:
         condition: service_healthy
@@ -148,7 +173,7 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      agent-runtime:
+      travel-gateway:
         condition: service_healthy
 
 volumes:

@@ -11,16 +11,37 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: agent-runtime
+                name: travel-gateway
                 port:
-                  number: 8000
+                  number: 8080
           - path: /health
             pathType: Exact
             backend:
               service:
-                name: agent-runtime
+                name: travel-gateway
                 port:
-                  number: 8000
+                  number: 8080
+          - path: /gateway
+            pathType: Prefix
+            backend:
+              service:
+                name: travel-gateway
+                port:
+                  number: 8080
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: travel-gateway
+                port:
+                  number: 8080
+          - path: /tools
+            pathType: Prefix
+            backend:
+              service:
+                name: travel-gateway
+                port:
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:

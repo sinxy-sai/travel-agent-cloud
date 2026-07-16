@@ -1,11 +1,19 @@
 # travel-trip
 
-Trip management service. Planned responsibilities include itinerary persistence, favorites, exported files, and user trip history.
+Planned Python/FastAPI trip management service.
 
-Planned communication:
+This is not a running service yet. Trip persistence and export APIs currently live in `agent-runtime`.
 
-- Provides trip CRUD APIs through `travel-gateway`.
-- Exposes internal trip metadata APIs to `travel-agent` through Spring Cloud OpenFeign.
-- Owns trip persistence once trip management is moved out of `agent-runtime`.
-- Publishes RabbitMQ events such as `trip.plan.created`, `trip.plan.deleted`, and `trip.plan.export.requested`.
-- Uses MinIO for generated files and PostgreSQL for authoritative trip data.
+Future responsibilities:
+
+- Trip plan CRUD, history, version restore, favorites, and search.
+- Export metadata and generated file ownership.
+- PostgreSQL as authoritative storage.
+- MinIO for generated markdown, image, and PDF export artifacts.
+- RabbitMQ events such as `trip.plan.created`, `trip.plan.updated`, and `trip.plan.export.requested`.
+
+Migration rule:
+
+- First keep `travel-gateway` as the public entrypoint.
+- Then move trip endpoints out of `agent-runtime` when their data model is stable.
+- Agent planning should call this service only through internal HTTP APIs after the split.

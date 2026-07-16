@@ -44,3 +44,43 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m compileall app
       - run: python -c "from app.main import app; print(app.title)"
+
+  travel-gateway:
+    name: Travel gateway check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/travel-gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/travel-gateway/requirements.txt
+
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - run: python -m compileall app
+      - run: python -c "from app.main import app; print(app.title)"
+
+  travel-mcp:
+    name: Travel MCP check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/travel-mcp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/travel-mcp/requirements.txt
+
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - run: python -m compileall app
+      - run: python -c "from app.main import app; print(app.title)"

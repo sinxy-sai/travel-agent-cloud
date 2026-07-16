@@ -21,6 +21,8 @@ Deployment images:
 ```text
 docker.io/sinxysai/travel-agent-cloud-frontend:latest
 docker.io/sinxysai/travel-agent-cloud-agent-runtime:latest
+docker.io/sinxysai/travel-agent-cloud-travel-gateway:latest
+docker.io/sinxysai/travel-agent-cloud-travel-mcp:latest
 ```
 
 The GHCR workflow is still kept for image publishing, but these K3s manifests pull from Docker Hub by default because it is usually easier for domestic VPS networking.
@@ -28,9 +30,11 @@ The GHCR workflow is still kept for image publishing, but these K3s manifests pu
 If your Docker Hub namespace is not `sinxysai`, update the image fields in:
 
 - `agent-runtime.yaml`
+- `travel-gateway.yaml`
+- `travel-mcp.yaml`
 - `frontend.yaml`
 
-`postgres.yaml`, RabbitMQ, Redis, MinIO, and `agent-runtime-worker` are part of the default kustomization. Create the required Secrets before running automated deployment.
+`postgres.yaml`, RabbitMQ, Redis, MinIO, `travel-mcp`, `travel-gateway`, and `agent-runtime-worker` are part of the default kustomization. Create the required Secrets before running automated deployment.
 
 Create `postgres-secrets`:
 
@@ -59,6 +63,16 @@ kubectl create secret generic minio-secrets \
   -n travel-agent-cloud \
   --from-literal=MINIO_ROOT_USER='travel_agent' \
   --from-literal=MINIO_ROOT_PASSWORD='change-me-to-a-long-random-password' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Create `travel-mcp-secrets` if you want the tool service to use live AMap data.
+If this Secret or key is missing, the MCP service starts with fallback tool data.
+
+```bash
+kubectl create secret generic travel-mcp-secrets \
+  -n travel-agent-cloud \
+  --from-literal=AMAP_WEB_SERVICE_KEY='your-amap-web-service-key' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
@@ -130,6 +144,8 @@ The normal deploy command will create/update PostgreSQL, RabbitMQ, Redis, MinIO,
 kubectl apply -k deploy/k8s
 kubectl get pods -n travel-agent-cloud
 kubectl get pods -n travel-agent-cloud -l app=agent-runtime-worker
+kubectl get pods -n travel-agent-cloud -l app=travel-gateway
+kubectl get pods -n travel-agent-cloud -l app=travel-mcp
 ```
 
 The worker uses the same Agent Runtime image and runs:

@@ -1,11 +1,18 @@
 # travel-agent
 
-Java facade service for AI planning requests. It will call `agent-runtime` and enforce user, quota, and audit policies.
+Planned Python/FastAPI agent facade service.
 
-Planned communication:
+This is not a running service yet. LangGraph/LangChain execution currently lives in `agent-runtime`.
 
-- Provides agent-facing REST APIs through `travel-gateway`.
-- Calls `travel-trip` with Spring Cloud OpenFeign when it needs persisted trip metadata.
-- Calls Python `agent-runtime` through REST because FastAPI is the runtime boundary.
-- Publishes RabbitMQ jobs such as `agent.conversation.summarize.requested` for non-blocking background work.
-- Enforces quota, audit, and user ownership before forwarding requests to the AI runtime.
+Future responsibilities:
+
+- User-facing agent request facade behind `travel-gateway`.
+- Quota, audit, ownership, and request policy checks before agent execution.
+- Calls to `agent-runtime` for LangGraph/LangChain execution.
+- Calls to `travel-trip` for persisted trip metadata after the trip service split.
+- RabbitMQ jobs for non-blocking agent tasks.
+
+Migration rule:
+
+- Keep `agent-runtime` as the execution engine until planning behavior is stable.
+- Add this facade only when quota/audit/service ownership logic becomes large enough to justify a separate deployable service.

@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: travel-mcp
+  namespace: travel-agent-cloud
+  labels:
+    app: travel-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: travel-mcp
+  template:
+    metadata:
+      labels:
+        app: travel-mcp
+    spec:
+      containers:
+        - name: travel-mcp
+          image: docker.io/sinxysai/travel-agent-cloud-travel-mcp:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8100
+          env:
+            - name: AMAP_WEB_SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: travel-mcp-secrets
+                  key: AMAP_WEB_SERVICE_KEY
+                  optional: true
+            - name: AMAP_BASE_URL
+              value: https://restapi.amap.com
+            - name: AMAP_TIMEOUT_SECONDS
+              value: "8"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8100
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: travel-mcp
+  namespace: travel-agent-cloud
+spec:
+  selector:
+    app: travel-mcp
+  ports:
+    - name: http
+      port: 8100
+      targetPort: 8100

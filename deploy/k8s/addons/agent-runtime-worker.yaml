@@ -28,7 +28,11 @@ spec:
             - name: RPC_TIMEOUT_SECONDS
               value: "5"
             - name: AGENT_ENGINE
-              value: basic
+              value: langgraph
+            - name: TRAVEL_TOOL_PROVIDER
+              value: fastmcp
+            - name: FASTMCP_BASE_URL
+              value: http://travel-mcp:8100/mcp
             - name: WORKER_RECONNECT_INITIAL_SECONDS
               value: "2"
             - name: WORKER_RECONNECT_MAX_SECONDS
