@@ -29,7 +29,7 @@ agent-runtime
 - `agent-runtime-worker`：消费 RabbitMQ 任务的后台 worker。
 - `services/common`：微服务共享 Python 包，存放跨服务基础设施工具，不放业务逻辑。
 - `travel-auth`：当前已作为认证 API 门面服务运行，内部暂时代理到 `agent-runtime`，后续迁移真实认证存储逻辑。
-- `travel-trip`：当前已开始实迁行程持久化能力。匿名本地用户的行程列表、详情、编辑、版本、恢复、删除和 Markdown 导出由它直接访问 PostgreSQL 处理；`agent-runtime` 生成后的行程也通过它的内部接口保存；AI 修订、单日重生成和登录用户读写路径暂时仍代理到 `agent-runtime`。
+- `travel-trip`：当前已开始实迁行程持久化能力。匿名本地用户的行程列表、详情、编辑、版本、恢复、删除和 Markdown 导出由它直接访问 PostgreSQL 处理；`agent-runtime` 生成、AI 修订和单日重生成后的行程也通过它的内部接口保存；登录用户读写路径暂时仍代理到 `agent-runtime`。
 - `travel-agent`：当前已作为 Agent API 门面服务运行，内部暂时代理到 `agent-runtime`，后续迁移配额、审计、权限和请求策略。
 
 ## Kubernetes 职责
@@ -47,7 +47,7 @@ agent-runtime
 2. 将 `travel-mcp` 作为第一个真实工具微服务运行。
 3. 保持 `agent-runtime` 稳定，继续打磨旅行规划行为。
 4. 将 `travel-auth` 从代理门面升级为真正拥有用户、会话、邮箱 token 和 OAuth identity 的服务。
-5. 将 `travel-trip` 从代理门面升级为真正拥有行程、版本和导出元数据的服务。当前已完成匿名用户读写路径和生成后保存的实迁。
+5. 将 `travel-trip` 从代理门面升级为真正拥有行程、版本和导出元数据的服务。当前已完成匿名用户读写路径、生成后保存、AI 修订保存和单日重生成保存的实迁。
 6. 将 `travel-agent` 从代理门面升级为真正承载配额、审计、权限和 Agent 请求策略的服务。
 
 ## 暂不做的事

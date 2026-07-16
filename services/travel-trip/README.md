@@ -2,15 +2,16 @@
 
 `travel-trip` 是 Python/FastAPI 行程管理服务。
 
-当前阶段它已经从纯代理门面进入渐进实迁：匿名本地用户的行程列表、详情、编辑、版本、恢复、删除和 Markdown 导出由 `travel-trip` 直接访问 PostgreSQL 处理；`agent-runtime` 生成行程内容后，也会通过 `travel-trip` 的内部接口保存生成结果。仍依赖 Agent 执行能力的行程生成、异步生成、AI 修订和单日重生成暂时继续代理到 `agent-runtime`。
+当前阶段它已经从纯代理门面进入渐进实迁：匿名本地用户的行程列表、详情、编辑、版本、恢复、删除和 Markdown 导出由 `travel-trip` 直接访问 PostgreSQL 处理；`agent-runtime` 生成、AI 修订或单日重生成行程内容后，也会通过 `travel-trip` 的内部接口保存结果。仍依赖 Agent 执行能力的行程生成、异步生成、AI 修订和单日重生成入口暂时继续代理到 `agent-runtime`。
 
 ## 当前职责
 
 - 承接 `travel-gateway` 转发过来的行程 API。
 - 对带合法 `X-User-Id` 的匿名本地用户，直接处理行程历史、详情、编辑、版本、恢复、删除和 Markdown 导出。
 - 通过 `POST /internal/v1/trip-plans` 承接 `agent-runtime` 的生成后保存请求。
+- 通过 `PATCH /internal/v1/trip-plans/{tripPlanId}` 承接 `agent-runtime` 的 AI 修订和单日重生成保存请求。
 - 对登录 cookie 用户或数据库未配置场景，继续代理到 `agent-runtime`，避免在认证服务实迁前复制 token 校验逻辑。
-- 对行程生成、异步任务、AI 修订和单日重生成，继续代理到 `agent-runtime`。
+- 对行程生成、异步任务、AI 修订和单日重生成入口，继续代理到 `agent-runtime`。
 - 通过 `/health` 暴露自身、数据库和 upstream 状态。
 - 通过 `X-Travel-Service-Boundary: travel-trip` 标记内部服务边界，便于后续日志和排查。
 

@@ -870,6 +870,38 @@ def _save_generated_trip_plan(
     return conversation_store.save_trip_plan(user_id, conversation, request, response)
 
 
+def _update_trip_plan_content(
+    user_id: str,
+    trip_plan_id: str,
+    request: TripPlanUpdateRequest,
+    *,
+    source: str,
+) -> SavedTripPlan:
+    if settings.travel_trip_url.strip():
+        try:
+            with httpx.Client(timeout=settings.travel_trip_timeout_seconds) as client:
+                trip_response = client.patch(
+                    f"{settings.travel_trip_url.rstrip('/')}/internal/v1/trip-plans/{trip_plan_id}",
+                    headers={"X-User-Id": user_id},
+                    json={
+                        **request.model_dump(mode="json", by_alias=True, exclude_none=True),
+                        "source": source,
+                    },
+                )
+            if trip_response.status_code == status.HTTP_404_NOT_FOUND:
+                raise TripPlanNotFoundError(trip_plan_id)
+            if trip_response.status_code == status.HTTP_409_CONFLICT:
+                raise TripPlanVersionConflictError(trip_plan_id)
+            trip_response.raise_for_status()
+            return SavedTripPlan.model_validate(trip_response.json())
+        except (TripPlanNotFoundError, TripPlanVersionConflictError):
+            raise
+        except (httpx.HTTPError, ValueError):
+            pass
+
+    return conversation_store.update_trip_plan(user_id, trip_plan_id, request, source=source)
+
+
 @app.post("/api/v1/chat", response_model=ChatResponse)
 def chat(request: ChatRequest, user_id: str = Depends(get_user_id)) -> ChatResponse:
     try:
@@ -1178,7 +1210,7 @@ def revise_trip_plan(
     )
 
     try:
-        trip_plan = conversation_store.update_trip_plan(
+        trip_plan = _update_trip_plan_content(
             user_id,
             trip_plan_id,
             TripPlanUpdateRequest(plan=revised_plan, expected_version=request.expected_version),
@@ -1257,7 +1289,7 @@ def regenerate_trip_plan_day(
     )
 
     try:
-        trip_plan = conversation_store.update_trip_plan(
+        trip_plan = _update_trip_plan_content(
             user_id,
             trip_plan_id,
             TripPlanUpdateRequest(plan=updated_plan, expected_version=request.expected_version),

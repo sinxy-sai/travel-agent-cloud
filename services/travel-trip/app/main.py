@@ -12,6 +12,7 @@ from app.exporter import saved_trip_plan_to_markdown
 from app.schemas import (
     SavedTripPlan,
     TripPlanCreateRequest,
+    TripPlanInternalUpdateRequest,
     TripPlanListResponse,
     TripPlanRestoreRequest,
     TripPlanUpdateRequest,
@@ -79,6 +80,31 @@ async def create_internal_trip_plan(payload: TripPlanCreateRequest, request: Req
             detail={"code": "USER_ID_REQUIRED", "message": "X-User-Id header is required"},
         )
     return trip_plan_store.create(user_id, payload)
+
+
+@app.patch("/internal/v1/trip-plans/{trip_plan_id}", response_model=SavedTripPlan)
+async def update_internal_trip_plan(
+    trip_plan_id: str,
+    payload: TripPlanInternalUpdateRequest,
+    request: Request,
+) -> SavedTripPlan:
+    if not trip_plan_store:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "TRIP_STORE_UNAVAILABLE", "message": "Trip store is not configured"},
+        )
+    user_id = request.headers.get("X-User-Id", "").strip()
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "USER_ID_REQUIRED", "message": "X-User-Id header is required"},
+        )
+    try:
+        return trip_plan_store.update(user_id, trip_plan_id, payload, source=payload.source)
+    except TripPlanNotFoundError as exc:
+        raise _trip_plan_not_found() from exc
+    except TripPlanVersionConflictError as exc:
+        raise _version_conflict() from exc
 
 
 @app.api_route("/api/v1/trip-plans", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])

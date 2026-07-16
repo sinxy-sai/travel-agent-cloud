@@ -220,5 +220,9 @@ class TripPlanUpdateRequest(APIModel):
         return self
 
 
+class TripPlanInternalUpdateRequest(TripPlanUpdateRequest):
+    source: str = Field(default="manual_edit", max_length=40)
+
+
 class TripPlanRestoreRequest(APIModel):
     expected_version: int = Field(ge=1)
