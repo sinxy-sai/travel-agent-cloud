@@ -40,9 +40,9 @@
 - `frontend -> travel-gateway`
 - `travel-gateway -> travel-auth`
 - `travel-gateway -> travel-trip`
+- `travel-gateway -> travel-agent`
 - `travel-gateway -> agent-runtime`
 - `travel-gateway -> travel-mcp`
-- 未来 `travel-gateway -> travel-agent`
 - 未来 `travel-agent -> agent-runtime`
 
 `agent-runtime` 应始终通过明确 HTTP 契约暴露能力，避免其他服务耦合到 Python 内部实现。

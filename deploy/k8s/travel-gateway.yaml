@@ -28,6 +28,8 @@ spec:
               value: http://travel-auth:8300
             - name: TRAVEL_TRIP_URL
               value: http://travel-trip:8200
+            - name: TRAVEL_AGENT_URL
+              value: http://travel-agent:8400
             - name: TRAVEL_MCP_URL
               value: http://travel-mcp:8100
             - name: ALLOWED_ORIGINS

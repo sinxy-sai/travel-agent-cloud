@@ -2,27 +2,17 @@ import os
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
+from travel_common.app import add_cors, allowed_origins_from_env
 from travel_common.proxy import check_upstream, proxy_request
 
 
 APP_NAME = "Travel Auth Service"
 AGENT_RUNTIME_URL = os.getenv("AGENT_RUNTIME_URL", "http://agent-runtime:8000").rstrip("/")
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("AUTH_SERVICE_REQUEST_TIMEOUT_SECONDS", "180"))
-ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
-    if origin.strip()
-]
+ALLOWED_ORIGINS = allowed_origins_from_env()
 
 app = FastAPI(title=APP_NAME, version="0.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+add_cors(app, allowed_origins=ALLOWED_ORIGINS)
 
 
 @app.get("/health")

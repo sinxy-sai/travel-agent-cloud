@@ -9,6 +9,7 @@ resources:
   - addons/agent-runtime-worker.yaml
   - travel-auth.yaml
   - travel-trip.yaml
+  - travel-agent.yaml
   - travel-gateway.yaml
   - frontend.yaml
   - ingress.yaml

@@ -2,7 +2,7 @@ import os
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
+from travel_common.app import add_cors, allowed_origins_from_env
 from travel_common.proxy import check_upstream, proxy_request
 
 
@@ -10,22 +10,13 @@ APP_NAME = "Travel Agent Gateway"
 AGENT_RUNTIME_URL = os.getenv("AGENT_RUNTIME_URL", "http://agent-runtime:8000").rstrip("/")
 TRAVEL_AUTH_URL = os.getenv("TRAVEL_AUTH_URL", "http://travel-auth:8300").rstrip("/")
 TRAVEL_TRIP_URL = os.getenv("TRAVEL_TRIP_URL", "http://travel-trip:8200").rstrip("/")
+TRAVEL_AGENT_URL = os.getenv("TRAVEL_AGENT_URL", "http://travel-agent:8400").rstrip("/")
 TRAVEL_MCP_URL = os.getenv("TRAVEL_MCP_URL", "http://travel-mcp:8100").rstrip("/")
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("GATEWAY_REQUEST_TIMEOUT_SECONDS", "180"))
-ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
-    if origin.strip()
-]
+ALLOWED_ORIGINS = allowed_origins_from_env()
 
 app = FastAPI(title=APP_NAME, version="0.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+add_cors(app, allowed_origins=ALLOWED_ORIGINS)
 
 
 @app.get("/gateway/health")
@@ -34,9 +25,10 @@ async def gateway_health() -> dict[str, Any]:
         "agentRuntime": await _check_upstream(f"{AGENT_RUNTIME_URL}/health"),
         "travelAuth": await _check_upstream(f"{TRAVEL_AUTH_URL}/health"),
         "travelTrip": await _check_upstream(f"{TRAVEL_TRIP_URL}/health"),
+        "travelAgent": await _check_upstream(f"{TRAVEL_AGENT_URL}/health"),
         "travelMcp": await _check_upstream(f"{TRAVEL_MCP_URL}/health"),
     }
-    required_upstreams = ("agentRuntime", "travelAuth", "travelTrip")
+    required_upstreams = ("agentRuntime", "travelAuth", "travelTrip", "travelAgent")
     status = "ok" if all(checks[name]["ok"] for name in required_upstreams) else "degraded"
     return {
         "status": status,
@@ -93,6 +85,31 @@ async def proxy_me_root(request: Request) -> Response:
 @app.api_route("/api/v1/me/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_me(path: str, request: Request) -> Response:
     return await _proxy(request, TRAVEL_AUTH_URL, f"/api/v1/me/{path}")
+
+
+@app.api_route("/api/v1/chat", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_chat(request: Request) -> Response:
+    return await _proxy(request, TRAVEL_AGENT_URL, "/api/v1/chat")
+
+
+@app.api_route("/api/v1/agent", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_agent_root(request: Request) -> Response:
+    return await _proxy(request, TRAVEL_AGENT_URL, "/api/v1/agent")
+
+
+@app.api_route("/api/v1/agent/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_agent(path: str, request: Request) -> Response:
+    return await _proxy(request, TRAVEL_AGENT_URL, f"/api/v1/agent/{path}")
+
+
+@app.api_route("/api/v1/conversations", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_conversations_root(request: Request) -> Response:
+    return await _proxy(request, TRAVEL_AGENT_URL, "/api/v1/conversations")
+
+
+@app.api_route("/api/v1/conversations/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_conversations(path: str, request: Request) -> Response:
+    return await _proxy(request, TRAVEL_AGENT_URL, f"/api/v1/conversations/{path}")
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])

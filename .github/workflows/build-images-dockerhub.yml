@@ -13,6 +13,7 @@ env:
   TRAVEL_GATEWAY_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-travel-gateway
   TRAVEL_AUTH_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-travel-auth
   TRAVEL_TRIP_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-travel-trip
+  TRAVEL_AGENT_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-travel-agent
   TRAVEL_MCP_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-travel-mcp
   IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
@@ -81,6 +82,16 @@ jobs:
           tags: |
             ${{ env.TRAVEL_TRIP_IMAGE }}:latest
             ${{ env.TRAVEL_TRIP_IMAGE }}:${{ env.IMAGE_TAG }}
+
+      - name: Build and push travel agent image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services
+          file: ./services/travel-agent/Dockerfile
+          push: true
+          tags: |
+            ${{ env.TRAVEL_AGENT_IMAGE }}:latest
+            ${{ env.TRAVEL_AGENT_IMAGE }}:${{ env.IMAGE_TAG }}
 
       - name: Build and push travel MCP image
         uses: docker/build-push-action@v6

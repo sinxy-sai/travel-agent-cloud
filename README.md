@@ -36,7 +36,7 @@ Travel Agent Cloud 是一个面向旅行规划场景的 AI 助手项目。当前
 - `services/common`：Python 微服务共享工具包，当前包含 HTTP 代理、header 转发和 upstream 健康检查。
 - `services/travel-auth`：已运行的认证门面服务，当前代理到 `agent-runtime`，后续迁移真实认证存储逻辑。
 - `services/travel-trip`：已运行的行程管理门面服务，当前代理到 `agent-runtime`，后续迁移真实行程存储逻辑。
-- `services/travel-agent`：规划中的 Agent 门面服务。
+- `services/travel-agent`：已运行的 Agent 门面服务，当前代理到 `agent-runtime`，后续迁移配额、审计和请求策略逻辑。
 - `deploy/k8s`：K3s/Kubernetes 部署清单。
 - `docs`：架构、API、通信和原型对齐文档。
 - `scripts`：服务器初始化和 smoke test 脚本。
@@ -75,7 +75,7 @@ http://localhost:5173
 
 ## Docker Compose 本地联调
 
-Docker Compose 会启动 PostgreSQL、RabbitMQ、Redis、MinIO、`travel-mcp`、`travel-auth`、`travel-trip`、`travel-gateway`、`agent-runtime` 和前端。
+Docker Compose 会启动 PostgreSQL、RabbitMQ、Redis、MinIO、`travel-mcp`、`travel-auth`、`travel-trip`、`travel-agent`、`travel-gateway`、`agent-runtime` 和前端。
 
 ```powershell
 docker compose --profile worker up --build
@@ -122,7 +122,7 @@ Copy-Item docker-compose.override.example.yml docker-compose.override.yml
 - `CI` 成功后触发 `Build Images Docker Hub`。
 - Docker Hub 镜像构建成功后触发 `Deploy K3s`。
 - `Deploy K3s` 执行 `kubectl apply -k deploy/k8s`。
-- K3s 默认部署 frontend、travel-gateway、travel-auth、travel-trip、agent-runtime、agent-runtime-worker、travel-mcp、PostgreSQL、RabbitMQ、Redis、MinIO 和 Ingress。
+- K3s 默认部署 frontend、travel-gateway、travel-auth、travel-trip、travel-agent、agent-runtime、agent-runtime-worker、travel-mcp、PostgreSQL、RabbitMQ、Redis、MinIO 和 Ingress。
 
 GitHub repository secrets：
 
@@ -150,10 +150,10 @@ VPS_SSH_KEY
 
 ```text
 本地 Docker Compose:
-localhost:5173 -> frontend nginx -> travel-gateway -> travel-auth / travel-trip / agent-runtime / travel-mcp
+localhost:5173 -> frontend nginx -> travel-gateway -> travel-auth / travel-trip / travel-agent / agent-runtime / travel-mcp
 
 VPS K3s:
-公网 IP 或域名 -> Ingress -> frontend / travel-gateway -> travel-auth / travel-trip / agent-runtime / travel-mcp
+公网 IP 或域名 -> Ingress -> frontend / travel-gateway -> travel-auth / travel-trip / travel-agent / agent-runtime / travel-mcp
 ```
 
 本地 `.env` 不会自动同步到 VPS。VPS 使用 Kubernetes Secret 管理数据库、LLM、邮箱、OAuth、高德 key 等配置。

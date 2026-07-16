@@ -8,6 +8,7 @@
 - 将 `/api/*` 和 `/health` 代理到 `agent-runtime`。
 - 将 `/api/v1/auth/*` 和 `/api/v1/me/*` 优先代理到 `travel-auth`。
 - 将 `/api/v1/trip-plan*` 和 `/api/v1/trip-plans*` 优先代理到 `travel-trip`。
+- 将 `/api/v1/chat`、`/api/v1/agent/*` 和 `/api/v1/conversations/*` 优先代理到 `travel-agent`。
 - 将 `/mcp` 和 `/tools/*` 代理到 `travel-mcp`。
 - 通过 `/gateway/health` 返回 `agent-runtime` 和 `travel-mcp` 的 upstream 状态。
 - 不承载业务逻辑，只做路由、入口治理和后续可扩展的横切能力。
@@ -36,4 +37,4 @@ Ingress -> travel-gateway -> agent-runtime
 
 - `/api/v1/auth/*` 和 `/api/v1/me/*` 已先接入 `travel-auth` 门面服务，后续迁移真实认证存储逻辑。
 - `/api/v1/trip-plans/*` 已先接入 `travel-trip` 门面服务，后续迁移真实行程持久化逻辑。
-- Agent 编排入口后续可以迁移到 `travel-agent`，但 LangGraph/LangChain 执行引擎仍可以留在 `agent-runtime`。
+- `/api/v1/chat`、`/api/v1/agent/*` 和 `/api/v1/conversations/*` 已先接入 `travel-agent` 门面服务，后续迁移配额、审计和请求策略逻辑。
