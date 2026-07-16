@@ -134,12 +134,15 @@ services:
     container_name: travel-agent-auth
     environment:
       AGENT_RUNTIME_URL: http://agent-runtime:8000
+      DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
       ALLOWED_ORIGINS: http://localhost:5173
       AUTH_SERVICE_REQUEST_TIMEOUT_SECONDS: 180
     ports:
       - "8300:8300"
     depends_on:
       agent-runtime:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8300/health', timeout=2).read()\""]

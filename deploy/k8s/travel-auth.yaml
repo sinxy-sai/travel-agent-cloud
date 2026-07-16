@@ -24,6 +24,12 @@ spec:
           env:
             - name: AGENT_RUNTIME_URL
               value: http://agent-runtime:8000
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: DATABASE_URL
+                  optional: true
             - name: ALLOWED_ORIGINS
               value: "*"
             - name: AUTH_SERVICE_REQUEST_TIMEOUT_SECONDS

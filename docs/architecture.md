@@ -1,22 +1,28 @@
 # 架构说明
 
-Travel Agent Cloud 当前从一个可部署核心开始：
+Travel Agent Cloud 当前从一个可部署核心逐步演进为 Kubernetes 原生 Python/FastAPI 微服务系统。
 
 ```text
-frontend -> travel-gateway -> agent-runtime -> PostgreSQL
-                    -> travel-auth -> agent-runtime
-                    -> travel-trip -> PostgreSQL / agent-runtime
-                    -> travel-agent -> agent-runtime
-                    -> travel-mcp
-                                 -> Redis / RabbitMQ / MinIO
+frontend
+  -> travel-gateway
+      -> travel-auth -> PostgreSQL / agent-runtime
+      -> travel-trip -> PostgreSQL / agent-runtime
+      -> travel-agent -> agent-runtime
+      -> travel-mcp
+      -> agent-runtime -> PostgreSQL / Redis / RabbitMQ / MinIO
 ```
 
-`travel-trip` 已经开始从纯代理服务转为领域服务：匿名本地用户的行程读写、版本、恢复、删除和 Markdown 导出直接由 `travel-trip` 处理。`agent-runtime` 生成、AI 修订或单日重生成行程内容后，会通过 `travel-trip` 的 internal API 保存结果。仍需要 Agent 执行或登录身份校验的入口暂时回落到 `agent-runtime`。
+`travel-trip` 已经开始从纯代理服务转为行程领域服务：匿名本地用户的行程读写、版本、恢复、删除和 Markdown 导出直接由 `travel-trip` 处理。`agent-runtime` 生成、AI 修订或单日重生成行程内容后，会通过 `travel-trip` 的 internal API 保存结果。仍需要 Agent 执行或登录身份校验的入口暂时回落到 `agent-runtime`。
+
+`travel-auth` 已经开始从纯代理服务转为用户领域服务：匿名本地用户的 profile 读写直接由 `travel-auth` 处理。登录、注册、OAuth、会话和账户数据导入导出仍暂时回落到 `agent-runtime`。
 
 ## 当前 Agent Runtime API
 
+这些接口仍由 `agent-runtime` 直接拥有或作为迁移期间的 fallback：
+
 ```text
 GET    /health
+GET    /api/v1/me
 GET    /api/v1/me/profile
 PATCH  /api/v1/me/profile
 POST   /api/v1/trip-plan
@@ -36,6 +42,8 @@ DELETE /api/v1/trip-plans/{tripPlanId}
 GET    /api/v1/trip-plans/{tripPlanId}/export
 ```
 
+外部访问优先经过 `travel-gateway`。即使某个路径仍由 `agent-runtime` 实际处理，也应该先由对应领域门面承接路由，方便逐步迁移。
+
 ## 目标微服务结构
 
 ```text
@@ -44,7 +52,6 @@ frontend
       -> travel-auth
       -> travel-trip
       -> travel-agent
-          -> agent-runtime
       -> travel-mcp
 
 travel-auth / travel-trip / travel-agent / agent-runtime
@@ -102,7 +109,7 @@ PostgreSQL, Redis, RabbitMQ, MinIO, pgvector, Docker Compose, K3s, Ingress, GitH
 
 ## 代码组织原则
 
-- `services/common` 只放跨服务基础设施代码，例如 HTTP 代理、header 转发、健康检查和后续通用错误结构。
+- `services/common` 只放跨服务基础设施代码，例如 HTTP 代理、header 转发、健康检查和通用错误结构。
 - 业务规则不能放入 `services/common`，避免共享包变成隐形单体。
 - 新服务应优先复用 `services/common` 中的基础设施能力，但保持自己的路由、配置和业务模块独立。
 
