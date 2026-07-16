@@ -98,6 +98,14 @@ import {
   type UserExportFile,
   type UserSecurityEvent,
 } from './lib/api';
+import {
+  getLocaleOptions,
+  languageOptions,
+  languageStorageKey,
+  normalizeLanguage,
+  translate,
+  type AppLanguage,
+} from './i18n';
 
 const interestOptions = [
   'city walk',
@@ -129,7 +137,6 @@ type RouteTextField = 'fromName' | 'toName' | 'mode' | 'instruction';
 type WeatherTextField = 'date' | 'dayWeather' | 'nightWeather' | 'windDirection' | 'windPower';
 type TripPlanMediaExportFormat = 'png' | 'pdf';
 type PlanningStage = { key: string; label: string; detail: string };
-
 const planningStages: PlanningStage[] = [
   { key: 'understanding', label: 'Understanding your trip', detail: 'Normalizing dates, preferences, and constraints' },
   { key: 'finding_attractions', label: 'Finding attractions', detail: 'Searching travel tools for relevant places' },
@@ -171,10 +178,18 @@ async function waitForTripPlanJob(
   throw new Error('Trip plan generation is still running. Try loading the saved itinerary later.');
 }
 
+function appendLanguageInstruction(instruction: string, languageInstruction: string): string {
+  const trimmedInstruction = instruction.trim();
+  return trimmedInstruction ? `${trimmedInstruction}\n\n${languageInstruction}` : languageInstruction;
+}
+
 export default function App() {
   const queryClient = useQueryClient();
   const importDataInputRef = useRef<HTMLInputElement | null>(null);
   const tripPlanExportRef = useRef<HTMLDivElement | null>(null);
+  const [language, setLanguage] = useState<AppLanguage>(() =>
+    normalizeLanguage(window.localStorage.getItem(languageStorageKey)),
+  );
   const [destination, setDestination] = useState('Chengdu');
   const [days, setDays] = useState(3);
   const [budget, setBudget] = useState('moderate');
@@ -264,6 +279,12 @@ export default function App() {
   const [anonymousImportMessage, setAnonymousImportMessage] = useState('');
   const [anonymousImportPromptOpen, setAnonymousImportPromptOpen] = useState(false);
   const [anonymousImportPromptDismissed, setAnonymousImportPromptDismissed] = useState(false);
+  const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
+  const localeOptions = getLocaleOptions(language);
+
+  useEffect(() => {
+    window.localStorage.setItem(languageStorageKey, language);
+  }, [language]);
 
   const authUserQuery = useQuery({
     queryKey: ['auth-user'],
@@ -987,7 +1008,7 @@ export default function App() {
       transportation,
       accommodation,
       preferences: interests,
-      freeTextInput,
+      freeTextInput: appendLanguageInstruction(freeTextInput, t('languageInstruction')),
       conversationId,
     });
   };
@@ -1864,7 +1885,7 @@ export default function App() {
     }
     reviseTripPlanMutation.mutate({
       tripPlanId: selectedTripPlanId,
-      instruction,
+      instruction: appendLanguageInstruction(instruction, t('reviseLanguageInstruction')),
       expectedVersion: selectedTripPlanVersion,
     });
   };
@@ -1884,7 +1905,7 @@ export default function App() {
     regenerateTripDayMutation.mutate({
       tripPlanId: selectedTripPlanId,
       day: regeneratingTripDay,
-      instruction,
+      instruction: appendLanguageInstruction(instruction, t('regenerateLanguageInstruction')),
       expectedVersion: selectedTripPlanVersion,
     });
   };
@@ -1895,7 +1916,16 @@ export default function App() {
         <aside className="rounded-lg bg-white p-5 shadow-panel">
           <div className="mb-6">
             <p className="text-sm font-medium uppercase tracking-wide text-trail">Travel Agent Cloud</p>
-            <h1 className="mt-2 text-3xl font-semibold text-ink">Trip planner workspace</h1>
+            <h1 className="mt-2 text-3xl font-semibold text-ink">{t('workspaceTitle')}</h1>
+            <label className="mt-4 block">
+              <span className="mb-2 block text-sm font-medium text-ink">{t('language')}</span>
+              <Segmented
+                block
+                value={language}
+                options={languageOptions}
+                onChange={(value) => setLanguage(normalizeLanguage(String(value)))}
+              />
+            </label>
           </div>
 
           <RuntimeStatus
@@ -1994,18 +2024,18 @@ export default function App() {
 
           <div className="space-y-4">
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-ink">Destination</span>
+              <span className="mb-2 block text-sm font-medium text-ink">{t('destination')}</span>
               <Input value={destination} onChange={(event) => setDestination(event.target.value)} />
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-ink">Days</span>
+              <span className="mb-2 block text-sm font-medium text-ink">{t('days')}</span>
               <InputNumber min={1} max={30} value={days} onChange={(value) => setDays(value ?? 1)} className="w-full" />
             </label>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-ink">Start date</span>
+                <span className="mb-2 block text-sm font-medium text-ink">{t('startDate')}</span>
                 <Input
                   type="date"
                   value={startDate}
@@ -2013,7 +2043,7 @@ export default function App() {
                 />
               </label>
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-ink">End date</span>
+                <span className="mb-2 block text-sm font-medium text-ink">{t('endDate')}</span>
                 <Input
                   type="date"
                   value={endDate}
@@ -2023,51 +2053,37 @@ export default function App() {
             </div>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-ink">Budget</span>
+              <span className="mb-2 block text-sm font-medium text-ink">{t('budget')}</span>
               <Select
                 value={budget}
                 onChange={setBudget}
                 className="w-full"
-                options={[
-                  { value: 'low', label: 'Low' },
-                  { value: 'moderate', label: 'Moderate' },
-                  { value: 'premium', label: 'Premium' },
-                ]}
+                options={localeOptions.budget}
               />
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-ink">Transportation</span>
+              <span className="mb-2 block text-sm font-medium text-ink">{t('transportation')}</span>
               <Select
                 value={transportation}
                 onChange={setTransportation}
                 className="w-full"
-                options={[
-                  { value: 'public transit', label: 'Public transit' },
-                  { value: 'walking and metro', label: 'Walking and metro' },
-                  { value: 'taxi / ride hailing', label: 'Taxi / ride hailing' },
-                  { value: 'self drive', label: 'Self drive' },
-                ]}
+                options={localeOptions.transportation}
               />
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-ink">Accommodation</span>
+              <span className="mb-2 block text-sm font-medium text-ink">{t('accommodation')}</span>
               <Select
                 value={accommodation}
                 onChange={setAccommodation}
                 className="w-full"
-                options={[
-                  { value: 'budget hostel', label: 'Budget hostel' },
-                  { value: 'comfortable hotel', label: 'Comfortable hotel' },
-                  { value: 'boutique hotel', label: 'Boutique hotel' },
-                  { value: 'premium hotel', label: 'Premium hotel' },
-                ]}
+                options={localeOptions.accommodation}
               />
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-ink">Interests</span>
+              <span className="mb-2 block text-sm font-medium text-ink">{t('interests')}</span>
               <Select
                 mode="multiple"
                 value={interests}
@@ -2078,13 +2094,13 @@ export default function App() {
             </label>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-ink">Additional constraints</span>
+              <span className="mb-2 block text-sm font-medium text-ink">{t('additionalConstraints')}</span>
               <Input.TextArea
                 rows={3}
                 maxLength={1000}
                 value={freeTextInput}
                 onChange={(event) => setFreeTextInput(event.target.value)}
-                placeholder="No early mornings, avoid stairs, include spicy food..."
+                placeholder={t('constraintsPlaceholder')}
               />
             </label>
 
@@ -2095,7 +2111,7 @@ export default function App() {
               onClick={submitTripPlan}
               className="w-full"
             >
-              Generate itinerary
+              {t('generateItinerary')}
             </Button>
           </div>
 
@@ -2275,7 +2291,7 @@ export default function App() {
 
           {!tripPlanMutation.isPending && !plan && !tripPlanMutation.isError && (
             <div className="rounded-lg border border-dashed border-slate-300 p-8 text-slate-600">
-              Generate a plan to preview the first Agent Runtime response.
+              {t('emptyPlan')}
             </div>
           )}
 
@@ -2305,7 +2321,7 @@ export default function App() {
                           loading={tripPlanMutation.isPending}
                           onClick={submitTripPlan}
                         >
-                          Retry live data
+                          {t('retryLiveData')}
                         </Button>
                       )}
                     </div>
@@ -2323,12 +2339,12 @@ export default function App() {
                       loading={reviseTripPlanMutation.isPending}
                       onClick={openTripPlanReviser}
                     >
-                      Revise
+                      {t('revise')}
                     </Button>
                   )}
                   {selectedTripPlanId && (
                     <Button icon={<HistoryOutlined />} onClick={openTripPlanVersions}>
-                      Versions
+                      {t('versions')}
                     </Button>
                   )}
                   {selectedTripPlanId && (
@@ -2346,7 +2362,7 @@ export default function App() {
                     loading={exportTripPlanMutation.isPending}
                     onClick={() => exportTripPlanMutation.mutate()}
                   >
-                    Export .md
+                    {t('exportMarkdown')}
                   </Button>
                   <Button
                     icon={<FileImageOutlined />}
@@ -2354,7 +2370,7 @@ export default function App() {
                     disabled={Boolean(tripPlanMediaExportFormat)}
                     onClick={() => void exportTripPlanMedia('png')}
                   >
-                    Export PNG
+                    {t('exportPng')}
                   </Button>
                   <Button
                     icon={<FilePdfOutlined />}
@@ -2362,7 +2378,7 @@ export default function App() {
                     disabled={Boolean(tripPlanMediaExportFormat)}
                     onClick={() => void exportTripPlanMedia('pdf')}
                   >
-                    Export PDF
+                    {t('exportPdf')}
                   </Button>
                 </div>
               </div>
@@ -2374,10 +2390,10 @@ export default function App() {
               )}
 
               <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <PlanMeta label="Dates" value={formatDateRange(plan.startDate, plan.endDate)} />
-                <PlanMeta label="Transportation" value={plan.transportation || transportation} />
-                <PlanMeta label="Accommodation" value={plan.accommodation || accommodation} />
-                <PlanMeta label="Preferences" value={(plan.preferences?.length ? plan.preferences : interests).join(', ')} />
+                <PlanMeta label={t('dates')} value={formatDateRange(plan.startDate, plan.endDate)} />
+                <PlanMeta label={t('transportation')} value={plan.transportation || transportation} />
+                <PlanMeta label={t('accommodation')} value={plan.accommodation || accommodation} />
+                <PlanMeta label={t('preferences')} value={(plan.preferences?.length ? plan.preferences : interests).join(', ')} />
               </div>
 
               <TripMapPreview plan={plan} forceSchematic={Boolean(tripPlanMediaExportFormat)} />
@@ -2387,16 +2403,16 @@ export default function App() {
                   {plan.budget && (
                     <section className="rounded-lg border border-slate-200 p-4">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-semibold text-ink">Budget estimate</h3>
+                        <h3 className="font-semibold text-ink">{t('budgetEstimate')}</h3>
                         <DataSourceBadge source={getPlanDataSource(plan, 'budget')} />
                       </div>
                       <div className="mt-3 grid gap-2 text-sm text-slate-600">
-                        <PlanCost label="Attractions" value={plan.budget.totalAttractions} />
-                        <PlanCost label="Hotels" value={plan.budget.totalHotels} />
-                        <PlanCost label="Meals" value={plan.budget.totalMeals} />
-                        <PlanCost label="Transportation" value={plan.budget.totalTransportation} />
+                        <PlanCost label={t('attractions')} value={plan.budget.totalAttractions} />
+                        <PlanCost label={t('hotels')} value={plan.budget.totalHotels} />
+                        <PlanCost label={t('meals')} value={plan.budget.totalMeals} />
+                        <PlanCost label={t('transportation')} value={plan.budget.totalTransportation} />
                         <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2 font-semibold text-ink">
-                          <span>Total</span>
+                          <span>{t('total')}</span>
                           <span>{formatCost(plan.budget.total)}</span>
                         </div>
                       </div>
@@ -2405,7 +2421,7 @@ export default function App() {
 
                   <section className="rounded-lg border border-slate-200 p-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-semibold text-ink">Weather and planning notes</h3>
+                      <h3 className="font-semibold text-ink">{t('weatherNotes')}</h3>
                       <DataSourceBadge source={getPlanDataSource(plan, 'weather')} />
                     </div>
                     {plan.weatherInfo?.length ? (
@@ -2414,7 +2430,7 @@ export default function App() {
                           <div key={weather.date} className="rounded-md bg-slate-50 p-3 text-sm text-slate-600">
                             <p className="font-medium text-ink">{weather.date}</p>
                             <p className="mt-1">
-                              {weather.dayWeather || 'Unknown'} / {weather.nightWeather || 'Unknown'}
+                              {weather.dayWeather || t('unknown')} / {weather.nightWeather || t('unknown')}
                             </p>
                             <p>
                               {weather.dayTemp}C / {weather.nightTemp}C, {weather.windDirection} {weather.windPower}
@@ -2423,7 +2439,7 @@ export default function App() {
                         ))}
                       </div>
                     ) : (
-                      <p className="mt-2 text-sm text-slate-500">Weather data will appear after tool enrichment.</p>
+                      <p className="mt-2 text-sm text-slate-500">{t('weatherEmpty')}</p>
                     )}
                     {plan.overallSuggestions && (
                       <p className="mt-3 rounded-md bg-mist p-3 text-sm leading-6 text-slate-700">
@@ -2440,7 +2456,9 @@ export default function App() {
                     <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-semibold text-ink">Day {day.day}</h3>
+                          <h3 className="text-lg font-semibold text-ink">
+                            {language === 'zh-CN' ? `${t('day')}${day.day}天` : `${t('day')} ${day.day}`}
+                          </h3>
                           <DataSourceBadge source={getPlanDataSource(plan, 'attractions')} />
                           <DataSourceBadge source={getPlanDataSource(plan, 'lodging_meals')} />
                           <DataSourceBadge source={getPlanDataSource(plan, 'routes')} />
@@ -2457,25 +2475,25 @@ export default function App() {
                             onClick={() => openTripDayRegenerator(day.day)}
                             data-export-ignore="true"
                           >
-                            Regenerate
+                            {t('regenerate')}
                           </Button>
                         )}
                       </div>
                     </div>
                     {day.description && <p className="mb-3 text-sm leading-6 text-slate-600">{day.description}</p>}
                     <div className="mb-3 grid gap-3 md:grid-cols-3">
-                      {day.transportation && <PlanMeta label="Transit" value={day.transportation} />}
-                      {day.accommodation && <PlanMeta label="Stay type" value={day.accommodation} />}
+                      {day.transportation && <PlanMeta label={t('transit')} value={day.transportation} />}
+                      {day.accommodation && <PlanMeta label={t('stayType')} value={day.accommodation} />}
                       {day.hotel && (
                         <PlanMeta
-                          label="Hotel"
+                          label={t('hotel')}
                           value={`${day.hotel.name}${day.hotel.estimatedCost ? ` / ${formatCost(day.hotel.estimatedCost)}` : ''}`}
                         />
                       )}
                     </div>
                     {(day.attractions?.length ?? 0) > 0 && (
                       <div className="mb-3">
-                        <h4 className="mb-2 text-sm font-semibold text-ink">Attractions</h4>
+                        <h4 className="mb-2 text-sm font-semibold text-ink">{t('attractions')}</h4>
                         <div className="grid gap-3 md:grid-cols-2">
                           {day.attractions?.map((attraction) => (
                             <div key={`${day.day}-${attraction.name}`} className="overflow-hidden rounded-md bg-slate-50">
@@ -2513,7 +2531,7 @@ export default function App() {
                     )}
                     {(day.meals?.length ?? 0) > 0 && (
                       <div className="mb-3">
-                        <h4 className="mb-2 text-sm font-semibold text-ink">Meals</h4>
+                        <h4 className="mb-2 text-sm font-semibold text-ink">{t('meals')}</h4>
                         <div className="grid gap-2 md:grid-cols-3">
                           {day.meals?.map((meal) => (
                             <div key={`${day.day}-${meal.type}-${meal.name}`} className="rounded-md bg-mist p-3">
@@ -2532,7 +2550,7 @@ export default function App() {
                     )}
                     {(day.routes?.length ?? 0) > 0 && (
                       <div className="mb-3">
-                        <h4 className="mb-2 text-sm font-semibold text-ink">Routes</h4>
+                        <h4 className="mb-2 text-sm font-semibold text-ink">{t('routes')}</h4>
                         <div className="grid gap-2 md:grid-cols-2">
                           {day.routes?.map((route, routeIndex) => (
                             <div
@@ -2561,16 +2579,16 @@ export default function App() {
                       </div>
                     )}
                     <div className="grid gap-3 md:grid-cols-3">
-                      <PlanBlock title="Morning" value={day.morning} />
-                      <PlanBlock title="Afternoon" value={day.afternoon} />
-                      <PlanBlock title="Evening" value={day.evening} />
+                      <PlanBlock title={t('morning')} value={day.morning} />
+                      <PlanBlock title={t('afternoon')} value={day.afternoon} />
+                      <PlanBlock title={t('evening')} value={day.evening} />
                     </div>
                   </article>
                 ))}
               </div>
 
               <div className="mt-5 rounded-lg bg-slate-50 p-4">
-                <h3 className="font-semibold text-ink">Travel notes</h3>
+                <h3 className="font-semibold text-ink">{t('travelNotes')}</h3>
                 <ul className="mt-2 list-inside list-disc text-slate-600">
                   {(plan.tips ?? []).map((tip) => (
                     <li key={tip}>{tip}</li>
@@ -6571,3 +6589,4 @@ function slugify(value: string): string {
     .slice(0, 120);
   return filename || 'trip-plan';
 }
+
