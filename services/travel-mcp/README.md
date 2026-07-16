@@ -1,12 +1,23 @@
 # travel-mcp
 
-Local MCP-compatible travel tool server for Agent Runtime development.
+`travel-mcp` 是本地和容器环境中使用的旅行工具服务，提供兼容 MCP 风格的 HTTP JSON-RPC 接口。
 
-This service exposes a minimal JSON-RPC endpoint at `/mcp` with `tools/list`
-and `tools/call`. When `AMAP_WEB_SERVICE_KEY` is configured it calls Amap Web
-Service APIs for POI search, weather, and basic walking/driving routes. Without
-that key, or when an upstream call fails, it returns deterministic fallback
-travel data for:
+## 当前能力
+
+服务在 `/mcp` 暴露最小 JSON-RPC 接口：
+
+- `tools/list`
+- `tools/call`
+
+配置 `AMAP_WEB_SERVICE_KEY` 后，服务会调用高德 Web Service API 获取：
+
+- POI 搜索
+- 天气
+- 基础步行/驾车路线
+
+如果没有配置高德 key，或者上游调用失败，服务会返回确定性的 fallback 数据，保证本地开发、smoke test 和部署检查仍可运行。
+
+## 工具列表
 
 - `travel.search_attractions`
 - `travel.search_hotel`
@@ -15,16 +26,15 @@ travel data for:
 - `travel.get_weather`
 - `travel.estimate_budget`
 
-The service is intentionally stateless and does not persist user data. Keep the
-tool names and response schemas stable while replacing or expanding provider
-logic.
+## 数据约束
 
-POI tools should not leak internal placeholder names such as `Amap POI`,
-`MCP option`, or `Stub` into user-facing plans. When live AMap data is available,
-the service searches multiple category-specific keywords, filters unrelated POIs,
-and deduplicates results before returning them to `agent-runtime`.
+- 服务本身无状态，不持久化用户数据。
+- 工具名称和响应 schema 应保持稳定。
+- 不应把 `Amap POI`、`MCP option`、`Stub` 等内部占位名暴露到面向用户的行程里。
+- 高德数据可用时，应按类别搜索、过滤无关 POI、去重后再返回给 `agent-runtime`。
+- 供应商相关逻辑应留在本服务中，避免泄漏到前端或核心 Agent API。
 
-Configuration:
+## 配置
 
 ```text
 AMAP_WEB_SERVICE_KEY=
@@ -32,7 +42,7 @@ AMAP_BASE_URL=https://restapi.amap.com
 AMAP_TIMEOUT_SECONDS=8
 ```
 
-Local run:
+## 本地运行
 
 ```powershell
 cd services/travel-mcp
@@ -42,14 +52,14 @@ $env:AMAP_WEB_SERVICE_KEY="your-amap-web-service-key"
 .\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8100
 ```
 
-Agent Runtime config for local host mode:
+## Agent Runtime 本机模式配置
 
 ```text
 TRAVEL_TOOL_PROVIDER=fastmcp
 FASTMCP_BASE_URL=http://localhost:8100/mcp
 ```
 
-Agent Runtime config for Docker Compose network mode:
+## Docker Compose 网络模式配置
 
 ```text
 TRAVEL_TOOL_PROVIDER=fastmcp

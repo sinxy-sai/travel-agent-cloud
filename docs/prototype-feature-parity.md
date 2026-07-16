@@ -1,61 +1,63 @@
-# Prototype Feature Parity
+# 原型功能对齐
 
-Source prototype:
+参考原型：
 
-`Hello-Agents/hello-agents-main/code/chapter13/helloagents-trip-planner`
+```text
+Hello-Agents/hello-agents-main/code/chapter13/helloagents-trip-planner
+```
 
-This project should first preserve the prototype's user-facing travel planning capabilities, then evolve them into the cloud-native product.
+本项目应先保留原型面向用户的旅行规划能力，再逐步演进为云原生产品。
 
-## Migration Shape
+## 迁移形态
 
-The prototype is a two-layer app: Vue frontend plus a FastAPI backend centered on a `MultiAgentTripPlanner`. Its main behavior is:
+原型是两层应用：Vue 前端 + 以 `MultiAgentTripPlanner` 为核心的 FastAPI 后端。核心流程是：
 
-1. attraction agent calls AMap text search;
-2. weather agent calls AMap weather;
-3. hotel agent calls AMap text search;
-4. planner agent merges those tool results into a structured itinerary JSON.
+1. 景点 Agent 调用高德文本搜索。
+2. 天气 Agent 调用高德天气。
+3. 酒店 Agent 调用高德文本搜索。
+4. Planner Agent 将工具结果整合为结构化行程 JSON。
 
-Travel Agent Cloud keeps the same user-facing behavior, but maps it onto a deployable architecture:
+Travel Agent Cloud 保留相同的用户侧行为，但映射到可部署架构：
 
-| Prototype concept | Travel Agent Cloud equivalent |
+| 原型概念 | Travel Agent Cloud 对应实现 |
 | --- | --- |
-| `SimpleAgent` attraction/weather/hotel/planner agents | LangGraph nodes: `attraction_agent`, `weather_agent`, `hotel_agent`, `meal_agent`, `route_agent`, `budget_agent`, `planner_agent` |
-| `MCPTool` wrapping `amap-mcp-server` | `services/travel-mcp` FastMCP-compatible tool service |
-| Text tool output merged by planner prompt | Structured tool payloads merged by `agent-runtime`, with optional LangChain tool-calling inside nodes |
-| In-memory/session frontend state | PostgreSQL-backed conversations, trip plans, versions, exports, jobs, and user accounts |
-| Single backend process | Full-stack deployable services: frontend, agent-runtime, worker, Postgres, Redis, RabbitMQ, object storage, travel-mcp |
+| 景点、天气、酒店、规划等 `SimpleAgent` | LangGraph 节点：`attraction_agent`、`weather_agent`、`hotel_agent`、`meal_agent`、`route_agent`、`budget_agent`、`planner_agent` |
+| 包装 `amap-mcp-server` 的 `MCPTool` | `services/travel-mcp` MCP 兼容工具服务 |
+| Planner prompt 整合文本工具结果 | `agent-runtime` 整合结构化工具 payload，可在节点内部使用 LangChain tool-calling |
+| 前端 sessionStorage 状态 | PostgreSQL 持久化会话、行程、版本、导出、任务和用户账号 |
+| 单后端进程 | frontend、travel-gateway、agent-runtime、worker、PostgreSQL、Redis、RabbitMQ、MinIO、travel-mcp |
 
-This means we should copy the prototype's product behavior and prompts where useful, but not copy the `helloagent` framework or its persistence model. Provider-specific AMap details stay inside `services/travel-mcp`; orchestration and product records stay inside `agent-runtime`.
+这意味着我们要复刻原型的产品行为和有价值的 prompt 思路，但不直接复制 `helloagent` 框架或它的持久化模型。
 
-## Prototype Capabilities To Preserve
+## 需要保留的原型能力
 
-| Area | Prototype behavior | Travel Agent Cloud status |
+| 模块 | 原型行为 | 当前状态 |
 | --- | --- | --- |
-| Trip input | Destination city, start date, end date, auto-calculated travel days | Supported with destination, dates, days, transport, stay, interests, free text |
-| Preferences | Transport preference, accommodation preference, travel style tags, extra requirements | Supported with transport, accommodation, interests, profile preferences, free text |
-| Planning progress | Step-style progress text while generating: attractions, weather, hotels, itinerary | Supported with backend trip-plan jobs, SSE progress streaming, and polling fallback |
-| Agent planning | Multi-agent flow: attraction search, weather query, hotel search, final planner | Supported through LangGraph workflow nodes and FastMCP travel tools, with deterministic fallback data when tools fail |
-| Map tools | Amap MCP tools for POI, weather, walking/driving/transit routes | FastMCP travel tool server is wired with Amap support and deterministic fallback data |
-| Result overview | Overview, date range, suggestions, budget | Supported |
-| Budget | Attraction, hotel, meal, transportation, total cost | Supported |
-| Daily itinerary | Per-day description, transport, accommodation, attractions, hotel, meals, routes | Supported with section-level data source badges for attractions, hotels/meals, and routes |
-| Attraction details | Name, address, duration, description, rating, ticket price, image | Supported; AMap POI photos render when available, with stable placeholders and export-safe fallback |
-| Hotel details | Name, address, type, price range, rating, distance | Supported |
-| Weather | Day/night weather, temperatures, wind | Supported |
-| Map view | Map markers and route polylines for attractions | Supported with All days and per-day modes; AMap SDK preview is used when frontend map keys and coordinates are available, with schematic fallback |
-| Editing | Edit itinerary, move/delete attractions, save/cancel changes | Supported for trip/day fields, hotels, attractions, meals, weather, and route segments |
-| Export | Export result as image and PDF | Supported for Markdown, PNG, and PDF; media export uses the schematic map and export-safe image placeholders to avoid third-party canvas/CORS failures |
+| 行程输入 | 目的地、开始日期、结束日期、自动计算天数 | 已支持目的地、日期、天数、交通、住宿、兴趣和自由文本 |
+| 偏好 | 交通、住宿、旅行风格、额外要求 | 已支持 |
+| 生成进度 | 生成时展示景点、天气、酒店、行程等步骤 | 已支持 job polling、SSE 进度和 fallback |
+| Agent 规划 | 多 Agent：景点、天气、酒店、最终规划 | 已通过 LangGraph 节点和 FastMCP 工具支持 |
+| 地图工具 | 高德 MCP 工具查询 POI、天气、路线 | 已接入 `travel-mcp` 和高德 Web Service |
+| 结果概览 | 概览、日期范围、建议、预算 | 已支持 |
+| 预算 | 景点、酒店、餐食、交通和总价 | 已支持 |
+| 每日行程 | 每日描述、交通、住宿、景点、酒店、餐食、路线 | 已支持，并带数据来源徽标 |
+| 景点详情 | 名称、地址、时长、描述、评分、门票、图片 | 已支持，高德图片可用时展示 |
+| 酒店详情 | 名称、地址、类型、价格范围、评分、距离 | 已支持 |
+| 天气 | 日夜天气、温度、风向风力 | 已支持 |
+| 地图视图 | 景点 marker 和路线 polyline | 已支持高德 SDK 预览和 schematic fallback |
+| 编辑 | 编辑行程、移动/删除景点、保存/取消 | 已支持行程、每日、酒店、景点、餐食、天气和路线编辑 |
+| 导出 | 图片和 PDF 导出 | 已支持 Markdown、PNG 和 PDF |
 
-## Recommended Implementation Order
+## 推荐实现顺序
 
-1. Expand data-source transparency from section-level badges into targeted retry actions for individual failed data sources.
-2. Browser-verify SSE progress updates through Docker Compose, local Vite proxying, and production ingress.
-3. Browser-verify PNG/PDF export across long itineraries, Chinese text, AMap-enabled runs, fallback-map runs, and remote POI photos.
-4. Continue improving FastMCP tool coverage for POI, hotel, meal, weather, route, and budget calls while keeping provider-specific details inside the tool layer.
-5. Move more planner-agent prompt behavior from the prototype into the LangGraph `planner_agent`, while keeping typed request/response contracts stable.
+1. 将数据来源透明度从模块徽标细化到单个失败来源的重试动作。
+2. 用浏览器验证 Docker Compose、本地 Vite 代理和生产 Ingress 下的 SSE 进度。
+3. 验证长行程、中文文本、高德数据、fallback 地图和远程 POI 图片下的 PNG/PDF 导出。
+4. 持续增强 FastMCP 工具覆盖范围，并把供应商细节留在工具层。
+5. 将原型中有效的 planner prompt 思路迁移到 LangGraph `planner_agent`，同时保持 API 契约稳定。
 
-## Non-Goals For Direct Copy
+## 不直接复制的部分
 
-- Do not copy the prototype's sessionStorage-only persistence model; Travel Agent Cloud uses authenticated users and PostgreSQL.
-- Do not expose raw tool call payloads to the frontend; keep traces privacy-safe.
-- Do not couple the public API to Amap names. Keep provider-specific names inside the tool provider layer.
+- 不复制原型只依赖 sessionStorage 的持久化方式。
+- 不把原始工具调用 payload 暴露给前端。
+- 不让公共 API 绑定高德供应商命名，供应商细节留在工具层。

@@ -1,12 +1,14 @@
-# Architecture
+# 架构说明
 
-Travel Agent Cloud starts with a small deployable core:
+Travel Agent Cloud 当前从一个可部署核心开始：
 
 ```text
-frontend -> agent-runtime -> PostgreSQL
+frontend -> travel-gateway -> agent-runtime -> PostgreSQL
+                                 -> travel-mcp
+                                 -> Redis / RabbitMQ / MinIO
 ```
 
-Current Agent Runtime contract:
+## 当前 Agent Runtime API
 
 ```text
 GET    /health
@@ -29,7 +31,7 @@ DELETE /api/v1/trip-plans/{tripPlanId}
 GET    /api/v1/trip-plans/{tripPlanId}/export
 ```
 
-Target microservice architecture:
+## 目标微服务结构
 
 ```text
 frontend
@@ -38,44 +40,39 @@ frontend
       -> travel-trip
       -> travel-agent
           -> agent-runtime
+      -> travel-mcp
 
-travel-auth/travel-trip/travel-agent
-  -> PostgreSQL / Redis / MinIO / pgvector
-  -> RabbitMQ
+travel-auth / travel-trip / travel-agent / agent-runtime
+  -> PostgreSQL / Redis / MinIO / RabbitMQ
 ```
 
-## Service Communication
+## 服务通信
 
-- Public frontend traffic enters through `travel-gateway`.
-- External HTTP APIs follow REST conventions under `/api/v1`.
-- Java microservices call each other with Spring Cloud OpenFeign.
-- Gateway-to-Agent Runtime and Java-to-Agent Runtime calls use REST first because the Python runtime already exposes FastAPI contracts.
-- gRPC is reserved for future low-latency or bidirectional streaming use cases, such as live agent trace streaming or tool execution streams.
+- 前端流量统一进入 `travel-gateway`。
+- 对外 HTTP API 使用 `/api/v1` 下的 REST 风格。
+- Python/FastAPI 服务之间优先使用 HTTP REST。
+- `agent-runtime` 通过 MCP 风格 JSON-RPC 调用 `travel-mcp`。
+- gRPC 暂时保留，不作为当前默认方案；只有出现明确的低延迟或双向流式需求时再引入。
 
-## Message Queue
+## 消息队列
 
-RabbitMQ is the default message queue for the project.
+RabbitMQ 是当前默认消息队列，用于领域事件和后台任务。
 
-Initial event and job candidates:
+候选事件：
 
-- `trip.plan.created`: created after a trip plan is saved.
-- `trip.plan.updated`: created after a trip plan metadata update, such as favorite changes.
-- `trip.plan.deleted`: created after a saved trip plan is deleted.
-- `trip.plan.export.requested`: queued when exporting large files or generating attachments.
-- `agent.conversation.updated`: created after conversation metadata changes.
-- `agent.conversation.deleted`: created after a conversation is deleted.
-- `agent.conversation.summarize.requested`: emitted when a summary job is requested.
-- `agent.conversation.summary.created`: emitted after a conversation summary is generated or refreshed.
-- `user.profile.updated`: emitted when user preferences change.
+- `trip.plan.created`
+- `trip.plan.updated`
+- `trip.plan.deleted`
+- `trip.plan.export.requested`
+- `agent.conversation.updated`
+- `agent.conversation.deleted`
+- `agent.conversation.summarize.requested`
+- `agent.conversation.summary.created`
+- `user.profile.updated`
 
-Current summarization flow:
+当前异步摘要流程：
 
 ```text
-POST /api/v1/conversations/{conversationId}/summary
-  -> ConversationSummarizerWorker
-  -> PostgreSQL conversation_summaries
-  -> RabbitMQ events when MESSAGE_QUEUE_URL is configured
-
 POST /api/v1/conversations/{conversationId}/summary-jobs
   -> PostgreSQL conversation_summary_jobs status=QUEUED
   -> RabbitMQ agent.conversation.summarize.requested
@@ -84,20 +81,18 @@ POST /api/v1/conversations/{conversationId}/summary-jobs
   -> ConversationSummarizerWorker
 ```
 
-The default K3s deployment keeps the API process separate from the worker, and deploys RabbitMQ plus `agent-runtime-worker` through Kustomize. Required Kubernetes Secrets must exist before automated deployment.
+## 队列规则
 
-Queue rules:
+- 生产者发布小型 JSON 事件，字段使用 camelCase。
+- 消费者必须幂等，因为队列消息可能重试。
+- 业务数据仍以 PostgreSQL 为准，消息只携带 ID 和必要上下文。
+- 长耗时任务必须持久化状态，并提供查询接口供前端轮询。
+- Secret 只能通过 `.env` 或 Kubernetes Secret 注入，不能提交到仓库。
 
-- Producers publish small JSON events with stable camelCase field names.
-- Consumers must be idempotent because queue delivery can be retried.
-- Business data remains in PostgreSQL; queue messages carry IDs and minimal context.
-- Long-running user-facing jobs must persist status in PostgreSQL and expose a read endpoint for polling.
-- Secrets are injected through Kubernetes Secret or local `.env`, never committed.
-
-Supporting infrastructure:
+## 支撑基础设施
 
 ```text
-PostgreSQL, Redis, RabbitMQ, MinIO, pgvector, K3s, Ingress, GitHub Actions
+PostgreSQL, Redis, RabbitMQ, MinIO, pgvector, Docker Compose, K3s, Ingress, GitHub Actions
 ```
 
-API conventions are documented in [api-guidelines.md](api-guidelines.md). Service communication details are documented in [service-communication.md](service-communication.md).
+API 规范见 [api-guidelines.md](api-guidelines.md)，服务通信细节见 [service-communication.md](service-communication.md)。

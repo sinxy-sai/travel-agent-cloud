@@ -1,9 +1,8 @@
-# Kubernetes-native Python Microservices Roadmap
+# Kubernetes 原生 Python 微服务路线图
 
-The project is moving toward Kubernetes-native Python/FastAPI microservices.
-This does not require Spring Boot, Spring Cloud, or gRPC as the default stack.
+本项目后续采用 Kubernetes 原生 + Python/FastAPI 微服务路线。这里的“微服务化”指服务边界、独立部署、服务发现、网关入口、异步消息和可观测性，不要求使用 Spring Boot、Spring Cloud 或 gRPC。
 
-## Current Running Boundary
+## 当前运行边界
 
 ```text
 frontend
@@ -19,36 +18,36 @@ agent-runtime
   -> travel-mcp
 ```
 
-## Services
+## 当前和规划中的服务
 
-- `travel-gateway`: thin FastAPI reverse proxy and public API entrypoint.
-- `agent-runtime`: current auth, trip, chat, export, and agent orchestration API.
-- `travel-mcp`: travel tool service, currently AMap-backed with fallback behavior.
-- `agent-runtime-worker`: background worker consuming RabbitMQ jobs.
-- `travel-auth`: planned FastAPI service for auth once auth boundaries are stable.
-- `travel-trip`: planned FastAPI service for trip persistence and export ownership.
-- `travel-agent`: planned FastAPI facade for quota, audit, and agent request policy.
+- `travel-gateway`：轻量 FastAPI 网关，作为前端访问后端的统一入口。
+- `agent-runtime`：当前承载认证、行程、聊天、导出和 Agent 编排 API。
+- `travel-mcp`：旅行工具服务，当前支持高德数据和确定性 fallback。
+- `agent-runtime-worker`：消费 RabbitMQ 任务的后台 worker。
+- `travel-auth`：规划中的认证服务，等认证边界稳定后再拆。
+- `travel-trip`：规划中的行程管理服务，等行程和导出模型稳定后再拆。
+- `travel-agent`：规划中的 Agent 门面服务，用于配额、审计、权限和请求策略。
 
-## Kubernetes Responsibilities
+## Kubernetes 职责
 
-- Service discovery uses Kubernetes service DNS, for example `http://agent-runtime:8000`.
-- Public routing uses Kubernetes Ingress to `travel-gateway`.
-- Runtime config uses environment variables and Kubernetes Secrets.
-- Async work uses RabbitMQ, not direct in-process calls.
-- Shared state uses PostgreSQL, Redis, and MinIO.
+- 服务发现使用 Kubernetes Service DNS，例如 `http://agent-runtime:8000`。
+- 公网入口使用 Ingress，并优先路由到 `travel-gateway`。
+- 配置通过环境变量注入，敏感信息放在 Kubernetes Secret。
+- 异步任务通过 RabbitMQ，不依赖进程内调用。
+- 共享基础设施包括 PostgreSQL、Redis、MinIO 和 RabbitMQ。
 
-## Migration Order
+## 迁移顺序
 
-1. Put `travel-gateway` in front of the existing API.
-2. Run `travel-mcp` as a first real tool microservice.
-3. Keep `agent-runtime` stable while agent planning behavior matures.
-4. Split `travel-auth` only after auth flows are stable.
-5. Split `travel-trip` after trip/export schemas settle.
-6. Add `travel-agent` when quota/audit/policy logic no longer belongs in `agent-runtime`.
+1. 先让 `travel-gateway` 站到现有 API 前面。
+2. 将 `travel-mcp` 作为第一个真实工具微服务运行。
+3. 保持 `agent-runtime` 稳定，继续打磨旅行规划行为。
+4. 认证流程稳定后再拆出 `travel-auth`。
+5. 行程、版本、导出模型稳定后再拆出 `travel-trip`。
+6. 当配额、审计、权限策略变复杂后，再加入 `travel-agent`。
 
-## Non-goals For Now
+## 暂不做的事
 
-- No Spring Cloud migration.
-- No service mesh requirement.
-- No gRPC requirement until there is a concrete streaming or low-latency internal API need.
-- No early database-per-service split before data ownership is clear.
+- 暂不迁移到 Spring Cloud。
+- 暂不引入服务网格。
+- 暂不默认使用 gRPC，除非出现明确的低延迟或双向流式内部调用需求。
+- 暂不急着拆分每个服务的独立数据库，先等数据所有权稳定。

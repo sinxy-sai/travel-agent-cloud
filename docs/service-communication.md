@@ -1,63 +1,68 @@
-# Service Communication Plan
+# 服务通信方案
 
-This document defines the service-to-service communication choices for Travel Agent Cloud.
+本文档描述 Travel Agent Cloud 的服务间通信选择。
 
-## Selected Stack
+## 当前选型
 
-| Need | Choice | Scope |
+| 需求 | 方案 | 范围 |
 | --- | --- | --- |
-| Public API | REST over HTTP | Frontend to Gateway |
-| Java internal RPC | Spring Cloud OpenFeign | Gateway, auth, trip, agent services |
-| Python Agent Runtime calls | REST over HTTP | Java `travel-agent` to FastAPI `agent-runtime` |
-| Travel tool calls | MCP-style JSON-RPC over HTTP | `agent-runtime` to `travel-mcp` / future FastMCP servers |
-| Async events and jobs | RabbitMQ | Cross-service events and background jobs |
-| Future streaming RPC | gRPC | Reserved, not part of the current implementation |
+| 公共 API | HTTP REST | 前端到 `travel-gateway` |
+| Python 服务内部调用 | HTTP REST | `travel-gateway` 到各后端服务 |
+| Agent Runtime 调用 | HTTP REST | `travel-agent` 到 `agent-runtime` |
+| 旅行工具调用 | MCP 风格 HTTP JSON-RPC | `agent-runtime` 到 `travel-mcp` |
+| 异步事件和后台任务 | RabbitMQ | 跨服务事件和后台任务 |
+| 未来流式 RPC | gRPC 或 WebSocket | 保留，不是当前默认实现 |
 
-## Why RabbitMQ
+## 为什么使用 RabbitMQ
 
-RabbitMQ fits the current product better than Kafka because the first async workloads are business events and background jobs, not high-throughput analytics streams.
+当前异步工作负载主要是业务事件和后台任务，而不是高吞吐日志分析流。RabbitMQ 更适合目前阶段。
 
-Use RabbitMQ for:
+适合使用 RabbitMQ 的场景：
 
-- Conversation summarization jobs.
-- Large export generation.
-- Notification or audit events.
-- Retryable tool execution jobs.
-- Decoupling profile/trip events from downstream consumers.
+- 会话摘要任务。
+- 大文件导出生成。
+- 通知或审计事件。
+- 可重试的工具执行任务。
+- 用户、行程、Agent 事件与下游消费者解耦。
 
-Do not use RabbitMQ for:
+不适合使用 RabbitMQ 的场景：
 
-- Synchronous user-facing reads.
-- Replacing PostgreSQL as the source of truth.
-- Sending secrets or large payloads.
+- 同步用户查询。
+- 替代 PostgreSQL 作为事实数据源。
+- 传递密钥、JWT、密码或大体积正文。
 
-## Why OpenFeign
+## HTTP 服务调用
 
-OpenFeign fits the Java microservice plan because the project already targets Spring Boot and Spring Cloud.
+当前 Python/FastAPI 微服务路线优先使用 HTTP REST。这样可以保持服务边界清晰，并且便于在 Docker Compose 和 K3s 中使用服务名 DNS。
 
-Use OpenFeign for:
+典型调用：
 
-- `travel-gateway -> travel-auth`
-- `travel-gateway -> travel-trip`
-- `travel-gateway -> travel-agent`
-- `travel-agent -> travel-trip` when the agent service needs persisted trip metadata
+- `frontend -> travel-gateway`
+- `travel-gateway -> agent-runtime`
+- `travel-gateway -> travel-mcp`
+- 未来 `travel-gateway -> travel-auth`
+- 未来 `travel-gateway -> travel-trip`
+- 未来 `travel-gateway -> travel-agent`
+- 未来 `travel-agent -> agent-runtime`
 
-Use plain REST clients for:
+`agent-runtime` 应始终通过明确 HTTP 契约暴露能力，避免其他服务耦合到 Python 内部实现。
 
-- `travel-agent -> agent-runtime`
-- `agent-runtime -> travel-mcp` while the local tool server is an MCP-compatible HTTP stub
+## MCP 风格工具调用
 
-The Python Agent Runtime should stay behind an explicit HTTP contract. That keeps the AI runtime replaceable and avoids coupling Java services directly to Python internals.
+`agent-runtime` 使用 MCP 风格 JSON-RPC 调用旅行工具，例如：
 
-Use MCP-style JSON-RPC for:
+- 景点搜索
+- 天气查询
+- 路线规划
+- 酒店搜索
+- 餐食推荐
+- 预算估算
 
-- `agent-runtime -> travel-mcp` travel tools such as attraction search, weather, route planning, hotels, meals, and budget estimates.
+工具服务必须返回经过 schema 校验的结构化内容。`agent-runtime` 应把所有工具响应视为不可信输入；工具失败或返回无效数据时，使用 mock/fallback 数据保持公共 API 稳定。
 
-The tool server must return schema-validated structured content. Agent Runtime treats all tool responses as untrusted and falls back to mock values when a tool call fails or returns invalid data.
+## 事件命名
 
-## Event Naming
-
-Use dot-separated event names:
+事件名使用点分隔：
 
 ```text
 trip.plan.created
@@ -71,7 +76,7 @@ agent.conversation.summarize.requested
 user.profile.updated
 ```
 
-Event payloads use camelCase fields:
+事件 payload 字段使用 camelCase：
 
 ```json
 {
@@ -84,34 +89,29 @@ Event payloads use camelCase fields:
 }
 ```
 
-## Reliability Rules
+## 可靠性规则
 
-- Consumers must be idempotent.
-- Each event must include `eventId`, `eventType`, `occurredAt`, and the owning `userId`.
-- Producers should publish IDs, not full database records.
-- Consumers must fetch fresh state from their own database or the owning service.
-- Failed jobs should retry with backoff and eventually move to a dead-letter queue.
-- Logs must include request ID or event ID for traceability.
+- 消费者必须幂等。
+- 每个事件必须包含 `eventId`、`eventType`、`occurredAt` 和归属用户 `userId`。
+- 生产者应发布 ID，而不是完整数据库记录。
+- 消费者需要从自己的数据库或归属服务重新读取最新状态。
+- 失败任务应退避重试，并最终进入死信队列。
+- 日志必须包含 request id 或 event id，方便追踪。
 
-## Security Rules
+## 安全规则
 
-- Do not put API keys, JWTs, passwords, or provider secrets in events.
-- RabbitMQ credentials come from `.env` locally and Kubernetes Secret on VPS.
-- Management UI port `15672` is for local development only; do not expose it publicly on VPS.
-- Service-to-service calls must preserve user identity through an internal user context header once real auth is implemented.
+- 不要把 API key、JWT、密码或供应商密钥放进事件。
+- RabbitMQ 凭据本地来自 `.env`，VPS 来自 Kubernetes Secret。
+- 管理后台端口 `15672` 只用于本地开发，不应在 VPS 公网暴露。
+- 真正用户体系稳定后，服务间调用需要传递内部用户上下文头。
 
-## Current Implementation Status
+## 当前实现状态
 
-- Docker Compose includes RabbitMQ for local development.
-- K3s deploys RabbitMQ through `deploy/k8s/addons/rabbitmq.yaml` as part of the default Kustomize deployment.
-- Agent Runtime exposes `MESSAGE_QUEUE_URL` and `RPC_TIMEOUT_SECONDS` settings.
-- Agent Runtime publishes domain events to the `travel.events` topic exchange when `MESSAGE_QUEUE_URL` is configured.
-- Agent Runtime has a reusable synchronous conversation summarizer worker at `app/workers/conversation_summarizer.py`.
-- `POST /api/v1/conversations/{conversationId}/summary` now emits `agent.conversation.summarize.requested` before generating and persisting the summary.
-- `POST /api/v1/conversations/{conversationId}/summary-jobs` creates a persisted `conversation_summary_jobs` row, publishes `agent.conversation.summarize.requested` with `summaryJobId`, and returns `202 Accepted` only after RabbitMQ accepts the event.
-- `GET /api/v1/conversations/{conversationId}/summary-jobs/latest` returns the newest persisted job status for frontend polling.
-- A RabbitMQ consumer entrypoint exists at `python -m app.worker_main`.
-- The consumer updates job status from `QUEUED` to `RUNNING`, then `SUCCEEDED` or `FAILED`.
-- Docker Compose exposes the consumer as the `agent-runtime-worker` service behind the `worker` profile.
-- Docker Compose exposes the local `travel-mcp` tool server behind the `tools` profile for FastMCP/Amap integration development.
-- K3s deploys the consumer through `deploy/k8s/addons/agent-runtime-worker.yaml` as part of the default Kustomize deployment.
+- Docker Compose 已包含 RabbitMQ。
+- K3s 默认通过 `deploy/k8s/addons/rabbitmq.yaml` 部署 RabbitMQ。
+- `agent-runtime` 支持 `MESSAGE_QUEUE_URL` 和 `RPC_TIMEOUT_SECONDS`。
+- 配置 `MESSAGE_QUEUE_URL` 后，`agent-runtime` 会向 `travel.events` topic exchange 发布领域事件。
+- `python -m app.worker_main` 是 RabbitMQ consumer 入口。
+- `agent-runtime-worker` 会处理异步会话摘要任务，并更新任务状态。
+- Docker Compose 通过 `worker` profile 启动 `agent-runtime-worker`。
+- K3s 默认通过 Kustomize 部署 `agent-runtime-worker`。

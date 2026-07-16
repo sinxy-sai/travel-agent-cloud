@@ -1,27 +1,27 @@
-# API Guidelines
+# API 规范
 
-本项目默认采用 RESTful API 设计。业务资源接口严格遵守 RESTful 风格；Agent 推理、流式输出、工具调用等运行时能力允许少量动作式接口。
+本项目默认采用 RESTful API 设计。业务资源接口应尽量遵循 REST 风格；Agent 推理、流式输出、工具调用等运行时能力允许少量动作式接口。
 
-## Base Path
+## 基础路径
 
-所有业务 API 使用版本前缀:
+所有业务 API 使用版本前缀：
 
 ```text
 /api/v1
 ```
 
-示例:
+示例：
 
 ```text
 GET  /api/v1/conversations
 POST /api/v1/trip-plans
 ```
 
-## Resource Naming
+## 资源命名
 
 资源名使用复数名词，不使用动词。
 
-推荐:
+推荐：
 
 ```text
 /conversations
@@ -31,7 +31,7 @@ POST /api/v1/trip-plans
 /profiles
 ```
 
-避免:
+避免：
 
 ```text
 /createTrip
@@ -39,16 +39,16 @@ POST /api/v1/trip-plans
 /deleteMessage
 ```
 
-## HTTP Methods
+## HTTP 方法
 
 ```text
 GET     查询资源
-POST    创建资源或提交一次处理请求
+POST    创建资源，或提交一次处理请求
 PATCH   部分更新资源
 DELETE  删除资源
 ```
 
-示例:
+示例：
 
 ```text
 GET    /api/v1/conversations
@@ -57,11 +57,9 @@ PATCH  /api/v1/conversations/{conversationId}
 GET    /api/v1/conversations/{conversationId}/summary
 POST   /api/v1/conversations/{conversationId}/summary
 DELETE /api/v1/conversations/{conversationId}
-GET    /api/v1/trip-plans
-PATCH  /api/v1/trip-plans/{tripPlanId}
 ```
 
-## Field Naming
+## 字段命名
 
 HTTP JSON 请求和响应字段统一使用 camelCase。
 
@@ -75,17 +73,17 @@ HTTP JSON 请求和响应字段统一使用 camelCase。
 
 Python 内部可以使用 snake_case，但 API 边界必须输出 camelCase。
 
-## Pagination
+## 分页
 
 列表接口必须支持分页。
 
-请求:
+请求：
 
 ```text
 GET /api/v1/conversations?page=1&pageSize=20
 ```
 
-响应:
+响应：
 
 ```json
 {
@@ -97,9 +95,9 @@ GET /api/v1/conversations?page=1&pageSize=20
 }
 ```
 
-## Error Format
+## 错误格式
 
-错误响应使用统一结构。
+错误响应使用统一结构：
 
 ```json
 {
@@ -111,7 +109,7 @@ GET /api/v1/conversations?page=1&pageSize=20
 }
 ```
 
-状态码约定:
+状态码约定：
 
 ```text
 400  请求格式错误
@@ -123,28 +121,28 @@ GET /api/v1/conversations?page=1&pageSize=20
 500  服务端错误
 ```
 
-## Time Format
+## 时间格式
 
-时间字段统一使用 ISO 8601。
+时间字段统一使用 ISO 8601：
 
 ```text
 2026-07-08T10:00:00Z
 ```
 
-## RPC Boundary
+## RPC 边界
 
 RPC 只用于服务内部调用，不作为前端直接访问的接口形式。
 
-- 前端访问 Gateway: REST
-- Java 微服务之间: Spring Cloud OpenFeign
-- Java 服务访问 Python Agent Runtime: REST
-- 高性能流式场景: 预留 gRPC，不作为当前默认方案
+- 前端访问 Gateway：REST
+- Python/FastAPI 服务内部调用：REST
+- Agent Runtime 调用旅行工具：MCP 风格 JSON-RPC
+- 高性能流式场景：保留 gRPC 或 WebSocket，不作为当前默认方案
 
-## Message Queue Boundary
+## 消息队列边界
 
 RabbitMQ 用于异步事件和后台任务，不替代同步 API。
 
-适合:
+适合：
 
 ```text
 trip.plan.created
@@ -156,10 +154,9 @@ agent.conversation.deleted
 agent.conversation.summary.created
 agent.conversation.summarize.requested
 user.profile.updated
-user.profile.updated
 ```
 
-不适合:
+不适合：
 
 ```text
 用户点击按钮后必须立即返回的数据查询
@@ -167,11 +164,11 @@ user.profile.updated
 包含密钥或大体积正文的数据传输
 ```
 
-## Agent Runtime Exceptions
+## Agent Runtime 例外
 
 Agent Runtime 可以保留少量动作式接口，因为它们表达的是一次推理、一次工具调用或一次流式会话，而不是传统资源 CRUD。
 
-允许:
+允许：
 
 ```text
 POST /api/v1/chat
@@ -179,7 +176,7 @@ POST /api/v1/tool-calls
 GET  /api/v1/chat-stream
 ```
 
-但持久化资源仍然使用 RESTful:
+持久化资源仍然使用 RESTful：
 
 ```text
 GET    /api/v1/conversations
@@ -192,9 +189,9 @@ PATCH  /api/v1/trip-plans/{tripPlanId}
 DELETE /api/v1/trip-plans/{tripPlanId}
 ```
 
-## Current API
+## 当前 API
 
-当前已实现:
+当前已实现：
 
 ```text
 GET    /health
@@ -215,13 +212,13 @@ DELETE /api/v1/trip-plans/{tripPlanId}
 GET    /api/v1/trip-plans/{tripPlanId}/export
 ```
 
-后续建议将旧接口:
+后续建议将旧接口：
 
 ```text
 POST /api/v1/trip-plan
 ```
 
-迁移为:
+迁移为：
 
 ```text
 POST /api/v1/trip-plans

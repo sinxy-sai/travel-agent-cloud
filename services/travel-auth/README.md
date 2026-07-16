@@ -1,18 +1,16 @@
 # travel-auth
 
-Planned Python/FastAPI authentication service.
+`travel-auth` 是规划中的 Python/FastAPI 认证服务，目前还不是运行中的服务。认证能力当前仍在 `agent-runtime` 中。
 
-This is not a running service yet. Authentication currently lives in `agent-runtime`.
+## 未来职责
 
-Future responsibilities:
+- 注册、登录、退出登录、邮箱验证、找回密码和 OAuth 回调。
+- JWT 或 Session 签发与校验。
+- 必要时使用 Redis 做登录限流和会话状态。
+- 通过 RabbitMQ 发布用户生命周期事件。
 
-- Register, login, logout, email verification, password reset, and OAuth callbacks.
-- JWT/session issuing and validation.
-- Redis-backed rate limiting and session state where needed.
-- User profile and account lifecycle events through RabbitMQ.
+## 迁移原则
 
-Migration rule:
-
-- Keep the current `agent-runtime` API contract stable.
-- Move endpoints behind `travel-gateway` route by route.
-- Do not duplicate password/session logic in two running services at the same time.
+- 保持现有 `agent-runtime` API 契约稳定。
+- 通过 `travel-gateway` 按接口逐步迁移。
+- 不让密码、会话逻辑在两个运行服务里长期重复存在。

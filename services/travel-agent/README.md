@@ -1,18 +1,16 @@
 # travel-agent
 
-Planned Python/FastAPI agent facade service.
+`travel-agent` 是规划中的 Python/FastAPI Agent 门面服务，目前还不是运行中的服务。LangGraph/LangChain 执行逻辑当前仍在 `agent-runtime` 中。
 
-This is not a running service yet. LangGraph/LangChain execution currently lives in `agent-runtime`.
+## 未来职责
 
-Future responsibilities:
+- 作为用户侧 Agent 请求的门面入口。
+- 在进入执行引擎前做配额、审计、权限和用户归属校验。
+- 调用 `agent-runtime` 执行 LangGraph/LangChain 工作流。
+- 行程服务拆分后，调用 `travel-trip` 读取或写入行程元数据。
+- 将非阻塞 Agent 任务发布到 RabbitMQ。
 
-- User-facing agent request facade behind `travel-gateway`.
-- Quota, audit, ownership, and request policy checks before agent execution.
-- Calls to `agent-runtime` for LangGraph/LangChain execution.
-- Calls to `travel-trip` for persisted trip metadata after the trip service split.
-- RabbitMQ jobs for non-blocking agent tasks.
+## 迁移原则
 
-Migration rule:
-
-- Keep `agent-runtime` as the execution engine until planning behavior is stable.
-- Add this facade only when quota/audit/service ownership logic becomes large enough to justify a separate deployable service.
+- 在旅行规划行为稳定前，先让 `agent-runtime` 保持执行引擎角色。
+- 当配额、审计、权限策略明显变复杂后，再引入独立 `travel-agent` 服务。

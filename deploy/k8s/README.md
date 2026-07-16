@@ -1,12 +1,14 @@
-# K3s Manifests
+# K3s 部署清单
 
-Apply the initial deployment:
+本目录用于在 VPS 的 K3s 集群中部署 Travel Agent Cloud。
+
+## 部署
 
 ```bash
 kubectl apply -k deploy/k8s
 ```
 
-Check status:
+检查状态：
 
 ```bash
 kubectl get pods -n travel-agent-cloud
@@ -14,9 +16,9 @@ kubectl get svc -n travel-agent-cloud
 kubectl get ingress -n travel-agent-cloud
 ```
 
-The default Ingress has no host rule. On a single VPS with K3s Traefik, it can be tested through the server public IP after images are published.
+默认 Ingress 没有配置 host。在单台 VPS 的 K3s Traefik 环境中，镜像发布后可以直接通过服务器公网 IP 测试。
 
-Deployment images:
+## 默认镜像
 
 ```text
 docker.io/sinxysai/travel-agent-cloud-frontend:latest
@@ -25,18 +27,33 @@ docker.io/sinxysai/travel-agent-cloud-travel-gateway:latest
 docker.io/sinxysai/travel-agent-cloud-travel-mcp:latest
 ```
 
-The GHCR workflow is still kept for image publishing, but these K3s manifests pull from Docker Hub by default because it is usually easier for domestic VPS networking.
+GHCR workflow 保留用于镜像发布，但 K3s 清单默认拉取 Docker Hub 镜像，因为国内 VPS 通常更容易访问 Docker Hub 镜像加速源。
 
-If your Docker Hub namespace is not `sinxysai`, update the image fields in:
+如果 Docker Hub 命名空间不是 `sinxysai`，需要修改：
 
 - `agent-runtime.yaml`
 - `travel-gateway.yaml`
 - `travel-mcp.yaml`
 - `frontend.yaml`
 
-`postgres.yaml`, RabbitMQ, Redis, MinIO, `travel-mcp`, `travel-gateway`, and `agent-runtime-worker` are part of the default kustomization. Create the required Secrets before running automated deployment.
+## 默认部署内容
 
-Create `postgres-secrets`:
+默认 Kustomize 会部署：
+
+- PostgreSQL
+- RabbitMQ
+- Redis
+- MinIO
+- `travel-mcp`
+- `travel-gateway`
+- `agent-runtime`
+- `agent-runtime-worker`
+- `frontend`
+- Ingress
+
+自动部署前，需要提前创建必要 Secret。
+
+## 创建 PostgreSQL Secret
 
 ```bash
 kubectl create secret generic postgres-secrets \
@@ -46,7 +63,7 @@ kubectl create secret generic postgres-secrets \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Create `rabbitmq-secrets`:
+## 创建 RabbitMQ Secret
 
 ```bash
 kubectl create secret generic rabbitmq-secrets \
@@ -56,7 +73,7 @@ kubectl create secret generic rabbitmq-secrets \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Create `minio-secrets`:
+## 创建 MinIO Secret
 
 ```bash
 kubectl create secret generic minio-secrets \
@@ -66,8 +83,9 @@ kubectl create secret generic minio-secrets \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Create `travel-mcp-secrets` if you want the tool service to use live AMap data.
-If this Secret or key is missing, the MCP service starts with fallback tool data.
+## 创建 travel-mcp Secret
+
+如果希望工具服务使用真实高德数据，创建：
 
 ```bash
 kubectl create secret generic travel-mcp-secrets \
@@ -76,7 +94,11 @@ kubectl create secret generic travel-mcp-secrets \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Then create or recreate `agent-runtime-secrets` with the existing database and LLM keys plus `MESSAGE_QUEUE_URL`. Do not apply a single-key Secret over the existing one, because that can remove the existing keys.
+如果缺少该 Secret 或 key，`travel-mcp` 会使用 fallback 工具数据启动。
+
+## 创建 Agent Runtime Secret
+
+创建或重建 `agent-runtime-secrets` 时要包含已有的数据库、LLM、认证、邮箱和 RabbitMQ 配置。不要只 apply 单个 key，否则会覆盖并删除其他 key。
 
 ```bash
 kubectl create secret generic agent-runtime-secrets \
@@ -103,12 +125,13 @@ kubectl create secret generic agent-runtime-secrets \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Use `AUTH_COOKIE_SECURE='true'` only after HTTPS is configured. Plain HTTP browsers will not send Secure cookies.
-The auth rate-limit values control register/login attempts per client and email.
-If `REDIS_URL` is present, auth rate limiting is shared through the internal Redis service. If it is omitted, the runtime falls back to in-process rate limiting.
-For GitHub OAuth, create a GitHub OAuth App with callback URL matching `GITHUB_OAUTH_REDIRECT_URI`. On HTTPS domains, use `https://your-domain.example/api/v1/auth/oauth/github/callback` and set `PUBLIC_APP_URL` to the frontend origin.
+`AUTH_COOKIE_SECURE='true'` 只应在 HTTPS 配好后启用。纯 HTTP 下浏览器不会发送 Secure cookie。
 
-For real email verification and password reset links, replace the email fields in the full `agent-runtime-secrets` command with SMTP settings. QQ Mail normally uses SSL on port 465 with an SMTP authorization code:
+## 邮箱配置
+
+真实邮箱验证和找回密码需要把 mock 邮箱配置替换为 SMTP。
+
+QQ 邮箱通常使用 465 端口 SSL 和 SMTP 授权码：
 
 ```bash
   --from-literal=EMAIL_PROVIDER='smtp' \
@@ -122,7 +145,7 @@ For real email verification and password reset links, replace the email fields i
   --from-literal=PUBLIC_APP_URL='http://your-server-public-ip'
 ```
 
-Gmail normally uses STARTTLS on port 587 with a Google app password:
+Gmail 通常使用 587 端口 STARTTLS 和 Google app password：
 
 ```bash
   --from-literal=EMAIL_PROVIDER='smtp' \
@@ -136,9 +159,7 @@ Gmail normally uses STARTTLS on port 587 with a Google app password:
   --from-literal=PUBLIC_APP_URL='https://your-domain.example'
 ```
 
-When updating `agent-runtime-secrets`, include all existing keys you still need or use `kubectl edit secret agent-runtime-secrets -n travel-agent-cloud`; recreating it with only SMTP keys removes database, LLM, auth, and RabbitMQ settings.
-
-The normal deploy command will create/update PostgreSQL, RabbitMQ, Redis, MinIO, the API, worker, frontend, and ingress together:
+## 常用检查
 
 ```bash
 kubectl apply -k deploy/k8s
@@ -148,11 +169,10 @@ kubectl get pods -n travel-agent-cloud -l app=travel-gateway
 kubectl get pods -n travel-agent-cloud -l app=travel-mcp
 ```
 
-The worker uses the same Agent Runtime image and runs:
+`agent-runtime-worker` 使用和 `agent-runtime` 相同的镜像，并运行：
 
 ```bash
 python -m app.worker_main
 ```
 
-It consumes `agent.conversation.summarize.requested` events from RabbitMQ. Manual API summary requests are skipped by the worker because the HTTP request already generated the summary synchronously.
-If RabbitMQ or PostgreSQL is not ready, the worker retries with exponential backoff. The default retry window starts at 2 seconds and caps at 30 seconds.
+它消费 RabbitMQ 中的 `agent.conversation.summarize.requested` 事件。RabbitMQ 或 PostgreSQL 尚未就绪时，worker 会按指数退避重连。

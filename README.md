@@ -1,53 +1,57 @@
 # Travel Agent Cloud
 
-基于 React、FastAPI、Spring Cloud、PostgreSQL 和 K3s 的多用户并发 AI 旅游助手项目。目标是在 VPS 上通过 Docker、K3s 和 GitHub Actions 完成全栈自动部署。
+Travel Agent Cloud 是一个面向旅行规划场景的 AI 助手项目。当前目标是先复现 `Hello-Agents/hello-agents-main/code/chapter13/helloagents-trip-planner` 的核心用户体验，再逐步演进为可在 VPS/K3s 上部署的云原生全栈应用。
 
 ## 项目目标
 
-本项目面向旅游规划场景，提供多轮对话、行程生成、行程保存、收藏、搜索、导出、用户旅行偏好等能力。当前阶段先实现可运行的前端工作台和 Python Agent Runtime，后续逐步接入 Java 微服务、微信登录、RAG 知识库、消息队列和更完整的 Agent 工具链。
+当前重点能力：
+
+- 多轮旅行规划对话
+- 结构化行程生成
+- 行程保存、编辑、版本恢复和删除
+- Markdown、图片和 PDF 导出
+- 用户注册、登录、邮箱验证、找回密码和 GitHub OAuth
+- 用户旅行偏好
+- 高德地图和高德 Web Service 数据接入
+- LangGraph/LangChain 多 Agent 旅行规划工作流
+- Docker Compose 本地联调
+- K3s/VPS 自动部署
 
 ## 技术栈
 
-- Frontend: React, Vite, TypeScript, Tailwind CSS, Ant Design, TanStack Query, Zustand
-- Agent Runtime: Python, FastAPI, OpenAI-compatible LLM API, LangGraph workflow runner, LangChain tool-calling nodes, FastMCP tool access, DeepAgent planned for advanced agent workflows
-- Backend Services: Java 17, Spring Boot, Spring Cloud, Spring Cloud Gateway
-- RPC / Service Calls: Spring Cloud OpenFeign for Java service-to-service calls; REST between Gateway and Agent Runtime; gRPC reserved for future low-latency streaming needs
-- Message Queue: RabbitMQ for domain events and async jobs
-- Data: PostgreSQL, Redis, MinIO, pgvector
-- Deployment: Docker, Docker Compose, K3s, Kubernetes Ingress
-- CI/CD: GitHub Actions, Docker Hub, GHCR
-- Observability: Prometheus, Grafana, Loki, OpenTelemetry
-
-## Agent Runtime status
-
-- `GET /health` exposes the selected agent engine and engine capabilities.
-- `GET /api/v1/agent/status` exposes the current engine, capabilities, the latest privacy-safe run trace, recent run traces, and `runSummary` / `qualitySummary` aggregates.
-- `POST /api/v1/trip-plans/{id}/revise` rewrites a saved itinerary from an agent instruction while preserving optimistic version control.
-- `GET /api/v1/trip-plans/{id}/versions` and restore endpoints keep itinerary edits reversible.
-- Run traces and summaries are in-memory only and do not include prompts, messages, user ids, API keys, or generated itinerary content.
-- Prototype parity tracking lives in `docs/prototype-feature-parity.md`, based on `Hello-Agents/hello-agents-main/code/chapter13/helloagents-trip-planner`.
+- 前端：React、Vite、TypeScript、Tailwind CSS、Ant Design、TanStack Query、Zustand
+- Agent Runtime：Python、FastAPI、LangGraph、LangChain、OpenAI-compatible LLM API
+- 工具服务：FastAPI、MCP 风格 JSON-RPC、高德 Web Service
+- 网关：Python/FastAPI `travel-gateway`
+- 数据和基础设施：PostgreSQL、Redis、RabbitMQ、MinIO、pgvector
+- 部署：Docker、Docker Compose、K3s、Kubernetes Ingress
+- CI/CD：GitHub Actions、Docker Hub、GHCR
 
 ## 当前模块
 
-- `frontend`: React + Vite 旅游助手前端工作台
-- `agent-runtime`: FastAPI Agent 服务，提供行程规划、聊天、用户偏好和历史记录接口
-- `services`: 后续 Spring Cloud 微服务预留目录
-- `deploy`: K3s/Kubernetes 部署清单
-- `docs`: 架构、API 和服务通信规范
-- `scripts`: 服务器初始化和 smoke test 脚本
+- `frontend`：React + Vite 前端工作台。
+- `agent-runtime`：核心 FastAPI 服务，当前承载认证、行程、聊天、导出和 Agent 编排。
+- `services/travel-gateway`：轻量 FastAPI 网关，本地和 K3s 的后端入口。
+- `services/travel-mcp`：旅行工具微服务，负责高德 POI、天气、路线等工具数据。
+- `services/travel-auth`：规划中的认证服务。
+- `services/travel-trip`：规划中的行程管理服务。
+- `services/travel-agent`：规划中的 Agent 门面服务。
+- `deploy/k8s`：K3s/Kubernetes 部署清单。
+- `docs`：架构、API、通信和原型对齐文档。
+- `scripts`：服务器初始化和 smoke test 脚本。
 
 ## 本地开发
 
-启动 Agent Runtime:
+启动 Agent Runtime：
 
 ```powershell
 cd agent-runtime
 python -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
-.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-启动前端:
+启动前端：
 
 ```powershell
 cd frontend
@@ -56,73 +60,70 @@ $env:VITE_AGENT_API_BASE_URL="http://localhost:8000"
 npm run dev
 ```
 
-访问:
+访问：
 
 ```text
 http://localhost:5173
 ```
 
-本地 API smoke test:
+本地 API smoke test：
 
 ```powershell
 .\scripts\smoke-test.ps1 http://localhost:8000
 ```
 
-## Docker Compose 本地测试
+## Docker Compose 本地联调
 
-Docker Compose 会启动 PostgreSQL、RabbitMQ、Agent Runtime 和前端:
+Docker Compose 会启动 PostgreSQL、RabbitMQ、Redis、MinIO、`travel-mcp`、`travel-gateway`、`agent-runtime` 和前端。
 
-```bash
+```powershell
 docker compose --profile worker up --build
 ```
 
-访问:
+访问：
 
 ```text
 http://localhost:5173
 ```
 
-RabbitMQ 管理后台:
+常用检查：
+
+```powershell
+Invoke-RestMethod http://localhost:8080/gateway/health
+Invoke-RestMethod http://localhost:5173/health
+.\scripts\smoke-test.ps1 http://localhost:5173
+```
+
+RabbitMQ 管理后台：
 
 ```text
 http://localhost:15672
 ```
 
-Compose 环境会给 `agent-runtime` 注入:
-
-```text
-DATABASE_URL=postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
-MESSAGE_QUEUE_URL=amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
-```
-
-如果要让 Docker Compose 里的 Agent Runtime 读取本地 `agent-runtime/.env` 中的真实 LLM 配置，先创建本地 override 文件:
+如果希望 Docker Compose 中的容器读取本地 `agent-runtime/.env` 里的真实 LLM 配置，先创建本地 override 文件：
 
 ```powershell
 Copy-Item docker-compose.override.example.yml docker-compose.override.yml
 ```
 
-`docker-compose.override.yml` 已被 `.gitignore` 忽略，不要提交。Compose 文件中的 `DATABASE_URL` 和 `MESSAGE_QUEUE_URL` 会继续覆盖 `.env` 里的同名值，避免容器误连到宿主机地址。
+`docker-compose.override.yml` 已被 `.gitignore` 忽略，不要提交。
 
-当前 Agent Runtime 已支持在配置 `MESSAGE_QUEUE_URL` 后向 RabbitMQ 发布领域事件；`--profile worker` 会同时启动异步摘要消费者。未配置队列时，现有接口照常运行。
+## K3s/VPS 部署
 
-## 自动部署
-
-当前推荐流程:
+当前推荐链路：
 
 ```text
 本地测试 -> git push main -> CI -> 构建 Docker Hub 镜像 -> 自动部署到 K3s
 ```
 
-自动部署链路:
+自动部署流程：
 
-- `CI` 成功后触发 `Build Images Docker Hub`
-- Docker Hub 镜像构建成功后触发 `Deploy K3s`
-- `Deploy K3s` 执行 `kubectl apply -k deploy/k8s`
-- PostgreSQL 已加入默认 Kustomize 部署
-- RabbitMQ 和 agent-runtime-worker 已加入默认 K3s 自动部署，前提是 VPS 已提前创建对应 Secret
-- GHCR 镜像构建 workflow 保留，但 K3s 默认部署 Docker Hub 镜像
+- `CI` 成功后触发 `Build Images Docker Hub`。
+- Docker Hub 镜像构建成功后触发 `Deploy K3s`。
+- `Deploy K3s` 执行 `kubectl apply -k deploy/k8s`。
+- K3s 默认部署 frontend、travel-gateway、agent-runtime、agent-runtime-worker、travel-mcp、PostgreSQL、RabbitMQ、Redis、MinIO 和 Ingress。
 
-GitHub repository secrets:
+GitHub repository secrets：
 
 ```text
 DOCKERHUB_USERNAME
@@ -132,47 +133,26 @@ VPS_USER
 VPS_SSH_KEY
 ```
 
-## VPS 前置 Secret
+详细 K3s 配置见 [deploy/k8s/README.md](deploy/k8s/README.md)。
 
-如果希望 push 后自动部署并连接 PostgreSQL 和 DeepSeek，需要先在 VPS 创建 `postgres-secrets` 和 `agent-runtime-secrets`。
+## 重要文档
 
-创建 PostgreSQL Secret:
+- [架构说明](docs/architecture.md)
+- [API 规范](docs/api-guidelines.md)
+- [服务通信方案](docs/service-communication.md)
+- [Kubernetes 原生 Python 微服务路线图](docs/microservices-roadmap.md)
+- [原型功能对齐](docs/prototype-feature-parity.md)
 
-```bash
-sudo kubectl create secret generic postgres-secrets -n travel-agent-cloud --from-literal=POSTGRES_USER='travel_agent' --from-literal=POSTGRES_PASSWORD='换成强密码' --dry-run=client -o yaml | sudo kubectl apply -f -
-```
+## 当前部署差异
 
-创建 Agent Runtime Secret，同时配置数据库和 DeepSeek:
-
-```bash
-sudo kubectl create secret generic agent-runtime-secrets -n travel-agent-cloud --from-literal=DATABASE_URL='postgresql://travel_agent:换成强密码@postgres:5432/travel_agent_cloud' --from-literal=LLM_PROVIDER=openai_compatible --from-literal=LLM_API_KEY='你的 DeepSeek API Key' --from-literal=LLM_BASE_URL='https://api.deepseek.com' --from-literal=LLM_MODEL='deepseek-v4-flash' --dry-run=client -o yaml | sudo kubectl apply -f -
-```
-
-本地的 `agent-runtime/.env` 只用于本机测试，不会自动同步到 VPS。VPS 使用 Kubernetes Secret。
-
-## K3s 验证
-
-部署完成后，在 VPS 上检查:
-
-```bash
-sudo kubectl get pods -n travel-agent-cloud
-curl http://localhost/health
-```
-
-如果返回中有下面两个字段，说明真实模型和数据库都已生效:
-
-```json
-{
-  "llmEnabled": true,
-  "databaseEnabled": true,
-  "messageQueueEnabled": false
-}
-```
-
-`messageQueueEnabled` 为 `true` 代表 Agent Runtime 已配置 RabbitMQ 发布入口；默认 K3s 部署也会启动 `agent-runtime-worker` 处理异步摘要事件。
-
-也可以通过公网 IP 访问前端:
+本地开发使用 Docker Compose；VPS 使用 K3s。
 
 ```text
-http://你的服务器公网IP
+本地 Docker Compose:
+localhost:5173 -> frontend nginx -> travel-gateway -> agent-runtime / travel-mcp
+
+VPS K3s:
+公网 IP 或域名 -> Ingress -> frontend / travel-gateway -> agent-runtime / travel-mcp
 ```
+
+本地 `.env` 不会自动同步到 VPS。VPS 使用 Kubernetes Secret 管理数据库、LLM、邮箱、OAuth、高德 key 等配置。
