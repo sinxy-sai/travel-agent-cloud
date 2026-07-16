@@ -586,17 +586,41 @@ def _poi_to_item(poi: dict[str, Any], destination: str, category: str, index: in
     rating = _optional_float(biz_ext.get("rating") if isinstance(biz_ext, dict) else None)
     cost = _optional_int(biz_ext.get("cost") if isinstance(biz_ext, dict) else None)
     poi_type = _safe_text(poi.get("type"))
+    category_label = _poi_category_label(poi_type, category)
     return {
         "name": name,
         "address": _safe_text(poi.get("address")) or destination,
         "location": location,
         "visitDuration": 0 if category == "hotel" else 90 + index * 15,
-        "description": f"高德地图 POI：{poi_type or category}。",
-        "category": poi_type or category,
+        "description": f"高德地图 POI：{_trim_text(poi_type or category_label, 120)}。",
+        "category": category_label,
         "rating": rating,
         "imageUrl": image_url or None,
         "ticketPrice": 0 if category == "hotel" else cost or 0,
     }
+
+
+def _poi_category_label(poi_type: str, category: str) -> str:
+    if category == "hotel":
+        return "酒店住宿"
+    if category == "food":
+        return "餐饮美食"
+    if _contains_any(poi_type, ("博物馆", "展览馆", "科教文化", "museum", "exhibition", "culture")):
+        return "文化场馆"
+    if _contains_any(poi_type, ("公园", "广场", "park", "square")):
+        return "公园广场"
+    if _contains_any(poi_type, ("风景名胜", "景点", "寺庙", "scenic", "temple", "attraction")):
+        return "风景名胜"
+    if _contains_any(poi_type, ("餐饮", "小吃", "美食", "商业街", "步行街", "restaurant", "food", "snack", "shopping", "pedestrian")):
+        return "城市街区"
+    return "城市游览"
+
+
+def _trim_text(value: str, max_length: int) -> str:
+    text = value.strip()
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 1].rstrip() + "…"
 
 
 def _page_window(day: int) -> list[int]:
