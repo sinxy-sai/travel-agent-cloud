@@ -4,6 +4,7 @@ Travel Agent Cloud 当前从一个可部署核心开始：
 
 ```text
 frontend -> travel-gateway -> agent-runtime -> PostgreSQL
+                    -> travel-trip -> agent-runtime
                                  -> travel-mcp
                                  -> Redis / RabbitMQ / MinIO
 ```

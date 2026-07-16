@@ -79,6 +79,7 @@ services:
     container_name: travel-agent-gateway
     environment:
       AGENT_RUNTIME_URL: http://agent-runtime:8000
+      TRAVEL_TRIP_URL: http://travel-trip:8200
       TRAVEL_MCP_URL: http://travel-mcp:8100
       ALLOWED_ORIGINS: http://localhost:5173
       GATEWAY_REQUEST_TIMEOUT_SECONDS: 180
@@ -87,10 +88,32 @@ services:
     depends_on:
       agent-runtime:
         condition: service_healthy
+      travel-trip:
+        condition: service_healthy
       travel-mcp:
         condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/gateway/health', timeout=2).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  travel-trip:
+    build:
+      context: ./services/travel-trip
+    container_name: travel-agent-trip
+    environment:
+      AGENT_RUNTIME_URL: http://agent-runtime:8000
+      ALLOWED_ORIGINS: http://localhost:5173
+      TRIP_SERVICE_REQUEST_TIMEOUT_SECONDS: 180
+    ports:
+      - "8200:8200"
+    depends_on:
+      agent-runtime:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/health', timeout=2).read()\""]
       interval: 10s
       timeout: 5s
       retries: 12

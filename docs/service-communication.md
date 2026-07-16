@@ -38,10 +38,10 @@
 典型调用：
 
 - `frontend -> travel-gateway`
+- `travel-gateway -> travel-trip`
 - `travel-gateway -> agent-runtime`
 - `travel-gateway -> travel-mcp`
 - 未来 `travel-gateway -> travel-auth`
-- 未来 `travel-gateway -> travel-trip`
 - 未来 `travel-gateway -> travel-agent`
 - 未来 `travel-agent -> agent-runtime`
 

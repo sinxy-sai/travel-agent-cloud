@@ -7,6 +7,7 @@
 ```text
 frontend
   -> travel-gateway
+      -> travel-trip
       -> agent-runtime
       -> travel-mcp
 
@@ -25,7 +26,7 @@ agent-runtime
 - `travel-mcp`：旅行工具服务，当前支持高德数据和确定性 fallback。
 - `agent-runtime-worker`：消费 RabbitMQ 任务的后台 worker。
 - `travel-auth`：规划中的认证服务，等认证边界稳定后再拆。
-- `travel-trip`：规划中的行程管理服务，等行程和导出模型稳定后再拆。
+- `travel-trip`：当前已作为行程 API 门面服务运行，内部暂时代理到 `agent-runtime`，后续迁移真实行程持久化逻辑。
 - `travel-agent`：规划中的 Agent 门面服务，用于配额、审计、权限和请求策略。
 
 ## Kubernetes 职责
@@ -42,7 +43,7 @@ agent-runtime
 2. 将 `travel-mcp` 作为第一个真实工具微服务运行。
 3. 保持 `agent-runtime` 稳定，继续打磨旅行规划行为。
 4. 认证流程稳定后再拆出 `travel-auth`。
-5. 行程、版本、导出模型稳定后再拆出 `travel-trip`。
+5. 将 `travel-trip` 从代理门面升级为真正拥有行程、版本和导出元数据的服务。
 6. 当配额、审计、权限策略变复杂后，再加入 `travel-agent`。
 
 ## 暂不做的事

@@ -6,11 +6,9 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 
-APP_NAME = "Travel Agent Gateway"
+APP_NAME = "Travel Trip Service"
 AGENT_RUNTIME_URL = os.getenv("AGENT_RUNTIME_URL", "http://agent-runtime:8000").rstrip("/")
-TRAVEL_TRIP_URL = os.getenv("TRAVEL_TRIP_URL", "http://travel-trip:8200").rstrip("/")
-TRAVEL_MCP_URL = os.getenv("TRAVEL_MCP_URL", "http://travel-mcp:8100").rstrip("/")
-REQUEST_TIMEOUT_SECONDS = float(os.getenv("GATEWAY_REQUEST_TIMEOUT_SECONDS", "180"))
+REQUEST_TIMEOUT_SECONDS = float(os.getenv("TRIP_SERVICE_REQUEST_TIMEOUT_SECONDS", "180"))
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
@@ -27,75 +25,40 @@ app.add_middleware(
 )
 
 
-@app.get("/gateway/health")
-async def gateway_health() -> dict[str, Any]:
-    checks = {
-        "agentRuntime": await _check_upstream(f"{AGENT_RUNTIME_URL}/health"),
-        "travelTrip": await _check_upstream(f"{TRAVEL_TRIP_URL}/health"),
-        "travelMcp": await _check_upstream(f"{TRAVEL_MCP_URL}/health"),
-    }
-    required_upstreams = ("agentRuntime", "travelTrip")
-    status = "ok" if all(checks[name]["ok"] for name in required_upstreams) else "degraded"
+@app.get("/health")
+async def health() -> dict[str, Any]:
+    upstream = await _check_upstream(f"{AGENT_RUNTIME_URL}/health")
     return {
-        "status": status,
+        "status": "ok" if upstream["ok"] else "degraded",
         "service": APP_NAME,
-        "upstreams": checks,
+        "mode": "trip-api-facade",
+        "upstreams": {"agentRuntime": upstream},
     }
-
-
-@app.api_route("/health", methods=["GET", "HEAD"])
-async def proxy_agent_health(request: Request) -> Response:
-    return await _proxy(request, AGENT_RUNTIME_URL, "/health")
 
 
 @app.api_route("/api/v1/trip-plan", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_trip_plan_root(request: Request) -> Response:
-    return await _proxy(request, TRAVEL_TRIP_URL, "/api/v1/trip-plan")
+    return await _proxy(request, "/api/v1/trip-plan")
 
 
 @app.api_route("/api/v1/trip-plan-jobs", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_trip_plan_jobs_root(request: Request) -> Response:
-    return await _proxy(request, TRAVEL_TRIP_URL, "/api/v1/trip-plan-jobs")
+    return await _proxy(request, "/api/v1/trip-plan-jobs")
 
 
 @app.api_route("/api/v1/trip-plan-jobs/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_trip_plan_jobs(path: str, request: Request) -> Response:
-    return await _proxy(request, TRAVEL_TRIP_URL, f"/api/v1/trip-plan-jobs/{path}")
+    return await _proxy(request, f"/api/v1/trip-plan-jobs/{path}")
 
 
 @app.api_route("/api/v1/trip-plans", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_trip_plans_root(request: Request) -> Response:
-    return await _proxy(request, TRAVEL_TRIP_URL, "/api/v1/trip-plans")
+    return await _proxy(request, "/api/v1/trip-plans")
 
 
 @app.api_route("/api/v1/trip-plans/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_trip_plans(path: str, request: Request) -> Response:
-    return await _proxy(request, TRAVEL_TRIP_URL, f"/api/v1/trip-plans/{path}")
-
-
-@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-async def proxy_agent_api(path: str, request: Request) -> Response:
-    return await _proxy(request, AGENT_RUNTIME_URL, f"/api/{path}")
-
-
-@app.api_route("/api", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-async def proxy_agent_api_root(request: Request) -> Response:
-    return await _proxy(request, AGENT_RUNTIME_URL, "/api")
-
-
-@app.api_route("/mcp", methods=["GET", "POST", "OPTIONS"])
-async def proxy_mcp(request: Request) -> Response:
-    return await _proxy(request, TRAVEL_MCP_URL, "/mcp")
-
-
-@app.api_route("/tools/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-async def proxy_tools(path: str, request: Request) -> Response:
-    return await _proxy(request, TRAVEL_MCP_URL, f"/tools/{path}")
-
-
-@app.api_route("/tools", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-async def proxy_tools_root(request: Request) -> Response:
-    return await _proxy(request, TRAVEL_MCP_URL, "/tools")
+    return await _proxy(request, f"/api/v1/trip-plans/{path}")
 
 
 async def _check_upstream(url: str) -> dict[str, Any]:
@@ -107,17 +70,16 @@ async def _check_upstream(url: str) -> dict[str, Any]:
         return {"ok": False, "error": exc.__class__.__name__}
 
 
-async def _proxy(request: Request, upstream_base_url: str, path: str) -> Response:
-    headers = _forward_headers(request)
+async def _proxy(request: Request, path: str) -> Response:
     body = await request.body()
     timeout = httpx.Timeout(REQUEST_TIMEOUT_SECONDS)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
         upstream_response = await client.request(
             request.method,
-            f"{upstream_base_url}{path}",
+            f"{AGENT_RUNTIME_URL}{path}",
             params=request.query_params,
             content=body,
-            headers=headers,
+            headers=_forward_headers(request),
         )
     return Response(
         content=upstream_response.content,
@@ -138,6 +100,7 @@ def _forward_headers(request: Request) -> dict[str, str]:
         )
         headers["x-real-ip"] = client_host
     headers["x-forwarded-proto"] = request.url.scheme
+    headers["x-travel-service-boundary"] = "travel-trip"
     return headers
 
 

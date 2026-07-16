@@ -24,6 +24,7 @@ kubectl get ingress -n travel-agent-cloud
 docker.io/sinxysai/travel-agent-cloud-frontend:latest
 docker.io/sinxysai/travel-agent-cloud-agent-runtime:latest
 docker.io/sinxysai/travel-agent-cloud-travel-gateway:latest
+docker.io/sinxysai/travel-agent-cloud-travel-trip:latest
 docker.io/sinxysai/travel-agent-cloud-travel-mcp:latest
 ```
 
@@ -33,6 +34,7 @@ GHCR workflow 保留用于镜像发布，但 K3s 清单默认拉取 Docker Hub �
 
 - `agent-runtime.yaml`
 - `travel-gateway.yaml`
+- `travel-trip.yaml`
 - `travel-mcp.yaml`
 - `frontend.yaml`
 
@@ -45,6 +47,7 @@ GHCR workflow 保留用于镜像发布，但 K3s 清单默认拉取 Docker Hub �
 - Redis
 - MinIO
 - `travel-mcp`
+- `travel-trip`
 - `travel-gateway`
 - `agent-runtime`
 - `agent-runtime-worker`
@@ -166,6 +169,7 @@ kubectl apply -k deploy/k8s
 kubectl get pods -n travel-agent-cloud
 kubectl get pods -n travel-agent-cloud -l app=agent-runtime-worker
 kubectl get pods -n travel-agent-cloud -l app=travel-gateway
+kubectl get pods -n travel-agent-cloud -l app=travel-trip
 kubectl get pods -n travel-agent-cloud -l app=travel-mcp
 ```
 
