@@ -6,6 +6,27 @@ Source prototype:
 
 This project should first preserve the prototype's user-facing travel planning capabilities, then evolve them into the cloud-native product.
 
+## Migration Shape
+
+The prototype is a two-layer app: Vue frontend plus a FastAPI backend centered on a `MultiAgentTripPlanner`. Its main behavior is:
+
+1. attraction agent calls AMap text search;
+2. weather agent calls AMap weather;
+3. hotel agent calls AMap text search;
+4. planner agent merges those tool results into a structured itinerary JSON.
+
+Travel Agent Cloud keeps the same user-facing behavior, but maps it onto a deployable architecture:
+
+| Prototype concept | Travel Agent Cloud equivalent |
+| --- | --- |
+| `SimpleAgent` attraction/weather/hotel/planner agents | LangGraph nodes: `attraction_agent`, `weather_agent`, `hotel_agent`, `meal_agent`, `route_agent`, `budget_agent`, `planner_agent` |
+| `MCPTool` wrapping `amap-mcp-server` | `services/travel-mcp` FastMCP-compatible tool service |
+| Text tool output merged by planner prompt | Structured tool payloads merged by `agent-runtime`, with optional LangChain tool-calling inside nodes |
+| In-memory/session frontend state | PostgreSQL-backed conversations, trip plans, versions, exports, jobs, and user accounts |
+| Single backend process | Full-stack deployable services: frontend, agent-runtime, worker, Postgres, Redis, RabbitMQ, object storage, travel-mcp |
+
+This means we should copy the prototype's product behavior and prompts where useful, but not copy the `helloagent` framework or its persistence model. Provider-specific AMap details stay inside `services/travel-mcp`; orchestration and product records stay inside `agent-runtime`.
+
 ## Prototype Capabilities To Preserve
 
 | Area | Prototype behavior | Travel Agent Cloud status |
@@ -31,6 +52,7 @@ This project should first preserve the prototype's user-facing travel planning c
 2. Browser-verify SSE progress updates through Docker Compose, local Vite proxying, and production ingress.
 3. Browser-verify PNG/PDF export across long itineraries, Chinese text, AMap-enabled runs, fallback-map runs, and remote POI photos.
 4. Continue improving FastMCP tool coverage for POI, hotel, meal, weather, route, and budget calls while keeping provider-specific details inside the tool layer.
+5. Move more planner-agent prompt behavior from the prototype into the LangGraph `planner_agent`, while keeping typed request/response contracts stable.
 
 ## Non-Goals For Direct Copy
 

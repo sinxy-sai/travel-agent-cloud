@@ -62,6 +62,30 @@ function Invoke-JsonRequestUtf8 {
   return $content | ConvertFrom-Json
 }
 
+function Assert-NoInternalTravelPlaceholders {
+  param(
+    [Parameter(Mandatory = $true)]
+    $Plan,
+    [Parameter(Mandatory = $true)]
+    [string]$Context
+  )
+
+  $serializedPlan = $Plan | ConvertTo-Json -Depth 40
+  $blockedTerms = @(
+    "Amap POI",
+    "Stub",
+    "Replace with Amap",
+    "scenic district",
+    "MCP stay",
+    "MCP option"
+  )
+  foreach ($term in $blockedTerms) {
+    if ($serializedPlan -like "*$term*") {
+      throw "$Context contains internal travel placeholder text: $term"
+    }
+  }
+}
+
 Write-Host "Checking health: $BaseUrl/health"
 $healthResponse = Invoke-WebRequest -Uri "$BaseUrl/health" -UseBasicParsing
 if (-not $healthResponse.Headers["X-Request-ID"]) {
@@ -410,6 +434,7 @@ if (-not $createdTripPlan.dataSources -or -not ($createdTripPlan.dataSources | W
 if (-not ($createdTripPlan.dataSources | Where-Object { $_.status -in @("LIVE", "FALLBACK", "FAILED", "UNKNOWN") })) {
   throw "Trip plan API returned invalid data source status"
 }
+Assert-NoInternalTravelPlaceholders -Plan $createdTripPlan -Context "Trip plan API response"
 
 Write-Host "Checking trip plan async job API"
 $tripJob = Invoke-RestMethod -Uri "$BaseUrl/api/v1/trip-plan-jobs" -Method Post -ContentType "application/json" -Headers $headers -Body $tripBody
@@ -433,7 +458,8 @@ if (-not $tripJob.plan.dataSources -or -not ($tripJob.plan.dataSources | Where-O
 if (-not ($tripJob.stages | Where-Object { $_.status -eq "SUCCEEDED" })) {
   throw "Trip plan job API did not return completed progress stages"
 }
-$tripJobEvents = Invoke-WebRequest -Uri "$BaseUrl/api/v1/trip-plan-jobs/$($tripJob.id)/events" -Headers $headers
+Assert-NoInternalTravelPlaceholders -Plan $tripJob.plan -Context "Trip plan job API response"
+$tripJobEvents = Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/api/v1/trip-plan-jobs/$($tripJob.id)/events" -Headers $headers
 if (-not ($tripJobEvents.Content -like "data: *")) {
   throw "Trip plan job SSE API did not return event data"
 }

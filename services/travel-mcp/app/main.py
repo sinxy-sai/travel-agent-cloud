@@ -73,7 +73,7 @@ def search_attractions(arguments: dict[str, Any]) -> dict[str, object]:
     destination = _required_text(arguments, "destination")
     day = _int_arg(arguments, "day", 1)
     interests = str(arguments.get("interests") or "local culture")
-    real_items = _amap_client().search_pois(destination, interests, day)
+    real_items = _amap_client().search_pois(destination, interests, day, category="attraction")
     if real_items:
         return {"items": real_items}
     return _stub_attractions(destination, day, interests)
@@ -82,17 +82,19 @@ def search_attractions(arguments: dict[str, Any]) -> dict[str, object]:
 def _stub_attractions(destination: str, day: int, interests: str) -> dict[str, object]:
     base_lng = 104.0668
     base_lat = 30.5728
+    city = _city_alias(destination)
+    names = _fallback_attraction_names(destination, interests)
     items = [
         {
-            "name": f"{destination} Amap POI {day}-{index}",
-            "address": f"{destination} scenic district",
+            "name": names[(day + index - 2) % len(names)],
+            "address": f"{city}核心游览区域",
             "location": {
                 "longitude": round(base_lng + day * 0.01 + index * 0.004, 6),
                 "latitude": round(base_lat + day * 0.008 + index * 0.003, 6),
             },
             "visitDuration": 90 + index * 30,
-            "description": f"Stub attraction matched to {interests}. Replace with Amap POI search later.",
-            "category": "attraction",
+            "description": f"根据{interests or '本地文化'}偏好安排的城市游览片区；建议出行前确认具体开放时间。",
+            "category": "城市游览",
             "rating": 4.4 + index * 0.1,
             "imageUrl": None,
             "ticketPrice": 30 + index * 25,
@@ -104,16 +106,30 @@ def _stub_attractions(destination: str, day: int, interests: str) -> dict[str, o
 
 def search_hotel(arguments: dict[str, Any]) -> dict[str, object]:
     destination = _required_text(arguments, "destination")
+    city = _city_alias(destination)
     day = _int_arg(arguments, "day", 1)
     accommodation = str(arguments.get("accommodation") or "comfortable hotel")
     budget = str(arguments.get("budget") or "moderate")
+    real_items = _amap_client().search_pois(destination, accommodation, day, category="hotel", limit=1)
+    if real_items:
+        item = real_items[0]
+        return {
+            "name": item["name"],
+            "address": item.get("address", ""),
+            "location": item.get("location"),
+            "priceRange": _hotel_price_range(budget),
+            "rating": str(item.get("rating") or "4.5"),
+            "distance": "靠近当日游览动线",
+            "type": accommodation,
+            "estimatedCost": _hotel_cost(budget),
+        }
     return {
-        "name": f"{destination} {accommodation} MCP stay {day}",
-        "address": f"{destination} transit hub area",
+        "name": f"{city}交通便利型{accommodation}",
+        "address": f"{city}地铁或交通枢纽周边",
         "location": {"longitude": 104.0668 + day * 0.006, "latitude": 30.5728 + day * 0.006},
         "priceRange": _hotel_price_range(budget),
         "rating": "4.5",
-        "distance": "Near the planned route",
+        "distance": "靠近当日游览动线",
         "type": accommodation,
         "estimatedCost": _hotel_cost(budget),
     }
@@ -121,14 +137,32 @@ def search_hotel(arguments: dict[str, Any]) -> dict[str, object]:
 
 def search_meals(arguments: dict[str, Any]) -> dict[str, object]:
     destination = _required_text(arguments, "destination")
+    city = _city_alias(destination)
     day = _int_arg(arguments, "day", 1)
     interests = str(arguments.get("interests") or "local food")
+    real_items = _amap_client().search_pois(destination, interests, day, category="food", limit=3)
+    if real_items:
+        meal_types = ("breakfast", "lunch", "dinner")
+        costs = {"breakfast": 25, "lunch": 55, "dinner": 90}
+        return {
+            "items": [
+                {
+                    "type": meal_types[index],
+                    "name": item["name"],
+                    "address": item.get("address", ""),
+                    "location": item.get("location"),
+                    "description": f"高德 POI 推荐的本地餐食选择，适合{interests or '本地美食'}偏好。",
+                    "estimatedCost": costs[meal_types[index]],
+                }
+                for index, item in enumerate(real_items[:3])
+            ]
+        }
     items = [
         {
             "type": meal_type,
-            "name": f"{destination} {meal_type} MCP option {day}",
-            "address": f"{destination} food street",
-            "description": f"Stub {meal_type} option matched to {interests}.",
+            "name": f"{city}{_meal_label(meal_type)}推荐",
+            "address": f"{city}本地美食街区",
+            "description": f"根据{interests or '本地美食'}偏好安排的餐食选择。",
             "estimatedCost": cost,
         }
         for meal_type, cost in {"breakfast": 25, "lunch": 55, "dinner": 90}.items()
@@ -162,7 +196,7 @@ def plan_routes(arguments: dict[str, Any]) -> dict[str, object]:
             "distanceMeters": 1800 + day * 250 + index * 650,
             "durationMinutes": 18 + day * 2 + index * 8,
             "estimatedCost": _route_leg_cost(mode, index),
-            "instruction": f"Stub route from {stops[index]} to {stops[index + 1]}; replace with Amap route planning.",
+            "instruction": f"从{stops[index]}前往{stops[index + 1]}，建议按实时地图确认路线和耗时。",
         }
         for index in range(len(stops) - 1)
     ]
@@ -300,58 +334,51 @@ class AmapWebServiceClient:
     def enabled(self) -> bool:
         return bool(self._key)
 
-    def search_pois(self, destination: str, interests: str, day: int) -> list[dict[str, object]]:
+    def search_pois(
+        self,
+        destination: str,
+        interests: str,
+        day: int,
+        *,
+        category: str = "attraction",
+        limit: int = 4,
+    ) -> list[dict[str, object]]:
         if not self.enabled:
-            return []
-        keywords = _poi_keywords(destination, interests)
-        payload = self._get(
-            "/v3/place/text",
-            {
-                "keywords": keywords,
-                "city": destination,
-                "citylimit": "true",
-                "offset": 8,
-                "page": max(1, day),
-                "extensions": "all",
-            },
-        )
-        pois = payload.get("pois") if isinstance(payload, dict) else None
-        if not isinstance(pois, list):
             return []
 
         items: list[dict[str, object]] = []
-        for index, poi in enumerate(pois[:4], start=1):
-            if not isinstance(poi, dict):
-                continue
-            name = str(poi.get("name") or "").strip()
-            if not name:
-                continue
-            location = _parse_location(str(poi.get("location") or ""))
-            biz_ext = poi.get("biz_ext") if isinstance(poi.get("biz_ext"), dict) else {}
-            photos = poi.get("photos") if isinstance(poi.get("photos"), list) else []
-            image_url = next(
-                (
-                    _safe_text(photo.get("url"))
-                    for photo in photos
-                    if isinstance(photo, dict) and _safe_text(photo.get("url"))
-                ),
-                "",
-            )
-            rating = _optional_float(biz_ext.get("rating") if isinstance(biz_ext, dict) else None)
-            cost = _optional_int(biz_ext.get("cost") if isinstance(biz_ext, dict) else None)
-            items.append(
-                {
-                    "name": name,
-                    "address": _safe_text(poi.get("address")),
-                    "location": location,
-                    "visitDuration": 90 + index * 15,
-                    "description": f"Amap POI result for {destination}; type={_safe_text(poi.get('type')) or 'attraction'}.",
-                    "category": _safe_text(poi.get("type")) or "attraction",
-                    "rating": rating,
-                    "imageUrl": image_url or None,
-                    "ticketPrice": cost or 0,
-                }
-            )
+        seen: set[str] = set()
+        city = _city_alias(destination)
+        page_numbers = _page_window(day)
+        for keywords in _poi_keyword_candidates(destination, interests, category):
+            for page in page_numbers:
+                payload = self._get(
+                    "/v3/place/text",
+                    {
+                        "keywords": keywords,
+                        "city": city,
+                        "citylimit": "true",
+                        "offset": 12,
+                        "page": page,
+                        "extensions": "all",
+                    },
+                )
+                pois = payload.get("pois") if isinstance(payload, dict) else None
+                if not isinstance(pois, list):
+                    continue
+                for poi in pois:
+                    if not isinstance(poi, dict) or not _poi_matches_category(poi, category, interests):
+                        continue
+                    item = _poi_to_item(poi, destination, category, len(items) + 1)
+                    if item is None:
+                        continue
+                    dedupe_key = f"{item['name']}|{item.get('address', '')}"
+                    if dedupe_key in seen:
+                        continue
+                    seen.add(dedupe_key)
+                    items.append(item)
+                    if len(items) >= limit:
+                        return items
         return items
 
     def weather(self, destination: str, days: int, start_date: str) -> list[dict[str, object]]:
@@ -461,11 +488,203 @@ class AmapWebServiceClient:
         return payload
 
 
-def _poi_keywords(destination: str, interests: str) -> str:
-    terms = [item.strip() for item in interests.replace("，", ",").split(",") if item.strip()]
-    if not terms:
-        return f"{destination} 景点"
-    return f"{destination} {terms[0]}"
+def _poi_keyword_candidates(destination: str, interests: str, category: str) -> list[str]:
+    city = _city_alias(destination)
+    terms = _interest_terms(interests)
+    candidates: list[str] = []
+
+    if category == "hotel":
+        candidates.extend([f"{city} 酒店", f"{city} 宾馆", f"{city} 住宿"])
+        if any("boutique" in term or "精品" in term for term in terms):
+            candidates.insert(0, f"{city} 精品酒店")
+        if any("economy" in term or "经济" in term for term in terms):
+            candidates.insert(0, f"{city} 经济型酒店")
+        return _dedupe_text(candidates)
+
+    if category == "food":
+        return _dedupe_text([
+            f"{city} 美食",
+            f"{city} 小吃",
+            f"{city} 老字号",
+            f"{city} 火锅",
+            f"{city} 餐厅",
+        ])
+
+    for term in terms:
+        candidates.extend(_interest_keyword_candidates(city, term))
+    candidates.extend([
+        f"{city} 景点",
+        f"{city} 风景名胜",
+        f"{city} 博物馆",
+        f"{city} 历史文化",
+        f"{city} 公园",
+    ])
+    return _dedupe_text(candidates)
+
+
+def _interest_terms(interests: str) -> list[str]:
+    normalized = (
+        interests.replace("，", ",")
+        .replace("、", ",")
+        .replace("；", ",")
+        .replace(";", ",")
+        .replace("|", ",")
+    )
+    return [item.strip().lower() for item in normalized.split(",") if item.strip()]
+
+
+def _interest_keyword_candidates(city: str, term: str) -> list[str]:
+    if any(keyword in term for keyword in ("food", "meal", "snack", "local food", "美食", "小吃", "餐")):
+        return [f"{city} 美食街", f"{city} 老字号", f"{city} 小吃街"]
+    if any(keyword in term for keyword in ("walk", "city walk", "街区", "漫步", "步行")):
+        return [f"{city} 历史街区", f"{city} 步行街", f"{city} 文化街区"]
+    if any(keyword in term for keyword in ("museum", "culture", "history", "heritage", "博物馆", "文化", "历史")):
+        return [f"{city} 博物馆", f"{city} 历史文化", f"{city} 文化景点"]
+    if any(keyword in term for keyword in ("nature", "park", "lake", "mountain", "自然", "公园", "湖", "山")):
+        return [f"{city} 公园", f"{city} 自然风景", f"{city} 景区"]
+    if any(keyword in term for keyword in ("tea", "茶")):
+        return [f"{city} 茶馆", f"{city} 茶文化", f"{city} 老茶馆"]
+    return [f"{city} {term}"]
+
+
+def _poi_matches_category(poi: dict[str, Any], category: str, interests: str) -> bool:
+    name = _safe_text(poi.get("name"))
+    poi_type = _safe_text(poi.get("type"))
+    searchable = f"{name};{poi_type}"
+    if not name or _contains_any(searchable, _EXCLUDED_POI_KEYWORDS):
+        return False
+
+    if category == "hotel":
+        return _contains_any(searchable, ("酒店", "宾馆", "旅馆", "住宿服务", "公寓式酒店"))
+    if category == "food":
+        return _contains_any(searchable, ("餐饮服务", "中餐厅", "火锅", "小吃", "快餐", "咖啡", "茶艺馆", "甜品"))
+
+    if _contains_any(searchable, ("风景名胜", "公园广场", "博物馆", "展览馆", "科教文化服务", "寺庙", "文化宫")):
+        return True
+    if _contains_any(interests, ("food", "美食", "小吃")):
+        return _contains_any(searchable, ("美食街", "小吃街", "步行街", "商业街"))
+    if _contains_any(interests, ("walk", "city walk", "漫步")):
+        return _contains_any(searchable, ("步行街", "文化街区", "历史街区", "风景名胜"))
+    return False
+
+
+def _poi_to_item(poi: dict[str, Any], destination: str, category: str, index: int) -> dict[str, object] | None:
+    name = _safe_text(poi.get("name"))
+    if not name:
+        return None
+    location = _parse_location(str(poi.get("location") or ""))
+    biz_ext = poi.get("biz_ext") if isinstance(poi.get("biz_ext"), dict) else {}
+    photos = poi.get("photos") if isinstance(poi.get("photos"), list) else []
+    image_url = next(
+        (
+            _safe_text(photo.get("url"))
+            for photo in photos
+            if isinstance(photo, dict) and _safe_text(photo.get("url"))
+        ),
+        "",
+    )
+    rating = _optional_float(biz_ext.get("rating") if isinstance(biz_ext, dict) else None)
+    cost = _optional_int(biz_ext.get("cost") if isinstance(biz_ext, dict) else None)
+    poi_type = _safe_text(poi.get("type"))
+    return {
+        "name": name,
+        "address": _safe_text(poi.get("address")) or destination,
+        "location": location,
+        "visitDuration": 0 if category == "hotel" else 90 + index * 15,
+        "description": f"高德地图 POI：{poi_type or category}。",
+        "category": poi_type or category,
+        "rating": rating,
+        "imageUrl": image_url or None,
+        "ticketPrice": 0 if category == "hotel" else cost or 0,
+    }
+
+
+def _page_window(day: int) -> list[int]:
+    return _dedupe_int([max(1, day), 1, 2, 3])
+
+
+def _city_alias(destination: str) -> str:
+    normalized = destination.strip()
+    aliases = {
+        "chengdu": "成都",
+        "hangzhou": "杭州",
+        "beijing": "北京",
+        "shanghai": "上海",
+        "guangzhou": "广州",
+        "shenzhen": "深圳",
+        "xian": "西安",
+        "xi'an": "西安",
+        "nanjing": "南京",
+        "suzhou": "苏州",
+        "chongqing": "重庆",
+        "wuhan": "武汉",
+        "kunming": "昆明",
+        "dali": "大理",
+        "lijiang": "丽江",
+    }
+    return aliases.get(normalized.lower(), normalized)
+
+
+def _fallback_attraction_names(destination: str, interests: str) -> list[str]:
+    city = _city_alias(destination)
+    terms = ",".join(_interest_terms(interests))
+    if _contains_any(terms, ("food", "美食", "小吃")):
+        return [f"{city}特色美食片区", f"{city}老字号街区", f"{city}夜市美食路线"]
+    if _contains_any(terms, ("walk", "city walk", "漫步")):
+        return [f"{city}城市漫步路线", f"{city}历史街区", f"{city}文化街区"]
+    if _contains_any(terms, ("museum", "culture", "history", "博物馆", "文化", "历史")):
+        return [f"{city}博物馆片区", f"{city}本地文化街区", f"{city}历史文化路线"]
+    return [f"{city}经典景点片区", f"{city}本地文化街区", f"{city}城市漫步路线"]
+
+
+def _meal_label(meal_type: str) -> str:
+    return {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐"}.get(meal_type, "餐食")
+
+
+def _contains_any(value: str, keywords: tuple[str, ...]) -> bool:
+    lowered = value.lower()
+    return any(keyword.lower() in lowered for keyword in keywords)
+
+
+def _dedupe_text(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = value.strip()
+        if normalized and normalized not in seen:
+            result.append(normalized)
+            seen.add(normalized)
+    return result
+
+
+def _dedupe_int(values: list[int]) -> list[int]:
+    result: list[int] = []
+    seen: set[int] = set()
+    for value in values:
+        if value not in seen:
+            result.append(value)
+            seen.add(value)
+    return result
+
+
+_EXCLUDED_POI_KEYWORDS = (
+    "汽车",
+    "汽修",
+    "维修",
+    "生活服务",
+    "商务住宅",
+    "公司企业",
+    "产业园",
+    "小区",
+    "住宅区",
+    "摩托车",
+    "充电站",
+    "停车场",
+    "医疗",
+    "银行",
+    "证券",
+    "政府机构",
+)
 
 
 def _route_stops(hotel: Any, attractions: Any) -> list[dict[str, Any]]:
