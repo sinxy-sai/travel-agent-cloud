@@ -21,10 +21,7 @@ class TripPlanRecord(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(80), index=True)
-    conversation_id: Mapped[str | None] = mapped_column(
-        ForeignKey("conversations.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     title: Mapped[str] = mapped_column(String(160))
     destination: Mapped[str] = mapped_column(String(80))
     days: Mapped[int] = mapped_column(Integer)
