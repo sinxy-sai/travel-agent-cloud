@@ -43,16 +43,19 @@ jobs:
             sudo kubectl set image deployment/frontend frontend=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-frontend:${IMAGE_TAG} -n travel-agent-cloud && \
             sudo kubectl set image deployment/agent-runtime agent-runtime=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-agent-runtime:${IMAGE_TAG} -n travel-agent-cloud && \
             sudo kubectl set image deployment/travel-gateway travel-gateway=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-travel-gateway:${IMAGE_TAG} -n travel-agent-cloud && \
+            sudo kubectl set image deployment/travel-auth travel-auth=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-travel-auth:${IMAGE_TAG} -n travel-agent-cloud && \
             sudo kubectl set image deployment/travel-trip travel-trip=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-travel-trip:${IMAGE_TAG} -n travel-agent-cloud && \
             sudo kubectl set image deployment/travel-mcp travel-mcp=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-travel-mcp:${IMAGE_TAG} -n travel-agent-cloud && \
             sudo kubectl rollout restart deployment/frontend -n travel-agent-cloud && \
             sudo kubectl rollout restart deployment/agent-runtime -n travel-agent-cloud && \
             sudo kubectl rollout restart deployment/travel-gateway -n travel-agent-cloud && \
+            sudo kubectl rollout restart deployment/travel-auth -n travel-agent-cloud && \
             sudo kubectl rollout restart deployment/travel-trip -n travel-agent-cloud && \
             sudo kubectl rollout restart deployment/travel-mcp -n travel-agent-cloud && \
             sudo kubectl rollout status deployment/frontend -n travel-agent-cloud --timeout=180s && \
             sudo kubectl rollout status deployment/agent-runtime -n travel-agent-cloud --timeout=180s && \
             sudo kubectl rollout status deployment/travel-gateway -n travel-agent-cloud --timeout=180s && \
+            sudo kubectl rollout status deployment/travel-auth -n travel-agent-cloud --timeout=180s && \
             sudo kubectl rollout status deployment/travel-trip -n travel-agent-cloud --timeout=180s && \
             sudo kubectl rollout status deployment/travel-mcp -n travel-agent-cloud --timeout=180s && \
             sudo kubectl get pods -n travel-agent-cloud"

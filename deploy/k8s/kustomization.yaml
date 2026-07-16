@@ -7,6 +7,7 @@ resources:
   - travel-mcp.yaml
   - agent-runtime.yaml
   - addons/agent-runtime-worker.yaml
+  - travel-auth.yaml
   - travel-trip.yaml
   - travel-gateway.yaml
   - frontend.yaml

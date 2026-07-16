@@ -8,6 +8,7 @@ from travel_common.proxy import check_upstream, proxy_request
 
 APP_NAME = "Travel Agent Gateway"
 AGENT_RUNTIME_URL = os.getenv("AGENT_RUNTIME_URL", "http://agent-runtime:8000").rstrip("/")
+TRAVEL_AUTH_URL = os.getenv("TRAVEL_AUTH_URL", "http://travel-auth:8300").rstrip("/")
 TRAVEL_TRIP_URL = os.getenv("TRAVEL_TRIP_URL", "http://travel-trip:8200").rstrip("/")
 TRAVEL_MCP_URL = os.getenv("TRAVEL_MCP_URL", "http://travel-mcp:8100").rstrip("/")
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("GATEWAY_REQUEST_TIMEOUT_SECONDS", "180"))
@@ -31,10 +32,11 @@ app.add_middleware(
 async def gateway_health() -> dict[str, Any]:
     checks = {
         "agentRuntime": await _check_upstream(f"{AGENT_RUNTIME_URL}/health"),
+        "travelAuth": await _check_upstream(f"{TRAVEL_AUTH_URL}/health"),
         "travelTrip": await _check_upstream(f"{TRAVEL_TRIP_URL}/health"),
         "travelMcp": await _check_upstream(f"{TRAVEL_MCP_URL}/health"),
     }
-    required_upstreams = ("agentRuntime", "travelTrip")
+    required_upstreams = ("agentRuntime", "travelAuth", "travelTrip")
     status = "ok" if all(checks[name]["ok"] for name in required_upstreams) else "degraded"
     return {
         "status": status,
@@ -71,6 +73,26 @@ async def proxy_trip_plans_root(request: Request) -> Response:
 @app.api_route("/api/v1/trip-plans/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_trip_plans(path: str, request: Request) -> Response:
     return await _proxy(request, TRAVEL_TRIP_URL, f"/api/v1/trip-plans/{path}")
+
+
+@app.api_route("/api/v1/auth", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_auth_root(request: Request) -> Response:
+    return await _proxy(request, TRAVEL_AUTH_URL, "/api/v1/auth")
+
+
+@app.api_route("/api/v1/auth/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_auth(path: str, request: Request) -> Response:
+    return await _proxy(request, TRAVEL_AUTH_URL, f"/api/v1/auth/{path}")
+
+
+@app.api_route("/api/v1/me", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_me_root(request: Request) -> Response:
+    return await _proxy(request, TRAVEL_AUTH_URL, "/api/v1/me")
+
+
+@app.api_route("/api/v1/me/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_me(path: str, request: Request) -> Response:
+    return await _proxy(request, TRAVEL_AUTH_URL, f"/api/v1/me/{path}")
 
 
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
