@@ -60,6 +60,12 @@ services:
       MINIO_ROOT_PASSWORD: travel_agent_dev_secret
     volumes:
       - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   travel-mcp:
     build:
