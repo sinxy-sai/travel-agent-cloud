@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: travel-trip
-          image: docker.io/sinxysai/travel-agent-cloud-travel-trip:latest
+          image: docker.io/sinxysai/travel-agent-cloud-trip:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8200

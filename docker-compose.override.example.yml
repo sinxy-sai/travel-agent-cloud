@@ -8,4 +8,4 @@ services:
 
   travel-agent-worker:
     env_file:
-      - ./services/travel-agent/.env
+      - ./services/agent/.env

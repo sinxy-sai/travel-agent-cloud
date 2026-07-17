@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: travel-auth
-          image: docker.io/sinxysai/travel-agent-cloud-travel-auth:latest
+          image: docker.io/sinxysai/travel-agent-cloud-auth:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8300

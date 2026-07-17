@@ -24,11 +24,11 @@ runtime 不负责：
 
 对应职责归属：
 
-- `services/travel-auth`：认证、用户资料、OAuth、邮箱验证、账户导入导出。
-- `services/travel-agent`：会话、聊天历史、摘要任务和 worker。
-- `services/travel-trip`：行程持久化、版本、收藏、删除、导出。
-- `services/travel-mcp`：高德/FastMCP 旅行工具服务。
-- `services/travel-gateway`：对外统一 API 和 `/health` 聚合。
+- `services/auth`：认证、用户资料、OAuth、邮箱验证、账户导入导出。
+- `services/agent`：会话、聊天历史、摘要任务和 worker。
+- `services/trip`：行程持久化、版本、收藏、删除、导出。
+- `services/mcp`：高德/FastMCP 旅行工具服务。
+- `services/gateway`：对外统一 API 和 `/health` 聚合。
 
 ## 接口
 
@@ -46,7 +46,7 @@ runtime 不负责：
 - `POST /internal/v1/trip-plans/{trip_plan_id}/revise`
 - `POST /internal/v1/trip-plans/{trip_plan_id}/days/{day}/regenerate`
 
-`/internal/v1/trip-plan-jobs/*` 仍保留为 runtime 局部执行 job 能力；对外的可保存行程 job 由 `services/travel-trip` 承担。
+`/internal/v1/trip-plan-jobs/*` 仍保留为 runtime 局部执行 job 能力；对外的可保存行程 job 由 `services/trip` 承担。
 
 前端和外部客户端不应直接调用 runtime，应统一走 `travel-gateway`。
 
@@ -84,7 +84,7 @@ docker compose up -d --build
 docker compose --profile worker up -d --build
 ```
 
-该 worker 使用 `services/travel-agent` 镜像，不使用 `agent-runtime` 代码。
+该 worker 使用 `services/agent` 镜像，不使用 `agent-runtime` 代码。
 
 ## 验证
 

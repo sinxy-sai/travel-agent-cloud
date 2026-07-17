@@ -42,11 +42,11 @@ jobs:
             sudo kubectl apply -k ~/travel-agent-cloud/deploy/k8s && \
             sudo kubectl set image deployment/frontend frontend=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-frontend:${IMAGE_TAG} -n travel-agent-cloud && \
             sudo kubectl set image deployment/agent-runtime agent-runtime=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-agent-runtime:${IMAGE_TAG} -n travel-agent-cloud && \
-            sudo kubectl set image deployment/travel-gateway travel-gateway=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-travel-gateway:${IMAGE_TAG} -n travel-agent-cloud && \
-            sudo kubectl set image deployment/travel-auth travel-auth=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-travel-auth:${IMAGE_TAG} -n travel-agent-cloud && \
-            sudo kubectl set image deployment/travel-trip travel-trip=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-travel-trip:${IMAGE_TAG} -n travel-agent-cloud && \
-            sudo kubectl set image deployment/travel-agent travel-agent=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-travel-agent:${IMAGE_TAG} -n travel-agent-cloud && \
-            sudo kubectl set image deployment/travel-mcp travel-mcp=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-travel-mcp:${IMAGE_TAG} -n travel-agent-cloud && \
+            sudo kubectl set image deployment/travel-gateway travel-gateway=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-gateway:${IMAGE_TAG} -n travel-agent-cloud && \
+            sudo kubectl set image deployment/travel-auth travel-auth=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-auth:${IMAGE_TAG} -n travel-agent-cloud && \
+            sudo kubectl set image deployment/travel-trip travel-trip=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-trip:${IMAGE_TAG} -n travel-agent-cloud && \
+            sudo kubectl set image deployment/travel-agent travel-agent=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-agent:${IMAGE_TAG} -n travel-agent-cloud && \
+            sudo kubectl set image deployment/travel-mcp travel-mcp=docker.io/${DOCKERHUB_USERNAME}/travel-agent-cloud-mcp:${IMAGE_TAG} -n travel-agent-cloud && \
             sudo kubectl rollout restart deployment/frontend -n travel-agent-cloud && \
             sudo kubectl rollout restart deployment/agent-runtime -n travel-agent-cloud && \
             sudo kubectl rollout restart deployment/travel-gateway -n travel-agent-cloud && \

@@ -10,11 +10,11 @@ on:
 env:
   FRONTEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-frontend
   AGENT_RUNTIME_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-agent-runtime
-  TRAVEL_GATEWAY_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-travel-gateway
-  TRAVEL_AUTH_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-travel-auth
-  TRAVEL_TRIP_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-travel-trip
-  TRAVEL_AGENT_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-travel-agent
-  TRAVEL_MCP_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-travel-mcp
+  TRAVEL_GATEWAY_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-gateway
+  TRAVEL_AUTH_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-auth
+  TRAVEL_TRIP_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-trip
+  TRAVEL_AGENT_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-agent
+  TRAVEL_MCP_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/travel-agent-cloud-mcp
   IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
@@ -57,7 +57,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./services
-          file: ./services/travel-gateway/Dockerfile
+          file: ./services/gateway/Dockerfile
           push: true
           tags: |
             ${{ env.TRAVEL_GATEWAY_IMAGE }}:latest
@@ -67,7 +67,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./services
-          file: ./services/travel-auth/Dockerfile
+          file: ./services/auth/Dockerfile
           push: true
           tags: |
             ${{ env.TRAVEL_AUTH_IMAGE }}:latest
@@ -77,7 +77,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./services
-          file: ./services/travel-trip/Dockerfile
+          file: ./services/trip/Dockerfile
           push: true
           tags: |
             ${{ env.TRAVEL_TRIP_IMAGE }}:latest
@@ -87,7 +87,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./services
-          file: ./services/travel-agent/Dockerfile
+          file: ./services/agent/Dockerfile
           push: true
           tags: |
             ${{ env.TRAVEL_AGENT_IMAGE }}:latest
@@ -96,7 +96,7 @@ jobs:
       - name: Build and push travel MCP image
         uses: docker/build-push-action@v6
         with:
-          context: ./services/travel-mcp
+          context: ./services/mcp
           push: true
           tags: |
             ${{ env.TRAVEL_MCP_IMAGE }}:latest

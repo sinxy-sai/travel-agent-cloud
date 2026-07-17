@@ -15,15 +15,15 @@
 
 每个服务都必须有自己的环境变量模板：
 
-- `services/travel-gateway/.env.example`
-- `services/travel-auth/.env.example`
-- `services/travel-trip/.env.example`
-- `services/travel-agent/.env.example`
-- `services/travel-mcp/.env.example`
+- `services/gateway/.env.example`
+- `services/auth/.env.example`
+- `services/trip/.env.example`
+- `services/agent/.env.example`
+- `services/mcp/.env.example`
 
 本地开发时，对应的 `.env` 文件也放在各服务目录下，并由 `docker-compose.yml` 的 `env_file` 加载。`.env` 文件不提交到 Git，`.env.example` 才是可提交的模板。
 
-`agent-runtime/.env` 只保留 Agent 编排/执行核心需要的配置，例如 LLM、LangGraph、FastMCP、Redis、RabbitMQ 和内部行程服务地址。认证、用户、账户导入导出、SMTP、OAuth 等新配置应该放在 `services/travel-auth/.env`，不要再继续堆到 `agent-runtime/.env`。
+`agent-runtime/.env` 只保留 Agent 编排/执行核心需要的配置，例如 LLM、LangGraph、FastMCP、Redis、RabbitMQ 和内部行程服务地址。认证、用户、账户导入导出、SMTP、OAuth 等新配置应该放在 `services/auth/.env`，不要再继续堆到 `agent-runtime/.env`。
 
 `INTERNAL_SERVICE_TOKEN` 是服务间调用的共享内部 token。所有需要通过 `travel-gateway` 或 internal API 通信的服务必须配置同一个值；本地可以使用开发默认值，VPS/K3s 必须放到 Secret 中。
 

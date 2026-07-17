@@ -30,11 +30,11 @@ Travel Agent Cloud 是一个面向旅行规划场景的 AI 助手项目。当前
 ## 当前模块
 
 - `frontend`：React + Vite 前端工作台。
-- `services/travel-gateway`：统一 API 入口，负责把 `/api/v1` 请求转发到领域服务。
-- `services/travel-auth`：认证和用户领域服务，负责账号、session、profile、邮箱 token、OAuth identity、GitHub OAuth、账户导入导出和导出文件。
-- `services/travel-trip`：行程领域服务，负责行程历史、详情、编辑、版本、恢复、收藏、删除和 Markdown 导出。
-- `services/travel-agent`：Agent 领域入口，负责会话 CRUD、同步摘要、异步摘要 job 生产；执行核心通过内部接口调用 `agent-runtime`。
-- `services/travel-mcp`：旅行工具微服务，负责高德 POI、天气、路线等工具数据。
+- `services/gateway`：统一 API 入口，负责把 `/api/v1` 请求转发到领域服务。
+- `services/auth`：认证和用户领域服务，负责账号、session、profile、邮箱 token、OAuth identity、GitHub OAuth、账户导入导出和导出文件。
+- `services/trip`：行程领域服务，负责行程历史、详情、编辑、版本、恢复、收藏、删除和 Markdown 导出。
+- `services/agent`：Agent 领域入口，负责会话 CRUD、同步摘要、异步摘要 job 生产；执行核心通过内部接口调用 `agent-runtime`。
+- `services/mcp`：旅行工具微服务，负责高德 POI、天气、路线等工具数据。
 - `services/common`：Python 微服务共享工具包，只放 HTTP 代理、CORS、健康检查、通用错误等基础设施能力。
 - `agent-runtime`：Agent 编排/执行核心，负责 LangGraph/LangChain 工作流、LLM 调用和旅行工具编排。
 - `deploy/k8s`：K3s/Kubernetes 部署清单。
@@ -47,11 +47,11 @@ Travel Agent Cloud 是一个面向旅行规划场景的 AI 助手项目。当前
 
 - `agent-runtime/.env`：Agent 编排/执行、LLM、LangGraph、FastMCP、Redis、RabbitMQ 等运行时配置。
 - `frontend/.env`：Vite 前端构建配置，例如 API 地址和高德 JS SDK key。
-- `services/travel-gateway/.env`：网关上游服务地址和请求超时。
-- `services/travel-auth/.env`：认证、SMTP、OAuth、MinIO、账户导入导出等配置。
-- `services/travel-trip/.env`：行程服务数据库、认证密钥和 runtime 内部调用配置。
-- `services/travel-agent/.env`：会话服务数据库、RabbitMQ、worker 和 runtime 内部调用配置。
-- `services/travel-mcp/.env`：高德 Web Service key 和工具服务配置。
+- `services/gateway/.env`：网关上游服务地址和请求超时。
+- `services/auth/.env`：认证、SMTP、OAuth、MinIO、账户导入导出等配置。
+- `services/trip/.env`：行程服务数据库、认证密钥和 runtime 内部调用配置。
+- `services/agent/.env`：会话服务数据库、RabbitMQ、worker 和 runtime 内部调用配置。
+- `services/mcp/.env`：高德 Web Service key 和工具服务配置。
 
 `.env` 文件只用于本地，不提交到 Git；`.env.example` 是模板，需要随代码维护。VPS/K3s 环境应把这些配置迁移为 Kubernetes `ConfigMap` 和 `Secret`。
 

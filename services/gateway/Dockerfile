@@ -1,12 +1,12 @@
 FROM python:3.12-slim
 
-WORKDIR /app/travel-gateway
+WORKDIR /app/gateway
 
 COPY common ../common
-COPY travel-gateway/requirements.txt .
+COPY gateway/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY travel-gateway/app ./app
+COPY gateway/app ./app
 
 EXPOSE 8080
 

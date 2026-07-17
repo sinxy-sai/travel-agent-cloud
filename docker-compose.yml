@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: travel-agent-postgres
+    container_name: postgres
     ports:
       - "5432:5432"
     environment:
@@ -18,7 +18,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
-    container_name: travel-agent-rabbitmq
+    container_name: rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -36,7 +36,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: travel-agent-redis
+    container_name: redis
     ports:
       - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
@@ -50,7 +50,7 @@ services:
 
   minio:
     image: minio/minio:RELEASE.2024-12-18T13-15-44Z
-    container_name: travel-agent-minio
+    container_name: minio
     command: ["server", "/data", "--console-address", ":9001"]
     ports:
       - "9000:9000"
@@ -68,21 +68,23 @@ services:
       start_period: 10s
 
   travel-mcp:
+    image: travel-agent-cloud-mcp
     build:
-      context: ./services/travel-mcp
-    container_name: travel-agent-mcp
+      context: ./services/mcp
+    container_name: mcp
     env_file:
-      - ./services/travel-mcp/.env
+      - ./services/mcp/.env
     ports:
       - "8100:8100"
 
   travel-gateway:
+    image: travel-agent-cloud-gateway
     build:
       context: ./services
-      dockerfile: travel-gateway/Dockerfile
-    container_name: travel-agent-gateway
+      dockerfile: gateway/Dockerfile
+    container_name: gateway
     env_file:
-      - ./services/travel-gateway/.env
+      - ./services/gateway/.env
     ports:
       - "8080:8080"
     depends_on:
@@ -104,13 +106,13 @@ services:
       start_period: 10s
 
   travel-agent:
-    image: travel-agent-cloud-travel-agent
+    image: travel-agent-cloud-agent
     build:
       context: ./services
-      dockerfile: travel-agent/Dockerfile
-    container_name: travel-agent-agent
+      dockerfile: agent/Dockerfile
+    container_name: agent
     env_file:
-      - ./services/travel-agent/.env
+      - ./services/agent/.env
     ports:
       - "8400:8400"
     depends_on:
@@ -128,12 +130,13 @@ services:
       start_period: 10s
 
   travel-auth:
+    image: travel-agent-cloud-auth
     build:
       context: ./services
-      dockerfile: travel-auth/Dockerfile
-    container_name: travel-agent-auth
+      dockerfile: auth/Dockerfile
+    container_name: auth
     env_file:
-      - ./services/travel-auth/.env
+      - ./services/auth/.env
     ports:
       - "8300:8300"
     depends_on:
@@ -151,12 +154,13 @@ services:
       start_period: 10s
 
   travel-trip:
+    image: travel-agent-cloud-trip
     build:
       context: ./services
-      dockerfile: travel-trip/Dockerfile
-    container_name: travel-agent-trip
+      dockerfile: trip/Dockerfile
+    container_name: trip
     env_file:
-      - ./services/travel-trip/.env
+      - ./services/trip/.env
     ports:
       - "8200:8200"
     depends_on:
@@ -172,9 +176,10 @@ services:
       start_period: 10s
 
   agent-runtime:
+    image: travel-agent-cloud-agent-runtime
     build:
       context: ./agent-runtime
-    container_name: travel-agent-runtime
+    container_name: runtime
     env_file:
       - ./agent-runtime/.env
     ports:
@@ -196,13 +201,13 @@ services:
       start_period: 10s
 
   travel-agent-worker:
-    image: travel-agent-cloud-travel-agent
-    container_name: travel-agent-worker
+    image: travel-agent-cloud-agent
+    container_name: agent-worker
     command: ["python", "-m", "app.worker_main"]
     profiles:
       - worker
     env_file:
-      - ./services/travel-agent/.env
+      - ./services/agent/.env
     depends_on:
       postgres:
         condition: service_healthy
@@ -210,13 +215,14 @@ services:
         condition: service_healthy
 
   frontend:
+    image: travel-agent-cloud-frontend
     build:
       context: ./frontend
       args:
         VITE_AGENT_API_BASE_URL: ""
         VITE_AMAP_JS_KEY: ${VITE_AMAP_JS_KEY:-}
         VITE_AMAP_SECURITY_JS_CODE: ${VITE_AMAP_SECURITY_JS_CODE:-}
-    container_name: travel-agent-frontend
+    container_name: frontend
     ports:
       - "5173:80"
     depends_on:

@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: travel-mcp
-          image: docker.io/sinxysai/travel-agent-cloud-travel-mcp:latest
+          image: docker.io/sinxysai/travel-agent-cloud-mcp:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8100
