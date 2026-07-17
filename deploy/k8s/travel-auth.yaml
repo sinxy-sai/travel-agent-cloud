@@ -34,6 +34,36 @@ spec:
               value: "*"
             - name: AUTH_SERVICE_REQUEST_TIMEOUT_SECONDS
               value: "180"
+            - name: AUTH_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_SECRET_KEY
+                  optional: true
+            - name: AUTH_TOKEN_TTL_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_TOKEN_TTL_SECONDS
+                  optional: true
+            - name: AUTH_COOKIE_SECURE
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_COOKIE_SECURE
+                  optional: true
+            - name: AUTH_RATE_LIMIT_MAX_ATTEMPTS
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_RATE_LIMIT_MAX_ATTEMPTS
+                  optional: true
+            - name: AUTH_RATE_LIMIT_WINDOW_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_RATE_LIMIT_WINDOW_SECONDS
+                  optional: true
           readinessProbe:
             httpGet:
               path: /health

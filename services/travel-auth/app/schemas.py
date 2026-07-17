@@ -12,6 +12,93 @@ class APIModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
+class AuthRegisterRequest(APIModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str = Field(default="", max_length=80)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if value.strip() != value:
+            raise ValueError("Password cannot start or end with whitespace")
+        return value
+
+    @field_validator("display_name")
+    @classmethod
+    def strip_display_name(cls, value: str) -> str:
+        return value.strip()
+
+
+class AuthLoginRequest(APIModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class AuthPasswordChangeRequest(APIModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        if value.strip() != value:
+            raise ValueError("Password cannot start or end with whitespace")
+        return value
+
+
+class AuthUserUpdateRequest(APIModel):
+    display_name: str = Field(default="", max_length=80)
+
+    @field_validator("display_name")
+    @classmethod
+    def strip_display_name(cls, value: str) -> str:
+        return value.strip()
+
+
+class AuthUser(APIModel):
+    id: str
+    email: str
+    display_name: str = ""
+    email_verified: bool = False
+    password_configured: bool = True
+    created_at: datetime
+
+
+class AuthSession(APIModel):
+    user: AuthUser
+
+
+class AuthSessionInfo(APIModel):
+    id: str
+    user_id: str
+    user_agent: str = ""
+    current: bool = False
+    revoked: bool = False
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None = None
+
+
+class AuthSessionListResponse(APIModel):
+    data: list[AuthSessionInfo]
+
+
+class AuthSessionRevokeAllResponse(APIModel):
+    revoked: int
+
+
 class UserProfile(APIModel):
     user_id: str
     display_name: str = ""

@@ -28,7 +28,7 @@ agent-runtime
 - `travel-mcp`：旅行工具服务，当前支持高德数据和确定性 fallback。
 - `agent-runtime-worker`：消费 RabbitMQ 任务的后台 worker。
 - `services/common`：微服务共享 Python 包，存放跨服务基础设施工具，不放业务逻辑。
-- `travel-auth`：用户领域服务。当前已经实迁匿名本地用户 profile 读写；登录、注册、OAuth、会话和账户数据导入导出暂时仍代理到 `agent-runtime`。
+- `travel-auth`：用户与认证领域服务。当前已经实迁注册、登录、退出登录、当前用户、密码修改、session 管理，以及登录用户和匿名本地用户 profile 读写；OAuth、邮箱验证、密码重置、账号删除和账户数据导入导出暂时仍代理到 `agent-runtime`。
 - `travel-trip`：行程领域服务。当前已经实迁匿名本地用户的行程列表、详情、编辑、版本、恢复、删除和 Markdown 导出；`agent-runtime` 生成、AI 修订和单日重生成后的行程也通过它的内部接口保存；登录用户读写路径暂时仍代理到 `agent-runtime`。
 - `travel-agent`：Agent API 门面服务。当前仍代理到 `agent-runtime`，后续迁移配额、审计、权限和 Agent 请求策略。
 
@@ -47,7 +47,7 @@ agent-runtime
 2. 将 `travel-mcp` 作为第一个真实工具微服务运行。
 3. 保持 `agent-runtime` 稳定，继续打磨旅行规划行为。
 4. 将 `travel-trip` 从代理门面升级为真正拥有行程、版本和导出元数据的服务。当前已完成匿名用户读写路径、生成后保存、AI 修订保存和单日重生成保存的实迁。
-5. 将 `travel-auth` 从代理门面升级为真正拥有用户、profile、会话、邮箱 token 和 OAuth identity 的服务。当前已完成匿名用户 profile 读写的第一步实迁。
+5. 将 `travel-auth` 从代理门面升级为真正拥有用户、profile、会话、邮箱 token 和 OAuth identity 的服务。当前已完成核心账号认证、session 管理和 profile 读写的实迁。
 6. 将 `travel-agent` 从代理门面升级为真正承载配额、审计、权限和 Agent 请求策略的服务。
 
 ## 暂不做的事
@@ -60,5 +60,5 @@ agent-runtime
 ## 下一批高价值迁移候选
 
 - `travel-trip`：登录用户行程读写和导出元数据，减少行程领域对 `agent-runtime` 的依赖。
-- `travel-auth`：登录用户 profile、用户基础信息和会话读取，逐步把身份上下文下沉到用户服务。
+- `travel-auth`：邮箱验证、密码重置、OAuth identity、账号删除和账户数据导入导出，逐步把完整账户生命周期下沉到用户服务。
 - `travel-agent`：会话列表、会话摘要和聊天历史边界，后续再迁移真正的 Agent 执行策略。

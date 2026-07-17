@@ -14,7 +14,7 @@ frontend
 
 `travel-trip` 已经开始从纯代理服务转为行程领域服务：匿名本地用户的行程读写、版本、恢复、删除和 Markdown 导出直接由 `travel-trip` 处理。`agent-runtime` 生成、AI 修订或单日重生成行程内容后，会通过 `travel-trip` 的 internal API 保存结果。仍需要 Agent 执行或登录身份校验的入口暂时回落到 `agent-runtime`。
 
-`travel-auth` 已经开始从纯代理服务转为用户领域服务：匿名本地用户的 profile 读写直接由 `travel-auth` 处理。登录、注册、OAuth、会话和账户数据导入导出仍暂时回落到 `agent-runtime`。
+`travel-auth` 已经开始从纯代理服务转为用户与认证领域服务：注册、登录、退出登录、当前用户、密码修改、session 管理，以及登录用户和匿名本地用户 profile 读写直接由 `travel-auth` 处理。OAuth、邮箱验证、密码重置、账号删除和账户数据导入导出仍暂时回落到 `agent-runtime`。
 
 ## 当前 Agent Runtime API
 

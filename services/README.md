@@ -5,7 +5,7 @@
 ## 当前服务
 
 - `travel-gateway`：前端访问后端的统一入口，负责按路径把请求转发到领域服务。
-- `travel-auth`：认证和用户领域服务。当前已直接处理匿名本地用户 profile 读写；登录、注册、密码、OAuth 和账户数据导入导出仍代理到 `agent-runtime`。
+- `travel-auth`：认证和用户领域服务。当前已直接处理注册、登录、退出登录、当前用户、密码修改、session 管理，以及登录用户和匿名本地用户 profile 读写；OAuth、邮箱验证、密码重置、账号删除和账户数据导入导出仍代理到 `agent-runtime`。
 - `travel-trip`：行程领域服务。当前已直接处理匿名本地用户的行程历史、详情、编辑、版本、恢复、删除和 Markdown 导出，并承接 `agent-runtime` 生成、AI 修订和单日重生成后的内部保存请求；生成和 AI 修订入口仍代理到 `agent-runtime`。
 - `travel-agent`：Agent 领域门面。当前代理聊天、会话和 Agent 状态相关接口，后续迁入配额、审计、权限和 Agent 请求策略。
 - `travel-mcp`：真实旅行工具服务，封装高德数据、工具调用和 fallback 行为。
@@ -24,4 +24,4 @@
 1. 继续稳定 `travel-auth`、`travel-trip`、`travel-agent` 的服务边界。
 2. 继续把 `travel-trip` 的登录用户行程持久化和导出元数据迁出 `agent-runtime`。
 3. 迁移 `travel-agent` 的配额、审计、权限和 Agent 请求策略。
-4. 迁移 `travel-auth` 的登录用户 profile、用户、会话和 OAuth identity 存储逻辑。
+4. 继续迁移 `travel-auth` 的邮箱验证、密码重置、OAuth identity 和账户数据导入导出边界。

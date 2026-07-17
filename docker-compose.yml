@@ -137,6 +137,11 @@ services:
       DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
       ALLOWED_ORIGINS: http://localhost:5173
       AUTH_SERVICE_REQUEST_TIMEOUT_SECONDS: 180
+      AUTH_SECRET_KEY: travel-agent-cloud-local-dev-secret
+      AUTH_TOKEN_TTL_SECONDS: 604800
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_RATE_LIMIT_MAX_ATTEMPTS: 20
+      AUTH_RATE_LIMIT_WINDOW_SECONDS: 900
     ports:
       - "8300:8300"
     depends_on:
