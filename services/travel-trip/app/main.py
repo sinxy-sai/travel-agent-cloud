@@ -5,6 +5,12 @@ from urllib.parse import quote
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import PlainTextResponse
 from travel_common.app import add_cors, allowed_origins_from_env
+from travel_common.internal_auth import (
+    InternalServiceAuthMiddleware,
+    RequestContextMiddleware,
+    internal_service_headers,
+    internal_service_token,
+)
 from travel_common.proxy import check_upstream, proxy_request
 
 from app.db import create_session_factory
@@ -31,11 +37,19 @@ APP_NAME = "Travel Trip Service"
 AGENT_RUNTIME_URL = os.getenv("AGENT_RUNTIME_URL", "http://agent-runtime:8000").rstrip("/")
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("TRIP_SERVICE_REQUEST_TIMEOUT_SECONDS", "180"))
 ALLOWED_ORIGINS = allowed_origins_from_env()
+INTERNAL_SERVICE_TOKEN = internal_service_token()
+INTERNAL_SERVICE_HEADERS = internal_service_headers(INTERNAL_SERVICE_TOKEN)
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 session_factory = create_session_factory(DATABASE_URL) if DATABASE_URL else None
 trip_plan_store = TripPlanStore(session_factory) if session_factory else None
 
 app = FastAPI(title=APP_NAME, version="0.1.0")
+app.add_middleware(
+    InternalServiceAuthMiddleware,
+    token=INTERNAL_SERVICE_TOKEN,
+    protected_prefixes=("/api/", "/internal/"),
+)
+app.add_middleware(RequestContextMiddleware)
 add_cors(app, allowed_origins=ALLOWED_ORIGINS)
 
 
@@ -271,4 +285,5 @@ async def _proxy(request: Request, path: str) -> Response:
         path=path,
         timeout_seconds=REQUEST_TIMEOUT_SECONDS,
         service_boundary="travel-trip",
+        extra_headers=INTERNAL_SERVICE_HEADERS,
     )

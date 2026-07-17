@@ -55,6 +55,8 @@ Travel Agent Cloud 是一个面向旅行规划场景的 AI 助手项目。当前
 
 `.env` 文件只用于本地，不提交到 Git；`.env.example` 是模板，需要随代码维护。VPS/K3s 环境应把这些配置迁移为 Kubernetes `ConfigMap` 和 `Secret`。
 
+微服务间调用使用 `INTERNAL_SERVICE_TOKEN` 做轻量内部鉴权。本地 `.env` 使用开发默认值；VPS/K3s 必须用 Kubernetes Secret 覆盖，并保证 `travel-gateway`、`travel-auth`、`travel-trip`、`travel-agent` 和 `agent-runtime` 使用同一个值。
+
 ## 本地开发
 
 启动 Agent Runtime：

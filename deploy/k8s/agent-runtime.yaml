@@ -40,6 +40,12 @@ spec:
               value: http://travel-trip:8200
             - name: TRAVEL_TRIP_TIMEOUT_SECONDS
               value: "10"
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: INTERNAL_SERVICE_TOKEN
+                  optional: true
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

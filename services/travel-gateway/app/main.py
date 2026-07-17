@@ -3,6 +3,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from travel_common.app import add_cors, allowed_origins_from_env
+from travel_common.internal_auth import RequestContextMiddleware, internal_service_headers
 from travel_common.proxy import check_upstream, proxy_request
 
 
@@ -14,8 +15,10 @@ TRAVEL_AGENT_URL = os.getenv("TRAVEL_AGENT_URL", "http://travel-agent:8400").rst
 TRAVEL_MCP_URL = os.getenv("TRAVEL_MCP_URL", "http://travel-mcp:8100").rstrip("/")
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("GATEWAY_REQUEST_TIMEOUT_SECONDS", "180"))
 ALLOWED_ORIGINS = allowed_origins_from_env()
+INTERNAL_SERVICE_HEADERS = internal_service_headers()
 
 app = FastAPI(title=APP_NAME, version="0.1.0")
+app.add_middleware(RequestContextMiddleware)
 add_cors(app, allowed_origins=ALLOWED_ORIGINS)
 
 
@@ -147,4 +150,6 @@ async def _proxy(request: Request, upstream_base_url: str, path: str) -> Respons
         upstream_base_url=upstream_base_url,
         path=path,
         timeout_seconds=REQUEST_TIMEOUT_SECONDS,
+        service_boundary="travel-gateway",
+        extra_headers=INTERNAL_SERVICE_HEADERS,
     )

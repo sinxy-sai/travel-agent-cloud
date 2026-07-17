@@ -115,7 +115,7 @@ from app.schemas import (
     UserSecurityEventListResponse,
     to_camel,
 )
-from app.security import SecurityHeadersMiddleware, client_identifier, create_auth_rate_limiter
+from app.security import InternalServiceAuthMiddleware, SecurityHeadersMiddleware, client_identifier, create_auth_rate_limiter
 from app.security_events import DatabaseUserSecurityEventStore, UserSecurityEventStore
 from app.settings import get_settings
 from app.summaries import (
@@ -168,6 +168,7 @@ auth_rate_limiter = create_auth_rate_limiter(
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
+app.add_middleware(InternalServiceAuthMiddleware, token=settings.internal_service_token)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
@@ -858,7 +859,7 @@ def _save_generated_trip_plan(
             with httpx.Client(timeout=settings.travel_trip_timeout_seconds) as client:
                 trip_response = client.post(
                     f"{settings.travel_trip_url.rstrip('/')}/internal/v1/trip-plans",
-                    headers={"X-User-Id": user_id},
+                    headers=_internal_service_headers(user_id=user_id),
                     json={
                         "request": request.model_dump(mode="json", by_alias=True),
                         "plan": response.model_dump(mode="json", by_alias=True),
@@ -886,7 +887,7 @@ def _update_trip_plan_content(
             with httpx.Client(timeout=settings.travel_trip_timeout_seconds) as client:
                 trip_response = client.patch(
                     f"{settings.travel_trip_url.rstrip('/')}/internal/v1/trip-plans/{trip_plan_id}",
-                    headers={"X-User-Id": user_id},
+                    headers=_internal_service_headers(user_id=user_id),
                     json={
                         **request.model_dump(mode="json", by_alias=True, exclude_none=True),
                         "source": source,
@@ -904,6 +905,15 @@ def _update_trip_plan_content(
             pass
 
     return conversation_store.update_trip_plan(user_id, trip_plan_id, request, source=source)
+
+
+def _internal_service_headers(*, user_id: str | None = None) -> dict[str, str]:
+    headers: dict[str, str] = {"X-Request-ID": str(uuid4())}
+    if user_id:
+        headers["X-User-Id"] = user_id
+    if settings.internal_service_token.strip():
+        headers["X-Travel-Internal-Token"] = settings.internal_service_token.strip()
+    return headers
 
 
 @app.post("/internal/v1/agent/chat", response_model=ChatResponse)

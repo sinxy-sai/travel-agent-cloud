@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     fastmcp_budget_tool: str = "travel.estimate_budget"
     travel_trip_url: str = ""
     travel_trip_timeout_seconds: float = 10.0
+    internal_service_token: str = ""
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

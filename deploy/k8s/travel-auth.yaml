@@ -40,6 +40,12 @@ spec:
                   name: agent-runtime-secrets
                   key: AUTH_SECRET_KEY
                   optional: true
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: INTERNAL_SERVICE_TOKEN
+                  optional: true
             - name: AUTH_TOKEN_TTL_SECONDS
               valueFrom:
                 secretKeyRef:

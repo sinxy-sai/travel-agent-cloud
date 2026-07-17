@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import uuid4
 
 import httpx
 from fastapi import Request, Response
@@ -46,6 +47,7 @@ async def proxy_request(
 def forward_headers(request: Request, *, service_boundary: str | None = None) -> dict[str, str]:
     skipped = {"host", "content-length", "connection"}
     headers = {key: value for key, value in request.headers.items() if key.lower() not in skipped}
+    headers["x-request-id"] = request_id_from_request(request)
     client_host = request.client.host if request.client else ""
     if client_host:
         existing_forwarded_for = headers.get("x-forwarded-for")
@@ -57,6 +59,17 @@ def forward_headers(request: Request, *, service_boundary: str | None = None) ->
     if service_boundary:
         headers["x-travel-service-boundary"] = service_boundary
     return headers
+
+
+def request_id_from_request(request: Request) -> str:
+    incoming_request_id = request.headers.get("x-request-id", "").strip()
+    if _valid_header_value(incoming_request_id, max_length=128):
+        return incoming_request_id
+    return str(uuid4())
+
+
+def _valid_header_value(value: str, *, max_length: int) -> bool:
+    return bool(value) and len(value) <= max_length and "\n" not in value and "\r" not in value
 
 
 def response_headers(response: httpx.Response) -> dict[str, str]:

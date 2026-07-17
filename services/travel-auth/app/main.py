@@ -9,6 +9,12 @@ from urllib.parse import urlencode
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from travel_common.app import add_cors, allowed_origins_from_env
+from travel_common.internal_auth import (
+    InternalServiceAuthMiddleware,
+    RequestContextMiddleware,
+    internal_service_headers,
+    internal_service_token,
+)
 from travel_common.proxy import check_upstream, proxy_request
 
 from app.account_data import AccountDataStore
@@ -79,6 +85,8 @@ APP_NAME = "Travel Auth Service"
 AGENT_RUNTIME_URL = os.getenv("AGENT_RUNTIME_URL", "http://agent-runtime:8000").rstrip("/")
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("AUTH_SERVICE_REQUEST_TIMEOUT_SECONDS", "180"))
 ALLOWED_ORIGINS = allowed_origins_from_env()
+INTERNAL_SERVICE_TOKEN = internal_service_token()
+INTERNAL_SERVICE_HEADERS = internal_service_headers(INTERNAL_SERVICE_TOKEN)
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 auth_settings = AuthSettings(
     auth_secret_key=os.getenv("AUTH_SECRET_KEY", "travel-agent-cloud-local-dev-secret"),
@@ -135,6 +143,12 @@ account_data_store = AccountDataStore(session_factory) if session_factory else N
 object_storage = MinioObjectStorage(object_storage_settings)
 
 app = FastAPI(title=APP_NAME, version="0.1.0")
+app.add_middleware(
+    InternalServiceAuthMiddleware,
+    token=INTERNAL_SERVICE_TOKEN,
+    protected_prefixes=("/api/",),
+)
+app.add_middleware(RequestContextMiddleware)
 add_cors(app, allowed_origins=ALLOWED_ORIGINS)
 
 
@@ -739,12 +753,14 @@ def _bearer_token(request: Request) -> str | None:
 
 
 def _runtime_auth_headers(request: Request) -> dict[str, str]:
+    headers = dict(INTERNAL_SERVICE_HEADERS)
     if request.headers.get("Authorization"):
-        return {}
+        return headers
     token = request.cookies.get(AUTH_COOKIE_NAME)
     if not token:
-        return {}
-    return {"Authorization": f"Bearer {token}"}
+        return headers
+    headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
 def _get_current_auth_claims(request: Request):

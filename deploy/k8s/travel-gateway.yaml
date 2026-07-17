@@ -36,6 +36,12 @@ spec:
               value: "*"
             - name: GATEWAY_REQUEST_TIMEOUT_SECONDS
               value: "180"
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: INTERNAL_SERVICE_TOKEN
+                  optional: true
           readinessProbe:
             httpGet:
               path: /gateway/health

@@ -102,6 +102,8 @@ user.profile.updated
 
 - 不要把 API key、JWT、密码或供应商密钥放进事件。
 - 本地 Docker Compose 使用每个服务自己的 `.env`；VPS/K3s 使用 Kubernetes Secret 和 ConfigMap。
+- 服务间 HTTP 调用必须携带 `X-Travel-Internal-Token`，由各服务的 `INTERNAL_SERVICE_TOKEN` 校验。
+- 服务间 HTTP 调用必须透传或生成 `X-Request-ID`，日志和响应头都应带上该值，方便跨服务追踪。
 - RabbitMQ 管理后台端口 `15672` 只用于本地开发，不应在 VPS 公网暴露。
 - 服务间调用需要传递明确的内部用户上下文头，不能依赖浏览器 cookie 自动跨服务生效。
 
@@ -110,6 +112,7 @@ user.profile.updated
 - Docker Compose 已包含 RabbitMQ。
 - K3s 默认通过 `deploy/k8s/addons/rabbitmq.yaml` 部署 RabbitMQ。
 - `travel-agent` 支持 `MESSAGE_QUEUE_URL` 和 `RPC_TIMEOUT_SECONDS`。
+- `travel-gateway`、`travel-auth`、`travel-trip`、`travel-agent` 和 `agent-runtime` 支持 `INTERNAL_SERVICE_TOKEN`。
 - 配置 `MESSAGE_QUEUE_URL` 后，`travel-agent` 会发布会话摘要任务事件。
 - `python -m app.worker_main` 是 RabbitMQ consumer 入口。
 - `travel-agent-worker` 会处理异步会话摘要任务，并更新任务状态。

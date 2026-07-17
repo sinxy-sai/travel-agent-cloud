@@ -121,6 +121,7 @@ kubectl create secret generic agent-runtime-secrets \
   --from-literal=REDIS_URL='redis://redis:6379/0' \
   --from-literal=REDIS_KEY_PREFIX='travel-agent-cloud' \
   --from-literal=AUTH_SECRET_KEY='change-me-to-a-long-random-secret' \
+  --from-literal=INTERNAL_SERVICE_TOKEN='change-me-to-a-long-random-internal-service-token' \
   --from-literal=AUTH_TOKEN_TTL_SECONDS='604800' \
   --from-literal=AUTH_COOKIE_SECURE='false' \
   --from-literal=AUTH_RATE_LIMIT_MAX_ATTEMPTS='20' \

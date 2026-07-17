@@ -25,6 +25,8 @@
 
 `agent-runtime/.env` 只保留 Agent 编排/执行核心需要的配置，例如 LLM、LangGraph、FastMCP、Redis、RabbitMQ 和内部行程服务地址。认证、用户、账户导入导出、SMTP、OAuth 等新配置应该放在 `services/travel-auth/.env`，不要再继续堆到 `agent-runtime/.env`。
 
+`INTERNAL_SERVICE_TOKEN` 是服务间调用的共享内部 token。所有需要通过 `travel-gateway` 或 internal API 通信的服务必须配置同一个值；本地可以使用开发默认值，VPS/K3s 必须放到 Secret 中。
+
 ## 本地和 K3s 的差异
 
 - 本地 Docker Compose：通过每个服务目录下的 `.env` 注入配置，服务名直接使用 Compose DNS，例如 `http://travel-auth:8300`。
