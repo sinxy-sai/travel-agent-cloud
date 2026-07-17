@@ -163,8 +163,8 @@ services:
       GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI:-http://localhost:5173/api/v1/auth/oauth/github/callback}
       OAUTH_HTTP_TIMEOUT_SECONDS: 10
       MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ACCESS_KEY: travel_agent
+      MINIO_SECRET_KEY: travel_agent_dev_secret
       MINIO_BUCKET: travel-agent-exports
       MINIO_SECURE: "false"
       EMAIL_VERIFICATION_TOKEN_TTL_SECONDS: 86400
