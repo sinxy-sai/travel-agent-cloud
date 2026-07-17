@@ -1,4 +1,4 @@
-import os
+﻿import os
 import hmac
 import json
 from datetime import UTC, datetime, timedelta
@@ -30,6 +30,7 @@ from app.auth_tokens import (
     InvalidAuthTokenError,
 )
 from app.db import create_session_factory
+from app.mailer import Mailer, MailerSettings
 from app.oauth import (
     GITHUB_PROVIDER,
     OAUTH_STATE_COOKIE_NAME,
@@ -102,6 +103,19 @@ email_verification_token_ttl_seconds = int(os.getenv("EMAIL_VERIFICATION_TOKEN_T
 password_reset_token_ttl_seconds = int(os.getenv("PASSWORD_RESET_TOKEN_TTL_SECONDS", str(60 * 30)))
 email_provider = os.getenv("EMAIL_PROVIDER", "mock").strip().lower()
 public_app_url = os.getenv("PUBLIC_APP_URL", "http://localhost:5173")
+mailer = Mailer(
+    MailerSettings(
+        email_provider=email_provider,
+        email_from=os.getenv("EMAIL_FROM", "no-reply@travel-agent-cloud.local").strip(),
+        public_app_url=public_app_url,
+        smtp_host=os.getenv("SMTP_HOST", "").strip(),
+        smtp_port=int(os.getenv("SMTP_PORT", "587")),
+        smtp_username=os.getenv("SMTP_USERNAME", "").strip(),
+        smtp_password=os.getenv("SMTP_PASSWORD", ""),
+        smtp_use_ssl=os.getenv("SMTP_USE_SSL", "false").strip().lower() in {"1", "true", "yes", "on"},
+        smtp_starttls=os.getenv("SMTP_STARTTLS", "true").strip().lower() in {"1", "true", "yes", "on"},
+    )
+)
 object_storage_settings = ObjectStorageSettings(
     minio_endpoint=os.getenv("MINIO_ENDPOINT", "").strip(),
     minio_access_key=os.getenv("MINIO_ACCESS_KEY", "").strip(),
@@ -288,10 +302,11 @@ async def request_email_verification(request: Request) -> AuthEmailActionRespons
         TOKEN_PURPOSE_EMAIL_VERIFICATION,
         email_verification_token_ttl_seconds,
     )
-    response = AuthEmailActionResponse(sent=True, delivery=email_provider or "mock", expires_at=generated.expires_at)
+    delivery = mailer.send_email_verification(user.email, generated.token)
+    response = AuthEmailActionResponse(sent=delivery.sent, delivery=delivery.delivery, expires_at=generated.expires_at)
     if email_provider in {"", "mock"}:
         response.dev_token = generated.token
-        response.action_url = _action_url("verify-email", generated.token)
+        response.action_url = mailer.verification_url(generated.token)
     _record_security_event(request, user.id, "auth.email_verification_requested", {"delivery": response.delivery})
     return response
 
@@ -330,10 +345,11 @@ async def request_password_reset(payload: AuthEmailRequest, request: Request) ->
         TOKEN_PURPOSE_PASSWORD_RESET,
         password_reset_token_ttl_seconds,
     )
-    response = AuthEmailActionResponse(sent=True, delivery=email_provider or "mock", expires_at=generated.expires_at)
+    delivery = mailer.send_password_reset(user.email, generated.token)
+    response = AuthEmailActionResponse(sent=delivery.sent, delivery=delivery.delivery, expires_at=generated.expires_at)
     if email_provider in {"", "mock"}:
         response.dev_token = generated.token
-        response.action_url = _action_url("reset-password", generated.token)
+        response.action_url = mailer.password_reset_url(generated.token)
     _record_security_event(request, user.id, "auth.password_reset_requested", {"delivery": response.delivery})
     return response
 
@@ -914,7 +930,3 @@ def _redact_id(value: str) -> str:
     if len(value) <= 8:
         return "***"
     return f"{value[:4]}...{value[-4:]}"
-
-
-def _action_url(action: str, token: str) -> str:
-    return f"{public_app_url.rstrip('/')}?{urlencode({'authAction': action, 'token': token})}"

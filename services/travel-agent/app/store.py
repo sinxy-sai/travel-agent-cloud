@@ -126,6 +126,28 @@ class ConversationSummaryStore:
                 )
             )
 
+    def save(self, user_id: str, conversation_id: str, summary: str, message_count: int) -> ConversationSummary:
+        with session_scope(self._session_factory) as session:
+            conversation = _get_conversation_record(session, user_id, conversation_id)
+            if conversation is None:
+                raise ConversationNotFoundError(conversation_id)
+            record = _get_summary_record(session, user_id, conversation_id)
+            now = _now()
+            if record is None:
+                record = ConversationSummaryRecord(
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    summary=summary,
+                    message_count=message_count,
+                )
+                session.add(record)
+            else:
+                record.summary = summary
+                record.message_count = message_count
+                record.updated_at = now
+            session.flush()
+            return _to_summary(record)
+
 
 class ConversationSummaryJobStore:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
@@ -211,29 +233,6 @@ class ConversationSummaryJobStore:
                     ConversationSummaryJobRecord.user_id == user_id,
                 )
             )
-
-    def save(self, user_id: str, conversation_id: str, summary: str, message_count: int) -> ConversationSummary:
-        with session_scope(self._session_factory) as session:
-            conversation = _get_conversation_record(session, user_id, conversation_id)
-            if conversation is None:
-                raise ConversationNotFoundError(conversation_id)
-            record = _get_summary_record(session, user_id, conversation_id)
-            now = _now()
-            if record is None:
-                record = ConversationSummaryRecord(
-                    user_id=user_id,
-                    conversation_id=conversation_id,
-                    summary=summary,
-                    message_count=message_count,
-                )
-                session.add(record)
-            else:
-                record.summary = summary
-                record.message_count = message_count
-                record.updated_at = now
-            session.flush()
-            return _to_summary(record)
-
 
 def build_conversation_summary(messages: list[ChatMessage]) -> str:
     if not messages:
