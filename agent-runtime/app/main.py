@@ -1,10 +1,8 @@
-import asyncio
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Path, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from app.data_sources import summarize_trip_plan_data_sources
 from app.observability import RequestLoggingMiddleware, configure_logging
 from app.progress import trip_plan_progress
@@ -15,20 +13,17 @@ from app.schemas import (
     MessageRole,
     RuntimeTripDayRegenerateRequest,
     RuntimeTripPlanReviseRequest,
-    TripPlanJob,
     TripPlanRequest,
     TripPlanResponse,
 )
 from app.security import InternalServiceAuthMiddleware, SecurityHeadersMiddleware
 from app.settings import get_settings
-from app.trip_plan_jobs import TripPlanJobNotFoundError, TripPlanJobStore
 from app.travel_agent_service import TravelAgentService
 from app.travel_tools import create_travel_tool_provider
 from app.users import get_user_id
 
 settings = get_settings()
 configure_logging(settings)
-trip_plan_job_store = TripPlanJobStore()
 travel_tool_provider = create_travel_tool_provider(settings)
 travel_agent_service = TravelAgentService(settings, travel_tool_provider)
 app = FastAPI(title=settings.app_name, version="0.1.0")
@@ -117,63 +112,6 @@ def agent_diagnostics() -> dict[str, object]:
 @app.post("/internal/v1/trip-plan", response_model=TripPlanResponse)
 def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_id)) -> TripPlanResponse:
     return _create_trip_plan_for_user(request)
-
-
-@app.post("/internal/v1/trip-plan-jobs", response_model=TripPlanJob, status_code=status.HTTP_202_ACCEPTED)
-def create_trip_plan_job(
-    request: TripPlanRequest,
-    background_tasks: BackgroundTasks,
-    user_id: str = Depends(get_user_id),
-) -> TripPlanJob:
-    job = trip_plan_job_store.create(user_id)
-    background_tasks.add_task(_run_trip_plan_job, user_id, job.id, request.model_copy(deep=True))
-    return job
-
-
-@app.get("/internal/v1/trip-plan-jobs/{job_id}", response_model=TripPlanJob)
-def get_trip_plan_job(job_id: str, user_id: str = Depends(get_user_id)) -> TripPlanJob:
-    try:
-        return trip_plan_job_store.get(user_id, job_id)
-    except TripPlanJobNotFoundError as exc:
-        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_JOB_NOT_FOUND", "message": "Trip plan job not found"}) from exc
-
-
-@app.get("/internal/v1/trip-plan-jobs/{job_id}/events")
-def stream_trip_plan_job(job_id: str, user_id: str = Depends(get_user_id)) -> StreamingResponse:
-    try:
-        trip_plan_job_store.get(user_id, job_id)
-    except TripPlanJobNotFoundError as exc:
-        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_JOB_NOT_FOUND", "message": "Trip plan job not found"}) from exc
-    return StreamingResponse(
-        _trip_plan_job_event_stream(user_id, job_id),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-async def _trip_plan_job_event_stream(user_id: str, job_id: str):
-    while True:
-        try:
-            job = trip_plan_job_store.get(user_id, job_id)
-        except TripPlanJobNotFoundError:
-            yield 'event: error\ndata: {"message":"Trip plan job not found"}\n\n'
-            return
-        yield f"data: {job.model_dump_json(by_alias=True)}\n\n"
-        if job.status in {"SUCCEEDED", "FAILED"}:
-            return
-        await asyncio.sleep(0.8)
-
-
-def _run_trip_plan_job(user_id: str, job_id: str, request: TripPlanRequest) -> None:
-    try:
-        trip_plan_job_store.mark_running(user_id, job_id)
-        response = _create_trip_plan_for_user(
-            request,
-            on_stage=lambda stage_key: trip_plan_job_store.mark_stage_running(user_id, job_id, stage_key),
-        )
-        trip_plan_job_store.mark_succeeded(user_id, job_id, response)
-    except Exception as exc:
-        trip_plan_job_store.mark_failed(user_id, job_id, str(exc) or exc.__class__.__name__)
 
 
 def _create_trip_plan_for_user(

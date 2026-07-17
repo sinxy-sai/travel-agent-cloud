@@ -8,19 +8,19 @@
 
 runtime 负责：
 
-- 生成行程计划。
+- 生成行程规划。
 - 生成聊天回复。
 - 根据已有行程修订完整计划。
 - 根据已有行程重生成单日计划。
 - 暴露 Agent 状态、工具目录和诊断信息。
-- 调用 `mock` 或 `fastmcp` 旅行工具 Provider。
+- 调用 `mock` 或 `fastmcp` 旅行工具 provider。
 
 runtime 不负责：
 
 - 登录注册、邮箱验证、OAuth、账户导入导出。
 - 会话、消息、摘要任务和摘要 worker。
 - 行程持久化、版本、收藏、删除、导出。
-- PostgreSQL/MinIO/Redis 数据边界。
+- PostgreSQL、MinIO、Redis 等用户数据边界。
 
 对应职责归属：
 
@@ -46,7 +46,7 @@ runtime 不负责：
 - `POST /internal/v1/trip-plans/{trip_plan_id}/revise`
 - `POST /internal/v1/trip-plans/{trip_plan_id}/days/{day}/regenerate`
 
-`/internal/v1/trip-plan-jobs/*` 仍保留为 runtime 局部执行 job 能力；对外的可保存行程 job 由 `services/trip` 承担。
+对外的行程生成 job、SSE 进度和保存逻辑由 `services/trip` 承担，runtime 不再保留局部 job API。
 
 前端和外部客户端不应直接调用 runtime，应统一走 `travel-gateway`。
 
@@ -67,7 +67,7 @@ FASTMCP_BASE_URL=http://travel-mcp:8100/mcp
 
 说明：
 
-- `AUTH_SECRET_KEY` 只用于校验 `travel-auth` 签发并由内部服务转发的 token。
+- `AUTH_SECRET_KEY` 只用于校验 `services/auth` 签发并由内部服务转发的 token。
 - RabbitMQ、数据库、MinIO、Redis、邮件、OAuth、用户资料、导入导出相关环境变量不属于 runtime。
 
 ## 本地运行
