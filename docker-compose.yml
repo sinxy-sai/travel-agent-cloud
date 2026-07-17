@@ -104,6 +104,7 @@ services:
       start_period: 10s
 
   travel-agent:
+    image: travel-agent-cloud-travel-agent
     build:
       context: ./services
       dockerfile: travel-agent/Dockerfile
@@ -195,9 +196,7 @@ services:
       start_period: 10s
 
   travel-agent-worker:
-    build:
-      context: ./services
-      dockerfile: travel-agent/Dockerfile
+    image: travel-agent-cloud-travel-agent
     container_name: travel-agent-worker
     command: ["python", "-m", "app.worker_main"]
     profiles:
