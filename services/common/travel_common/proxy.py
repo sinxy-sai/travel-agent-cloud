@@ -20,16 +20,20 @@ async def proxy_request(
     path: str,
     timeout_seconds: float,
     service_boundary: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> Response:
     body = await request.body()
     timeout = httpx.Timeout(timeout_seconds)
+    headers = forward_headers(request, service_boundary=service_boundary)
+    if extra_headers:
+        headers.update(extra_headers)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
         upstream_response = await client.request(
             request.method,
             f"{upstream_base_url.rstrip('/')}{path}",
             params=request.query_params,
             content=body,
-            headers=forward_headers(request, service_boundary=service_boundary),
+            headers=headers,
         )
     return Response(
         content=upstream_response.content,

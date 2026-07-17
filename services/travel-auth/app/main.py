@@ -297,6 +297,7 @@ async def _proxy(request: Request, path: str) -> Response:
         path=path,
         timeout_seconds=REQUEST_TIMEOUT_SECONDS,
         service_boundary="travel-auth",
+        extra_headers=_runtime_auth_headers(request),
     )
 
 
@@ -343,6 +344,15 @@ def _bearer_token(request: Request) -> str | None:
     if authorization.startswith(prefix):
         return authorization[len(prefix) :].strip()
     return None
+
+
+def _runtime_auth_headers(request: Request) -> dict[str, str]:
+    if request.headers.get("Authorization"):
+        return {}
+    token = request.cookies.get(AUTH_COOKIE_NAME)
+    if not token:
+        return {}
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _get_current_auth_claims(request: Request):
