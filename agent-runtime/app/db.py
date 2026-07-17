@@ -68,13 +68,6 @@ def _ensure_existing_schema(engine) -> None:
                 )
             )
 
-        if inspector.has_table("users"):
-            user_columns = {column["name"] for column in inspector.get_columns("users")}
-            if "email_verified" not in user_columns:
-                connection.execute(text("ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT FALSE"))
-            if "email_verified_at" not in user_columns:
-                connection.execute(text("ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMP NULL"))
-
 
 @contextmanager
 def session_scope(session_factory: sessionmaker[Session]) -> Generator[Session]:

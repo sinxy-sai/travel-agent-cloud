@@ -19,8 +19,6 @@ from app.data_sources import summarize_trip_plan_data_sources
 from app.db import maybe_create_session_factory
 from app.events import create_event_publisher
 from app.observability import RequestLoggingMiddleware, configure_logging
-from app.object_storage import MinioObjectStorage
-from app.oauth import GitHubOAuthClient
 from app.progress import trip_plan_progress
 from app.schemas import (
     ChatRequest,
@@ -34,7 +32,7 @@ from app.schemas import (
     TripPlanResponse,
     TripPlanUpdateRequest,
 )
-from app.security import InternalServiceAuthMiddleware, SecurityHeadersMiddleware, create_auth_rate_limiter
+from app.security import InternalServiceAuthMiddleware, SecurityHeadersMiddleware
 from app.settings import get_settings
 from app.trip_plan_jobs import TripPlanJobNotFoundError, TripPlanJobStore
 from app.travel_agent_service import TravelAgentService
@@ -47,17 +45,8 @@ session_factory = maybe_create_session_factory(settings)
 conversation_store = DatabaseConversationStore(session_factory) if session_factory else ConversationStore()
 trip_plan_job_store = TripPlanJobStore()
 event_publisher = create_event_publisher(settings)
-github_oauth_client = GitHubOAuthClient(settings)
-object_storage = MinioObjectStorage(settings)
 travel_tool_provider = create_travel_tool_provider(settings)
 travel_agent_service = TravelAgentService(settings, travel_tool_provider)
-auth_rate_limiter = create_auth_rate_limiter(
-    redis_url=settings.redis_url,
-    max_attempts=settings.auth_rate_limit_max_attempts,
-    window_seconds=settings.auth_rate_limit_window_seconds,
-    key_prefix=settings.redis_key_prefix,
-)
-
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
 app.add_middleware(InternalServiceAuthMiddleware, token=settings.internal_service_token)
@@ -81,9 +70,9 @@ def health() -> dict[str, str | bool | dict[str, bool | str | list[str]]]:
         "llmEnabled": travel_agent_service.llm_enabled,
         "databaseEnabled": session_factory is not None,
         "messageQueueEnabled": event_publisher.enabled,
-        "redisRateLimitEnabled": auth_rate_limiter.distributed,
-        "objectStorageEnabled": object_storage.enabled,
-        "githubOAuthEnabled": github_oauth_client.enabled,
+        "redisRateLimitEnabled": False,
+        "objectStorageEnabled": False,
+        "githubOAuthEnabled": False,
         "agentEngine": travel_agent_service.engine_name,
         "agentEngineCapabilities": travel_agent_service.engine_capabilities.to_dict(),
         "travelToolsProvider": travel_tool_provider.name,

@@ -1,8 +1,7 @@
 from datetime import UTC, datetime
-from math import ceil
 from uuid import uuid4
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import session_scope
@@ -12,15 +11,12 @@ from app.schemas import (
     Budget,
     ChatMessage,
     Conversation,
-    ConversationListResponse,
     MessageRole,
     SavedTripPlan,
-    TripPlanListResponse,
     TripPlanRequest,
     TripPlanResponse,
-    TripPlanVersion,
-    TripPlanVersionListResponse,
     TripPlanUpdateRequest,
+    TripPlanVersion,
 )
 
 
@@ -36,10 +32,6 @@ class TripPlanVersionConflictError(Exception):
     pass
 
 
-class TripPlanVersionNotFoundError(Exception):
-    pass
-
-
 class ConversationStore:
     def __init__(self) -> None:
         self._conversations: dict[str, tuple[str, Conversation]] = {}
@@ -48,10 +40,7 @@ class ConversationStore:
 
     def get_or_create(self, user_id: str, conversation_id: str | None, mode: AgentMode | str, title: str) -> Conversation:
         if conversation_id:
-            item = self._conversations.get(conversation_id)
-            if item is None or item[0] != user_id:
-                raise ConversationNotFoundError(conversation_id)
-            return item[1]
+            return self.get(user_id, conversation_id)
 
         now = _now()
         conversation = Conversation(
@@ -70,48 +59,6 @@ class ConversationStore:
         if item is None or item[0] != user_id:
             raise ConversationNotFoundError(conversation_id)
         return item[1]
-
-    def delete(self, user_id: str, conversation_id: str) -> None:
-        item = self._conversations.get(conversation_id)
-        if item is None or item[0] != user_id:
-            raise ConversationNotFoundError(conversation_id)
-
-        del self._conversations[conversation_id]
-        for owner_id, trip_plan in self._trip_plans.values():
-            if owner_id == user_id and trip_plan.conversation_id == conversation_id:
-                trip_plan.conversation_id = None
-
-    def update_title(self, user_id: str, conversation_id: str, title: str) -> Conversation:
-        item = self._conversations.get(conversation_id)
-        if item is None or item[0] != user_id:
-            raise ConversationNotFoundError(conversation_id)
-
-        conversation = item[1]
-        conversation.title = title.strip()
-        conversation.updated_at = _now()
-        return conversation
-
-    def list(self, user_id: str, page: int, page_size: int, query: str = "") -> ConversationListResponse:
-        normalized_query = query.strip().lower()
-        conversations = sorted(
-            [
-                conversation
-                for owner_id, conversation in self._conversations.values()
-                if owner_id == user_id and _matches_conversation_query(conversation, normalized_query)
-            ],
-            key=lambda conversation: conversation.updated_at,
-            reverse=True,
-        )
-        start = (page - 1) * page_size
-        end = start + page_size
-        total_items = len(conversations)
-        return ConversationListResponse(
-            data=conversations[start:end],
-            page=page,
-            page_size=page_size,
-            total_items=total_items,
-            total_pages=ceil(total_items / page_size) if total_items else 0,
-        )
 
     def append_message(self, conversation: Conversation, role: MessageRole, content: str) -> ChatMessage:
         message = ChatMessage(
@@ -146,54 +93,11 @@ class ConversationStore:
         self._trip_plans[trip_plan.id] = (user_id, trip_plan)
         return trip_plan
 
-    def list_trip_plans(
-        self,
-        user_id: str,
-        page: int,
-        page_size: int,
-        favorite_only: bool = False,
-        query: str = "",
-    ) -> TripPlanListResponse:
-        normalized_query = query.strip().lower()
-        trip_plans = sorted(
-            [
-                trip_plan
-                for owner_id, trip_plan in self._trip_plans.values()
-                if owner_id == user_id
-                and (not favorite_only or trip_plan.favorite)
-                and _matches_trip_plan_query(trip_plan, normalized_query)
-            ],
-            key=lambda trip_plan: (trip_plan.favorite, trip_plan.updated_at or trip_plan.created_at),
-            reverse=True,
-        )
-        start = (page - 1) * page_size
-        end = start + page_size
-        total_items = len(trip_plans)
-        return TripPlanListResponse(
-            data=trip_plans[start:end],
-            page=page,
-            page_size=page_size,
-            total_items=total_items,
-            total_pages=ceil(total_items / page_size) if total_items else 0,
-        )
-
     def get_trip_plan(self, user_id: str, trip_plan_id: str) -> SavedTripPlan:
         item = self._trip_plans.get(trip_plan_id)
         if item is None or item[0] != user_id:
             raise TripPlanNotFoundError(trip_plan_id)
         return item[1]
-
-    def delete_trip_plan(self, user_id: str, trip_plan_id: str) -> None:
-        item = self._trip_plans.get(trip_plan_id)
-        if item is None or item[0] != user_id:
-            raise TripPlanNotFoundError(trip_plan_id)
-        del self._trip_plans[trip_plan_id]
-        for version_id, (owner_id, version) in list(self._trip_plan_versions.items()):
-            if owner_id == user_id and version.trip_plan_id == trip_plan_id:
-                del self._trip_plan_versions[version_id]
-
-    def update_trip_plan_favorite(self, user_id: str, trip_plan_id: str, favorite: bool) -> SavedTripPlan:
-        return self.update_trip_plan(user_id, trip_plan_id, TripPlanUpdateRequest(favorite=favorite))
 
     def update_trip_plan(
         self,
@@ -205,6 +109,7 @@ class ConversationStore:
         item = self._trip_plans.get(trip_plan_id)
         if item is None or item[0] != user_id:
             raise TripPlanNotFoundError(trip_plan_id)
+
         trip_plan = item[1]
         if request.plan is not None:
             if request.expected_version != trip_plan.version:
@@ -223,51 +128,6 @@ class ConversationStore:
             trip_plan.favorite = request.favorite
         return trip_plan
 
-    def list_trip_plan_versions(
-        self,
-        user_id: str,
-        trip_plan_id: str,
-        page: int,
-        page_size: int,
-    ) -> TripPlanVersionListResponse:
-        self.get_trip_plan(user_id, trip_plan_id)
-        versions = sorted(
-            [
-                version
-                for owner_id, version in self._trip_plan_versions.values()
-                if owner_id == user_id and version.trip_plan_id == trip_plan_id
-            ],
-            key=lambda version: (version.version, version.created_at),
-            reverse=True,
-        )
-        start = (page - 1) * page_size
-        end = start + page_size
-        total_items = len(versions)
-        return TripPlanVersionListResponse(
-            data=versions[start:end],
-            page=page,
-            page_size=page_size,
-            total_items=total_items,
-            total_pages=ceil(total_items / page_size) if total_items else 0,
-        )
-
-    def restore_trip_plan_version(
-        self,
-        user_id: str,
-        trip_plan_id: str,
-        version_id: str,
-        expected_version: int,
-    ) -> SavedTripPlan:
-        item = self._trip_plan_versions.get(version_id)
-        if item is None or item[0] != user_id or item[1].trip_plan_id != trip_plan_id:
-            raise TripPlanVersionNotFoundError(version_id)
-        return self.update_trip_plan(
-            user_id,
-            trip_plan_id,
-            TripPlanUpdateRequest(plan=item[1].plan, expected_version=expected_version),
-            source="restore",
-        )
-
     def _save_trip_plan_version(self, user_id: str, trip_plan: SavedTripPlan, source: str) -> None:
         version = TripPlanVersion(
             id=str(uuid4()),
@@ -279,40 +139,6 @@ class ConversationStore:
             created_at=_now(),
         )
         self._trip_plan_versions[version.id] = (user_id, version)
-
-
-def _canonicalize_trip_plan(
-    plan: TripPlanResponse,
-    *,
-    saved_trip_plan_id: str,
-    conversation_id: str | None,
-) -> TripPlanResponse:
-    return plan.model_copy(
-        update={
-            "saved_trip_plan_id": saved_trip_plan_id,
-            "conversation_id": conversation_id,
-            "budget": _recalculate_budget(plan),
-        }
-    )
-
-
-def _recalculate_budget(plan: TripPlanResponse) -> Budget | None:
-    if plan.budget is None:
-        return None
-
-    total_attractions = sum(
-        attraction.ticket_price for day in plan.days for attraction in (day.attractions or [])
-    )
-    total_hotels = sum(day.hotel.estimated_cost for day in plan.days if day.hotel is not None)
-    total_meals = sum(meal.estimated_cost for day in plan.days for meal in (day.meals or []))
-    total_transportation = plan.budget.total_transportation
-    return Budget(
-        total_attractions=total_attractions,
-        total_hotels=total_hotels,
-        total_meals=total_meals,
-        total_transportation=total_transportation,
-        total=total_attractions + total_hotels + total_meals + total_transportation,
-    )
 
 
 class DatabaseConversationStore:
@@ -338,71 +164,6 @@ class DatabaseConversationStore:
             if record is None:
                 raise ConversationNotFoundError(conversation_id)
             return _to_conversation(record)
-
-    def delete(self, user_id: str, conversation_id: str) -> None:
-        with session_scope(self._session_factory) as session:
-            record = _get_conversation_record(session, user_id, conversation_id)
-            if record is None:
-                raise ConversationNotFoundError(conversation_id)
-            session.execute(
-                update(TripPlanRecord)
-                .where(TripPlanRecord.conversation_id == conversation_id, TripPlanRecord.user_id == user_id)
-                .values(conversation_id=None)
-            )
-            session.execute(
-                delete(MessageRecord).where(MessageRecord.conversation_id == conversation_id)
-            )
-            session.execute(
-                delete(ConversationRecord).where(
-                    ConversationRecord.id == conversation_id,
-                    ConversationRecord.user_id == user_id,
-                )
-            )
-
-    def update_title(self, user_id: str, conversation_id: str, title: str) -> Conversation:
-        with session_scope(self._session_factory) as session:
-            record = _get_conversation_record(session, user_id, conversation_id)
-            if record is None:
-                raise ConversationNotFoundError(conversation_id)
-
-            record.title = title.strip()
-            record.updated_at = _now()
-            session.flush()
-            return _to_conversation(record)
-
-    def list(self, user_id: str, page: int, page_size: int, query: str = "") -> ConversationListResponse:
-        with session_scope(self._session_factory) as session:
-            where_clauses = [ConversationRecord.user_id == user_id]
-            normalized_query = query.strip()
-            if normalized_query:
-                query_pattern = f"%{normalized_query}%"
-                matching_message_conversation_ids = select(MessageRecord.conversation_id).where(
-                    MessageRecord.content.ilike(query_pattern)
-                )
-                where_clauses.append(
-                    or_(
-                        ConversationRecord.title.ilike(query_pattern),
-                        ConversationRecord.id.in_(matching_message_conversation_ids),
-                    )
-                )
-
-            total_items = session.scalar(select(func.count()).select_from(ConversationRecord).where(*where_clauses))
-            records = session.scalars(
-                select(ConversationRecord)
-                .where(*where_clauses)
-                .order_by(ConversationRecord.updated_at.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
-            ).all()
-
-            total = int(total_items or 0)
-            return ConversationListResponse(
-                data=[_to_conversation(record) for record in records],
-                page=page,
-                page_size=page_size,
-                total_items=total,
-                total_pages=ceil(total / page_size) if total else 0,
-            )
 
     def append_message(self, conversation: Conversation, role: MessageRole, content: str) -> ChatMessage:
         created_at = _now()
@@ -448,48 +209,6 @@ class DatabaseConversationStore:
             session.flush()
             return _to_trip_plan(record)
 
-    def list_trip_plans(
-        self,
-        user_id: str,
-        page: int,
-        page_size: int,
-        favorite_only: bool = False,
-        query: str = "",
-    ) -> TripPlanListResponse:
-        with session_scope(self._session_factory) as session:
-            where_clauses = [TripPlanRecord.user_id == user_id]
-            if favorite_only:
-                where_clauses.append(TripPlanRecord.is_favorite.is_(True))
-
-            normalized_query = query.strip()
-            if normalized_query:
-                query_pattern = f"%{normalized_query}%"
-                where_clauses.append(
-                    or_(
-                        TripPlanRecord.title.ilike(query_pattern),
-                        TripPlanRecord.destination.ilike(query_pattern),
-                        TripPlanRecord.interests.ilike(query_pattern),
-                    )
-                )
-
-            total_items = session.scalar(select(func.count()).select_from(TripPlanRecord).where(*where_clauses))
-            records = session.scalars(
-                select(TripPlanRecord)
-                .where(*where_clauses)
-                .order_by(TripPlanRecord.is_favorite.desc(), TripPlanRecord.updated_at.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
-            ).all()
-
-            total = int(total_items or 0)
-            return TripPlanListResponse(
-                data=[_to_trip_plan(record) for record in records],
-                page=page,
-                page_size=page_size,
-                total_items=total,
-                total_pages=ceil(total / page_size) if total else 0,
-            )
-
     def get_trip_plan(self, user_id: str, trip_plan_id: str) -> SavedTripPlan:
         with session_scope(self._session_factory) as session:
             record = session.scalar(
@@ -498,23 +217,6 @@ class DatabaseConversationStore:
             if record is None:
                 raise TripPlanNotFoundError(trip_plan_id)
             return _to_trip_plan(record)
-
-    def delete_trip_plan(self, user_id: str, trip_plan_id: str) -> None:
-        with session_scope(self._session_factory) as session:
-            session.execute(
-                delete(TripPlanVersionRecord).where(
-                    TripPlanVersionRecord.trip_plan_id == trip_plan_id,
-                    TripPlanVersionRecord.user_id == user_id,
-                )
-            )
-            result = session.execute(
-                delete(TripPlanRecord).where(TripPlanRecord.id == trip_plan_id, TripPlanRecord.user_id == user_id)
-            )
-            if result.rowcount == 0:
-                raise TripPlanNotFoundError(trip_plan_id)
-
-    def update_trip_plan_favorite(self, user_id: str, trip_plan_id: str, favorite: bool) -> SavedTripPlan:
-        return self.update_trip_plan(user_id, trip_plan_id, TripPlanUpdateRequest(favorite=favorite))
 
     def update_trip_plan(
         self,
@@ -565,78 +267,39 @@ class DatabaseConversationStore:
             session.flush()
             return _to_trip_plan(record)
 
-    def list_trip_plan_versions(
-        self,
-        user_id: str,
-        trip_plan_id: str,
-        page: int,
-        page_size: int,
-    ) -> TripPlanVersionListResponse:
-        with session_scope(self._session_factory) as session:
-            record = session.scalar(
-                select(TripPlanRecord.id).where(TripPlanRecord.id == trip_plan_id, TripPlanRecord.user_id == user_id)
-            )
-            if record is None:
-                raise TripPlanNotFoundError(trip_plan_id)
-            where_clauses = [
-                TripPlanVersionRecord.user_id == user_id,
-                TripPlanVersionRecord.trip_plan_id == trip_plan_id,
-            ]
-            total_items = session.scalar(select(func.count()).select_from(TripPlanVersionRecord).where(*where_clauses))
-            records = session.scalars(
-                select(TripPlanVersionRecord)
-                .where(*where_clauses)
-                .order_by(TripPlanVersionRecord.version.desc(), TripPlanVersionRecord.created_at.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
-            ).all()
-            total = int(total_items or 0)
-            return TripPlanVersionListResponse(
-                data=[_to_trip_plan_version(record) for record in records],
-                page=page,
-                page_size=page_size,
-                total_items=total,
-                total_pages=ceil(total / page_size) if total else 0,
-            )
 
-    def restore_trip_plan_version(
-        self,
-        user_id: str,
-        trip_plan_id: str,
-        version_id: str,
-        expected_version: int,
-    ) -> SavedTripPlan:
-        with session_scope(self._session_factory) as session:
-            trip_plan_record = session.scalar(
-                select(TripPlanRecord).where(TripPlanRecord.id == trip_plan_id, TripPlanRecord.user_id == user_id)
-            )
-            if trip_plan_record is None:
-                raise TripPlanNotFoundError(trip_plan_id)
-            version_record = session.scalar(
-                select(TripPlanVersionRecord).where(
-                    TripPlanVersionRecord.id == version_id,
-                    TripPlanVersionRecord.trip_plan_id == trip_plan_id,
-                    TripPlanVersionRecord.user_id == user_id,
-                )
-            )
-            if version_record is None:
-                raise TripPlanVersionNotFoundError(version_id)
-            if expected_version != trip_plan_record.version:
-                raise TripPlanVersionConflictError(trip_plan_id)
+def _canonicalize_trip_plan(
+    plan: TripPlanResponse,
+    *,
+    saved_trip_plan_id: str,
+    conversation_id: str | None,
+) -> TripPlanResponse:
+    return plan.model_copy(
+        update={
+            "saved_trip_plan_id": saved_trip_plan_id,
+            "conversation_id": conversation_id,
+            "budget": _recalculate_budget(plan),
+        }
+    )
 
-            _save_trip_plan_version_record(session, trip_plan_record, "restore")
-            canonical_plan = _canonicalize_trip_plan(
-                TripPlanResponse.model_validate(version_record.plan),
-                saved_trip_plan_id=trip_plan_record.id,
-                conversation_id=trip_plan_record.conversation_id,
-            )
-            trip_plan_record.title = canonical_plan.title.strip()
-            trip_plan_record.days = len(canonical_plan.days)
-            trip_plan_record.plan = canonical_plan.model_dump(mode="json", by_alias=True)
-            trip_plan_record.version += 1
-            trip_plan_record.updated_at = _now()
-            session.flush()
-            return _to_trip_plan(trip_plan_record)
+
+def _recalculate_budget(plan: TripPlanResponse) -> Budget | None:
+    if plan.budget is None:
+        return None
+
+    total_attractions = sum(
+        attraction.ticket_price for day in plan.days for attraction in (day.attractions or [])
+    )
+    total_hotels = sum(day.hotel.estimated_cost for day in plan.days if day.hotel is not None)
+    total_meals = sum(meal.estimated_cost for day in plan.days for meal in (day.meals or []))
+    total_transportation = plan.budget.total_transportation
+    return Budget(
+        total_attractions=total_attractions,
+        total_hotels=total_hotels,
+        total_meals=total_meals,
+        total_transportation=total_transportation,
+        total=total_attractions + total_hotels + total_meals + total_transportation,
+    )
 
 
 def _get_conversation_record(
@@ -687,18 +350,6 @@ def _to_trip_plan(record: TripPlanRecord) -> SavedTripPlan:
     )
 
 
-def _to_trip_plan_version(record: TripPlanVersionRecord) -> TripPlanVersion:
-    return TripPlanVersion(
-        id=record.id,
-        trip_plan_id=record.trip_plan_id,
-        version=record.version,
-        title=record.title,
-        plan=TripPlanResponse.model_validate(record.plan),
-        source=record.source,
-        created_at=record.created_at,
-    )
-
-
 def _save_trip_plan_version_record(session: Session, record: TripPlanRecord, source: str) -> None:
     existing = session.scalar(
         select(TripPlanVersionRecord.id).where(
@@ -720,20 +371,6 @@ def _save_trip_plan_version_record(session: Session, record: TripPlanRecord, sou
             created_at=_now(),
         )
     )
-
-
-def _matches_conversation_query(conversation: Conversation, normalized_query: str) -> bool:
-    if not normalized_query:
-        return True
-    searchable_text = " ".join([conversation.title, *[message.content for message in conversation.messages]]).lower()
-    return normalized_query in searchable_text
-
-
-def _matches_trip_plan_query(trip_plan: SavedTripPlan, normalized_query: str) -> bool:
-    if not normalized_query:
-        return True
-    searchable_text = " ".join([trip_plan.title, trip_plan.destination, trip_plan.interests]).lower()
-    return normalized_query in searchable_text
 
 
 def _now() -> datetime:
