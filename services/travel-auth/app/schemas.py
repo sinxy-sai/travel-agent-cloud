@@ -57,6 +57,36 @@ class AuthPasswordChangeRequest(APIModel):
         return value
 
 
+class AuthEmailRequest(APIModel):
+    email: str = Field(min_length=3, max_length=255)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class AuthEmailActionResponse(APIModel):
+    sent: bool
+    delivery: str
+    expires_at: datetime | None = None
+    dev_token: str | None = None
+    action_url: str | None = None
+
+
+class AuthAccountDeleteRequest(APIModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    confirmation: str = Field(min_length=6, max_length=32)
+
+    @field_validator("confirmation")
+    @classmethod
+    def validate_confirmation(cls, value: str) -> str:
+        confirmation = value.strip().upper()
+        if confirmation != "DELETE":
+            raise ValueError("Confirmation must be DELETE")
+        return confirmation
+
+
 class AuthUserUpdateRequest(APIModel):
     display_name: str = Field(default="", max_length=80)
 
@@ -97,6 +127,36 @@ class AuthSessionListResponse(APIModel):
 
 class AuthSessionRevokeAllResponse(APIModel):
     revoked: int
+
+
+class AuthIdentity(APIModel):
+    id: str
+    user_id: str
+    provider: str
+    provider_user_id: str
+    email: str = ""
+    display_name: str = ""
+    avatar_url: str = ""
+    created_at: datetime
+
+
+class AuthIdentityListResponse(APIModel):
+    data: list[AuthIdentity]
+
+
+class UserSecurityEvent(APIModel):
+    id: str
+    event_type: str
+    details: dict = Field(default_factory=dict)
+    created_at: datetime
+
+
+class UserSecurityEventListResponse(APIModel):
+    data: list[UserSecurityEvent]
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
 
 
 class UserProfile(APIModel):

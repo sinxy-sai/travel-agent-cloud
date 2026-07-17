@@ -10,13 +10,15 @@
 - 直接处理注册、登录、退出登录、当前用户读取、当前用户显示名更新和密码修改。
 - 直接处理当前 session 列表、当前 session 撤销和其他 session 批量撤销。
 - 对登录用户和带合法 `X-User-Id` 的匿名本地用户，直接处理 `GET/PATCH /api/v1/me/profile`。
-- 代理 OAuth、邮箱验证、密码重置、账号删除、账户导入导出和其他 `/api/v1/me/*` 到 `agent-runtime`。
+- 本地处理安全事件记录与查询、身份列表空结果、未验证账户的数据导出拦截和账号删除。
+- 邮箱验证和密码重置请求当前由 `travel-auth` 返回 accepted，占位保留真实邮件 token 迁移空间。
+- 代理 OAuth、账户导入导出文件、已验证账户完整数据导出和其他 `/api/v1/me/*` 到 `agent-runtime`。
 - 通过 `/health` 暴露自身、数据库和上游 runtime 状态。
 - 通过 `X-Travel-Service-Boundary: travel-auth` 标记内部服务边界，便于日志和排查。
 
 ## 未来职责
 
-- 邮箱验证、找回密码、OAuth 回调和第三方身份绑定。
+- 邮箱验证 token、找回密码 token、OAuth 回调和第三方身份绑定。
 - 完整拥有账户数据导入导出边界。
 - 必要时使用 Redis 做分布式登录限流和会话状态。
 - 通过 RabbitMQ 发布用户生命周期事件。

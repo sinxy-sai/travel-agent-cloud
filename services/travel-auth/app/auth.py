@@ -7,12 +7,12 @@ import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import session_scope
-from app.models import UserRecord
+from app.models import AuthSessionRecord, UserProfileRecord, UserRecord, UserSecurityEventRecord
 from app.schemas import AuthUser
 
 AUTH_COOKIE_NAME = "travel_agent_session"
@@ -101,6 +101,18 @@ class UserStore:
                 raise InvalidCredentialsError()
             record.password_hash = hash_password(new_password)
             record.updated_at = _now()
+
+    def delete_user(self, user_id: str, current_password: str) -> None:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
+            if record is None:
+                raise UserNotFoundError(user_id)
+            if not verify_password(current_password, record.password_hash):
+                raise InvalidCredentialsError()
+            session.execute(delete(AuthSessionRecord).where(AuthSessionRecord.user_id == user_id))
+            session.execute(delete(UserSecurityEventRecord).where(UserSecurityEventRecord.user_id == user_id))
+            session.execute(delete(UserProfileRecord).where(UserProfileRecord.user_id == user_id))
+            session.delete(record)
 
 
 def hash_password(password: str) -> str:

@@ -19,6 +19,10 @@ from app.auth import (
 from app.db import create_session_factory
 from app.profiles import UserProfileStore
 from app.schemas import (
+    AuthAccountDeleteRequest,
+    AuthEmailActionResponse,
+    AuthEmailRequest,
+    AuthIdentityListResponse,
     AuthLoginRequest,
     AuthPasswordChangeRequest,
     AuthRegisterRequest,
@@ -27,6 +31,7 @@ from app.schemas import (
     AuthSessionRevokeAllResponse,
     AuthUser,
     AuthUserUpdateRequest,
+    UserSecurityEventListResponse,
     UserProfile,
     UserProfileUpdateRequest,
 )
@@ -209,11 +214,27 @@ async def revoke_current_auth_session(session_id: str, request: Request, respons
 
 
 @app.api_route(
+    "/api/v1/auth/email-verification/request",
+    methods=["POST"],
+)
+async def request_email_verification(request: Request) -> AuthEmailActionResponse:
+    user = _get_current_auth_user(request)
+    _record_security_event(request, user.id, "auth.email_verification_requested", {"delivery": "accepted"})
+    return AuthEmailActionResponse(sent=True, delivery="accepted")
+
+
+@app.api_route(
     "/api/v1/auth/email-verification/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 async def proxy_email_verification(path: str, request: Request) -> Response:
     return await _proxy(request, f"/api/v1/auth/email-verification/{path}")
+
+
+@app.post("/api/v1/auth/password-reset/request", response_model=AuthEmailActionResponse)
+async def request_password_reset(payload: AuthEmailRequest, request: Request) -> AuthEmailActionResponse:
+    _check_auth_rate_limit(request, "password-reset", payload.email)
+    return AuthEmailActionResponse(sent=True, delivery="accepted")
 
 
 @app.api_route(
@@ -232,9 +253,10 @@ async def proxy_oauth(path: str, request: Request) -> Response:
     return await _proxy(request, f"/api/v1/auth/oauth/{path}")
 
 
-@app.api_route("/api/v1/auth/identities", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-async def proxy_auth_identities_root(request: Request) -> Response:
-    return await _proxy(request, "/api/v1/auth/identities")
+@app.get("/api/v1/auth/identities", response_model=AuthIdentityListResponse)
+async def list_current_auth_identities(request: Request) -> AuthIdentityListResponse:
+    _get_current_auth_user(request)
+    return AuthIdentityListResponse(data=[])
 
 
 @app.api_route("/api/v1/auth/identities/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
@@ -242,14 +264,43 @@ async def proxy_auth_identities(path: str, request: Request) -> Response:
     return await _proxy(request, f"/api/v1/auth/identities/{path}")
 
 
-@app.api_route("/api/v1/auth/security-events", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-async def proxy_auth_security_events(request: Request) -> Response:
-    return await _proxy(request, "/api/v1/auth/security-events")
+@app.get("/api/v1/auth/security-events", response_model=UserSecurityEventListResponse)
+async def list_current_security_events(
+    request: Request,
+    page: int = 1,
+    pageSize: int = 10,
+) -> UserSecurityEventListResponse:
+    user = _get_current_auth_user(request)
+    return security_event_store.list(user.id, page, pageSize)  # type: ignore[union-attr]
 
 
 @app.delete("/api/v1/auth/me")
-async def proxy_delete_auth_me(request: Request) -> Response:
-    return await _proxy(request, "/api/v1/auth/me")
+async def delete_current_auth_user(payload: AuthAccountDeleteRequest, request: Request, response: Response) -> Response:
+    user = _get_current_auth_user(request)
+    _check_auth_rate_limit(request, "delete-account", user.id)
+    try:
+        user_store.delete_user(user.id, payload.current_password)  # type: ignore[union-attr]
+    except InvalidCredentialsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "INVALID_CREDENTIALS", "message": "Current password is incorrect"},
+        ) from exc
+    except UserNotFoundError as exc:
+        raise _not_authenticated(exc)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    _delete_auth_cookie(response)
+    return response
+
+
+@app.get("/api/v1/me/export")
+async def export_current_user_data_unverified_guard(request: Request) -> Any:
+    user = _get_current_auth_user(request)
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "EMAIL_NOT_VERIFIED", "message": "Verify your email before managing account data"},
+        )
+    return await _proxy(request, "/api/v1/me/export")
 
 
 @app.api_route("/api/v1/me", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])

@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from fastapi import Request
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import session_scope
 from app.models import UserSecurityEventRecord
+from app.schemas import UserSecurityEvent, UserSecurityEventListResponse
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,34 @@ class UserSecurityEventStore:
                 )
             )
 
+    def list(self, user_id: str, page: int, page_size: int) -> UserSecurityEventListResponse:
+        safe_page = max(1, page)
+        safe_page_size = min(max(1, page_size), 50)
+        with session_scope(self._session_factory) as session:
+            total_items = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(UserSecurityEventRecord)
+                    .where(UserSecurityEventRecord.user_id == user_id)
+                )
+                or 0
+            )
+            records = session.scalars(
+                select(UserSecurityEventRecord)
+                .where(UserSecurityEventRecord.user_id == user_id)
+                .order_by(UserSecurityEventRecord.created_at.desc())
+                .offset((safe_page - 1) * safe_page_size)
+                .limit(safe_page_size)
+            ).all()
+        total_pages = max(1, (total_items + safe_page_size - 1) // safe_page_size)
+        return UserSecurityEventListResponse(
+            data=[_to_security_event(record) for record in records],
+            page=safe_page,
+            page_size=safe_page_size,
+            total_items=total_items,
+            total_pages=total_pages,
+        )
+
 
 def client_identifier(request: Request) -> str:
     forwarded_for = request.headers.get("x-forwarded-for", "")
@@ -80,3 +110,12 @@ def _hash_client_identifier(value: str) -> str:
     if not value:
         return ""
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _to_security_event(record: UserSecurityEventRecord) -> UserSecurityEvent:
+    return UserSecurityEvent(
+        id=record.id,
+        event_type=record.event_type,
+        details=record.details or {},
+        created_at=record.created_at,
+    )
