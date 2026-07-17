@@ -54,19 +54,6 @@ class ConversationStore:
             total_items = int(
                 session.scalar(select(func.count()).select_from(ConversationRecord).where(*where_clauses)) or 0
             )
-
-    def get_or_create(self, user_id: str, conversation_id: str | None, mode: AgentMode | str, title: str) -> Conversation:
-        with session_scope(self._session_factory) as session:
-            if conversation_id:
-                record = _get_conversation_record(session, user_id, conversation_id)
-                if record is None:
-                    raise ConversationNotFoundError(conversation_id)
-                return _to_conversation(record)
-
-            record = ConversationRecord(user_id=user_id, mode=AgentMode(mode).value, title=title)
-            session.add(record)
-            session.flush()
-            return _to_conversation(record)
             records = session.scalars(
                 select(ConversationRecord)
                 .where(*where_clauses)
@@ -81,6 +68,19 @@ class ConversationStore:
                 total_items=total_items,
                 total_pages=ceil(total_items / page_size) if total_items else 0,
             )
+
+    def get_or_create(self, user_id: str, conversation_id: str | None, mode: AgentMode | str, title: str) -> Conversation:
+        with session_scope(self._session_factory) as session:
+            if conversation_id:
+                record = _get_conversation_record(session, user_id, conversation_id)
+                if record is None:
+                    raise ConversationNotFoundError(conversation_id)
+                return _to_conversation(record)
+
+            record = ConversationRecord(user_id=user_id, mode=AgentMode(mode).value, title=title)
+            session.add(record)
+            session.flush()
+            return _to_conversation(record)
 
     def get(self, user_id: str, conversation_id: str) -> Conversation:
         with session_scope(self._session_factory) as session:
