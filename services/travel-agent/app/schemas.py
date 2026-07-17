@@ -60,6 +60,18 @@ class ConversationUpdateRequest(APIModel):
         return title
 
 
+class ChatRequest(APIModel):
+    message: str = Field(min_length=1, max_length=2000)
+    conversation_id: str | None = Field(default=None, max_length=80)
+    mode: AgentMode = AgentMode.CHAT
+
+
+class ChatResponse(APIModel):
+    conversation_id: str
+    message: ChatMessage
+    suggestions: list[str]
+
+
 class ConversationSummary(APIModel):
     id: str
     conversation_id: str

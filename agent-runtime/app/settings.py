@@ -7,8 +7,6 @@ class Settings(BaseSettings):
     app_name: str = "Travel Agent Runtime"
     app_env: str = "local"
     allowed_origins: str = "http://localhost:5173"
-    database_url: str = ""
-    message_queue_url: str = ""
     rpc_timeout_seconds: float = 5.0
     auth_secret_key: str = "travel-agent-cloud-local-dev-secret"
     llm_provider: str = "mock"
@@ -29,8 +27,6 @@ class Settings(BaseSettings):
     fastmcp_routes_tool: str = "travel.plan_routes"
     fastmcp_weather_tool: str = "travel.get_weather"
     fastmcp_budget_tool: str = "travel.estimate_budget"
-    travel_trip_url: str = ""
-    travel_trip_timeout_seconds: float = 10.0
     internal_service_token: str = ""
     log_level: str = "INFO"
 

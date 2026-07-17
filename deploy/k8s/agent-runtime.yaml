@@ -36,21 +36,11 @@ spec:
               value: fastmcp
             - name: FASTMCP_BASE_URL
               value: http://travel-mcp:8100/mcp
-            - name: TRAVEL_TRIP_URL
-              value: http://travel-trip:8200
-            - name: TRAVEL_TRIP_TIMEOUT_SECONDS
-              value: "10"
             - name: INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: agent-runtime-secrets
                   key: INTERNAL_SERVICE_TOKEN
-                  optional: true
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: agent-runtime-secrets
-                  key: DATABASE_URL
                   optional: true
             - name: LLM_PROVIDER
               valueFrom:
@@ -93,12 +83,6 @@ spec:
                 secretKeyRef:
                   name: agent-runtime-secrets
                   key: LLM_TIMEOUT_SECONDS
-                  optional: true
-            - name: MESSAGE_QUEUE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: agent-runtime-secrets
-                  key: MESSAGE_QUEUE_URL
                   optional: true
             - name: AUTH_SECRET_KEY
               valueFrom:

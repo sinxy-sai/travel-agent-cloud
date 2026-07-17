@@ -1,36 +1,23 @@
 import asyncio
+from datetime import UTC, datetime
 from uuid import uuid4
 
-import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Path, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import ValidationError
-
-from app.agent import handle_chat
-from app.conversations import (
-    ConversationNotFoundError,
-    ConversationStore,
-    DatabaseConversationStore,
-    TripPlanNotFoundError,
-    TripPlanVersionConflictError,
-)
 from app.data_sources import summarize_trip_plan_data_sources
-from app.db import maybe_create_session_factory
-from app.events import create_event_publisher
 from app.observability import RequestLoggingMiddleware, configure_logging
 from app.progress import trip_plan_progress
 from app.schemas import (
     ChatRequest,
     ChatResponse,
+    ChatMessage,
     MessageRole,
-    SavedTripPlan,
+    RuntimeTripDayRegenerateRequest,
+    RuntimeTripPlanReviseRequest,
     TripPlanJob,
-    TripPlanReviseRequest,
-    TripDayRegenerateRequest,
     TripPlanRequest,
     TripPlanResponse,
-    TripPlanUpdateRequest,
 )
 from app.security import InternalServiceAuthMiddleware, SecurityHeadersMiddleware
 from app.settings import get_settings
@@ -41,10 +28,7 @@ from app.users import get_user_id
 
 settings = get_settings()
 configure_logging(settings)
-session_factory = maybe_create_session_factory(settings)
-conversation_store = DatabaseConversationStore(session_factory) if session_factory else ConversationStore()
 trip_plan_job_store = TripPlanJobStore()
-event_publisher = create_event_publisher(settings)
 travel_tool_provider = create_travel_tool_provider(settings)
 travel_agent_service = TravelAgentService(settings, travel_tool_provider)
 app = FastAPI(title=settings.app_name, version="0.1.0")
@@ -68,8 +52,6 @@ def health() -> dict[str, str | bool | dict[str, bool | str | list[str]]]:
         "service": settings.app_name,
         "env": settings.app_env,
         "llmEnabled": travel_agent_service.llm_enabled,
-        "databaseEnabled": session_factory is not None,
-        "messageQueueEnabled": event_publisher.enabled,
         "agentEngine": travel_agent_service.engine_name,
         "agentEngineCapabilities": travel_agent_service.engine_capabilities.to_dict(),
         "travelToolsProvider": travel_tool_provider.name,
@@ -134,7 +116,7 @@ def agent_diagnostics() -> dict[str, object]:
 
 @app.post("/internal/v1/trip-plan", response_model=TripPlanResponse)
 def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_id)) -> TripPlanResponse:
-    return _create_trip_plan_for_user(request, user_id)
+    return _create_trip_plan_for_user(request)
 
 
 @app.post("/internal/v1/trip-plan-jobs", response_model=TripPlanJob, status_code=status.HTTP_202_ACCEPTED)
@@ -187,7 +169,6 @@ def _run_trip_plan_job(user_id: str, job_id: str, request: TripPlanRequest) -> N
         trip_plan_job_store.mark_running(user_id, job_id)
         response = _create_trip_plan_for_user(
             request,
-            user_id,
             on_stage=lambda stage_key: trip_plan_job_store.mark_stage_running(user_id, job_id, stage_key),
         )
         trip_plan_job_store.mark_succeeded(user_id, job_id, response)
@@ -197,131 +178,40 @@ def _run_trip_plan_job(user_id: str, job_id: str, request: TripPlanRequest) -> N
 
 def _create_trip_plan_for_user(
     request: TripPlanRequest,
-    user_id: str,
     on_stage=None,
 ) -> TripPlanResponse:
     with trip_plan_progress(on_stage):
         response = travel_agent_service.generate_trip_plan(request)
     if travel_agent_service.last_run_trace and travel_agent_service.last_run_trace.operation == "trip_plan":
         response.data_sources = summarize_trip_plan_data_sources(travel_agent_service.last_run_trace)
-    if on_stage:
-        on_stage("saving")
-    try:
-        conversation = conversation_store.get_or_create(
-            user_id=user_id,
-            conversation_id=request.conversation_id,
-            mode="TRIP_PLANNING",
-            title=response.title,
-        )
-    except ConversationNotFoundError as exc:
-        raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
-    conversation_store.append_message(
-        conversation,
-        MessageRole.USER,
-        f"Plan {request.days} days in {request.destination}, budget={request.budget}, interests={request.interests}",
-    )
-    conversation_store.append_message(conversation, MessageRole.ASSISTANT, response.summary)
-    saved_trip_plan = _save_generated_trip_plan(user_id, conversation.id, request, response)
-    response.saved_trip_plan_id = saved_trip_plan.id
-    response.conversation_id = conversation.id
-    event_publisher.publish(
-        "trip.plan.created",
-        user_id,
-        {
-            "tripPlanId": saved_trip_plan.id,
-            "conversationId": conversation.id,
-            "destination": request.destination,
-            "days": request.days,
-        },
-    )
     return response
-
-
-def _save_generated_trip_plan(
-    user_id: str,
-    conversation_id: str,
-    request: TripPlanRequest,
-    response: TripPlanResponse,
-) -> SavedTripPlan:
-    if settings.travel_trip_url.strip():
-        try:
-            with httpx.Client(timeout=settings.travel_trip_timeout_seconds) as client:
-                trip_response = client.post(
-                    f"{settings.travel_trip_url.rstrip('/')}/internal/v1/trip-plans",
-                    headers=_internal_service_headers(user_id=user_id),
-                    json={
-                        "request": request.model_dump(mode="json", by_alias=True),
-                        "plan": response.model_dump(mode="json", by_alias=True),
-                        "conversationId": conversation_id,
-                    },
-                )
-                trip_response.raise_for_status()
-            return SavedTripPlan.model_validate(trip_response.json())
-        except (httpx.HTTPError, ValueError):
-            pass
-
-    conversation = conversation_store.get(user_id, conversation_id)
-    return conversation_store.save_trip_plan(user_id, conversation, request, response)
-
-
-def _update_trip_plan_content(
-    user_id: str,
-    trip_plan_id: str,
-    request: TripPlanUpdateRequest,
-    *,
-    source: str,
-) -> SavedTripPlan:
-    if settings.travel_trip_url.strip():
-        try:
-            with httpx.Client(timeout=settings.travel_trip_timeout_seconds) as client:
-                trip_response = client.patch(
-                    f"{settings.travel_trip_url.rstrip('/')}/internal/v1/trip-plans/{trip_plan_id}",
-                    headers=_internal_service_headers(user_id=user_id),
-                    json={
-                        **request.model_dump(mode="json", by_alias=True, exclude_none=True),
-                        "source": source,
-                    },
-                )
-            if trip_response.status_code == status.HTTP_404_NOT_FOUND:
-                raise TripPlanNotFoundError(trip_plan_id)
-            if trip_response.status_code == status.HTTP_409_CONFLICT:
-                raise TripPlanVersionConflictError(trip_plan_id)
-            trip_response.raise_for_status()
-            return SavedTripPlan.model_validate(trip_response.json())
-        except (TripPlanNotFoundError, TripPlanVersionConflictError):
-            raise
-        except (httpx.HTTPError, ValueError):
-            pass
-
-    return conversation_store.update_trip_plan(user_id, trip_plan_id, request, source=source)
-
-
-def _internal_service_headers(*, user_id: str | None = None) -> dict[str, str]:
-    headers: dict[str, str] = {"X-Request-ID": str(uuid4())}
-    if user_id:
-        headers["X-User-Id"] = user_id
-    if settings.internal_service_token.strip():
-        headers["X-Travel-Internal-Token"] = settings.internal_service_token.strip()
-    return headers
 
 
 @app.post("/internal/v1/agent/chat", response_model=ChatResponse)
 def chat(request: ChatRequest, user_id: str = Depends(get_user_id)) -> ChatResponse:
-    try:
-        return handle_chat(user_id, request, conversation_store, travel_agent_service)
-    except ConversationNotFoundError as exc:
-        raise HTTPException(status_code=404, detail={"code": "CONVERSATION_NOT_FOUND", "message": "Conversation not found"}) from exc
+    content = travel_agent_service.generate_chat_reply(request, [])
+    return ChatResponse(
+        conversation_id=request.conversation_id or str(uuid4()),
+        message=ChatMessage(
+            id=str(uuid4()),
+            role=MessageRole.ASSISTANT,
+            content=content,
+            created_at=datetime.now(UTC),
+        ),
+        suggestions=[
+            "Generate a structured itinerary",
+            "Add weather and transit constraints",
+            "Save this plan to my trip list",
+        ],
+    )
 
-@app.post("/internal/v1/trip-plans/{trip_plan_id}/revise", response_model=SavedTripPlan)
+@app.post("/internal/v1/trip-plans/{trip_plan_id}/revise", response_model=TripPlanResponse)
 def revise_trip_plan(
     trip_plan_id: str,
-    request: TripPlanReviseRequest,
+    request: RuntimeTripPlanReviseRequest,
     user_id: str = Depends(get_user_id),
-) -> SavedTripPlan:
-    try:
-        saved_trip_plan = conversation_store.get_trip_plan(user_id, trip_plan_id)
-    except TripPlanNotFoundError as exc:
-        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+) -> TripPlanResponse:
+    saved_trip_plan = request.saved_trip_plan
     if request.expected_version != saved_trip_plan.version:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -332,68 +222,22 @@ def revise_trip_plan(
         )
 
     revised_plan = travel_agent_service.revise_trip_plan(saved_trip_plan, request.instruction)
-    revised_plan = revised_plan.model_copy(
+    return revised_plan.model_copy(
         update={
             "saved_trip_plan_id": saved_trip_plan.id,
             "conversation_id": saved_trip_plan.conversation_id,
         }
     )
 
-    try:
-        trip_plan = _update_trip_plan_content(
-            user_id,
-            trip_plan_id,
-            TripPlanUpdateRequest(plan=revised_plan, expected_version=request.expected_version),
-            source="agent_revision",
-        )
-    except TripPlanVersionConflictError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "TRIP_PLAN_VERSION_CONFLICT",
-                "message": "Trip plan was updated elsewhere; reload it before saving",
-            },
-        ) from exc
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "TRIP_PLAN_REVISION_INVALID", "message": "Revised trip plan was invalid"},
-        ) from exc
 
-    if trip_plan.conversation_id:
-        try:
-            conversation = conversation_store.get(user_id, trip_plan.conversation_id)
-            conversation_store.append_message(conversation, MessageRole.USER, f"Revise itinerary: {request.instruction}")
-            conversation_store.append_message(
-                conversation,
-                MessageRole.ASSISTANT,
-                f"Revised itinerary: {trip_plan.plan.summary}",
-            )
-        except ConversationNotFoundError:
-            pass
-
-    event_publisher.publish(
-        "trip.plan.revised",
-        user_id,
-        {
-            "tripPlanId": trip_plan_id,
-            "version": trip_plan.version,
-        },
-    )
-    return trip_plan
-
-
-@app.post("/internal/v1/trip-plans/{trip_plan_id}/days/{day}/regenerate", response_model=SavedTripPlan)
+@app.post("/internal/v1/trip-plans/{trip_plan_id}/days/{day}/regenerate", response_model=TripPlanResponse)
 def regenerate_trip_plan_day(
     trip_plan_id: str,
-    request: TripDayRegenerateRequest,
+    request: RuntimeTripDayRegenerateRequest,
     day: int = Path(ge=1, le=30),
     user_id: str = Depends(get_user_id),
-) -> SavedTripPlan:
-    try:
-        saved_trip_plan = conversation_store.get_trip_plan(user_id, trip_plan_id)
-    except TripPlanNotFoundError as exc:
-        raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_NOT_FOUND", "message": "Trip plan not found"}) from exc
+) -> TripPlanResponse:
+    saved_trip_plan = request.saved_trip_plan
     if request.expected_version != saved_trip_plan.version:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -417,50 +261,7 @@ def regenerate_trip_plan_day(
             "conversation_id": saved_trip_plan.conversation_id,
         }
     )
-
-    try:
-        trip_plan = _update_trip_plan_content(
-            user_id,
-            trip_plan_id,
-            TripPlanUpdateRequest(plan=updated_plan, expected_version=request.expected_version),
-            source="day_regeneration",
-        )
-    except TripPlanVersionConflictError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "TRIP_PLAN_VERSION_CONFLICT",
-                "message": "Trip plan was updated elsewhere; reload it before saving",
-            },
-        ) from exc
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "TRIP_DAY_REGENERATION_INVALID", "message": "Regenerated trip day was invalid"},
-        ) from exc
-
-    if trip_plan.conversation_id:
-        try:
-            conversation = conversation_store.get(user_id, trip_plan.conversation_id)
-            conversation_store.append_message(conversation, MessageRole.USER, f"Regenerate day {day}: {request.instruction}")
-            conversation_store.append_message(
-                conversation,
-                MessageRole.ASSISTANT,
-                f"Updated day {day}: {regenerated_day.theme}",
-            )
-        except ConversationNotFoundError:
-            pass
-
-    event_publisher.publish(
-        "trip.plan.day.regenerated",
-        user_id,
-        {
-            "tripPlanId": trip_plan_id,
-            "day": day,
-            "version": trip_plan.version,
-        },
-    )
-    return trip_plan
+    return updated_plan
 
 def _travel_tool_catalog() -> dict[str, object]:
     tools = [tool.to_dict() for tool in travel_tool_provider.list_tools()]

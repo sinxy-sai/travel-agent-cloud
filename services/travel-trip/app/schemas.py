@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def to_camel(value: str) -> str:
@@ -183,6 +183,40 @@ class TripPlanListResponse(APIModel):
     total_pages: int
 
 
+class TripPlanJobStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class TripPlanJobStageStatus(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class TripPlanJobStage(APIModel):
+    key: str
+    label: str
+    detail: str
+    status: TripPlanJobStageStatus
+
+
+class TripPlanJob(APIModel):
+    id: str
+    status: TripPlanJobStatus
+    current_stage_key: str
+    stages: list[TripPlanJobStage]
+    plan: TripPlanResponse | None = None
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
 class TripPlanCreateRequest(APIModel):
     request: TripPlanRequest
     plan: TripPlanResponse
@@ -226,3 +260,20 @@ class TripPlanInternalUpdateRequest(TripPlanUpdateRequest):
 
 class TripPlanRestoreRequest(APIModel):
     expected_version: int = Field(ge=1)
+
+
+class TripPlanReviseRequest(APIModel):
+    instruction: str = Field(min_length=1, max_length=1000)
+    expected_version: int = Field(ge=1)
+
+    @field_validator("instruction")
+    @classmethod
+    def validate_instruction(cls, value: str) -> str:
+        instruction = value.strip()
+        if not instruction:
+            raise ValueError("Instruction is required")
+        return instruction
+
+
+class TripDayRegenerateRequest(TripPlanReviseRequest):
+    pass

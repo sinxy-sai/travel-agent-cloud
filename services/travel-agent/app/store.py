@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from math import ceil
+from uuid import uuid4
 
 from sqlalchemy import delete, desc, func, or_, select, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -53,6 +54,19 @@ class ConversationStore:
             total_items = int(
                 session.scalar(select(func.count()).select_from(ConversationRecord).where(*where_clauses)) or 0
             )
+
+    def get_or_create(self, user_id: str, conversation_id: str | None, mode: AgentMode | str, title: str) -> Conversation:
+        with session_scope(self._session_factory) as session:
+            if conversation_id:
+                record = _get_conversation_record(session, user_id, conversation_id)
+                if record is None:
+                    raise ConversationNotFoundError(conversation_id)
+                return _to_conversation(record)
+
+            record = ConversationRecord(user_id=user_id, mode=AgentMode(mode).value, title=title)
+            session.add(record)
+            session.flush()
+            return _to_conversation(record)
             records = session.scalars(
                 select(ConversationRecord)
                 .where(*where_clauses)
@@ -84,6 +98,27 @@ class ConversationStore:
             record.updated_at = _now()
             session.flush()
             return _to_conversation(record)
+
+    def append_message(self, conversation: Conversation, role: MessageRole, content: str) -> ChatMessage:
+        created_at = _now()
+        with session_scope(self._session_factory) as session:
+            record = _get_conversation_record(session, user_id=None, conversation_id=conversation.id)
+            if record is None:
+                raise ConversationNotFoundError(conversation.id)
+            message_record = MessageRecord(
+                id=str(uuid4()),
+                conversation_id=conversation.id,
+                role=role.value,
+                content=content,
+                created_at=created_at,
+            )
+            record.updated_at = created_at
+            session.add(message_record)
+            session.flush()
+            message = _to_message(message_record)
+            conversation.messages.append(message)
+            conversation.updated_at = created_at
+            return message
 
     def delete(self, user_id: str, conversation_id: str) -> None:
         with session_scope(self._session_factory) as session:
@@ -268,13 +303,11 @@ def _clear_trip_plan_conversation_links(session: Session, user_id: str, conversa
         session.rollback()
 
 
-def _get_conversation_record(session: Session, user_id: str, conversation_id: str) -> ConversationRecord | None:
-    return session.scalar(
-        select(ConversationRecord).where(
-            ConversationRecord.id == conversation_id,
-            ConversationRecord.user_id == user_id,
-        )
-    )
+def _get_conversation_record(session: Session, user_id: str | None, conversation_id: str) -> ConversationRecord | None:
+    statement = select(ConversationRecord).where(ConversationRecord.id == conversation_id)
+    if user_id is not None:
+        statement = statement.where(ConversationRecord.user_id == user_id)
+    return session.scalar(statement)
 
 
 def _get_summary_record(session: Session, user_id: str, conversation_id: str) -> ConversationSummaryRecord | None:
