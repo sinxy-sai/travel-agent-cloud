@@ -11,12 +11,11 @@
 - 记录和查询安全事件。
 - 管理 OAuth identity 列表、解绑，以及 GitHub OAuth start/callback。
 - 删除当前账户。
-- 对账户导入导出、导出文件和匿名数据导入路径执行认证与邮箱验证策略，再转发到迁移期聚合实现。
+- 直接处理账户导入导出、导出文件和匿名数据导入聚合。
 - 通过 `/health` 暴露自身、数据库和上游 runtime 状态。
 
 ## 仍在迁移中的职责
 
-- 账户导入导出的真实聚合逻辑仍回落到 `agent-runtime`，后续应改为由 `travel-auth` 调用 `travel-agent`、`travel-trip` 和对象存储完成。
 - SMTP 真发送还未在 `travel-auth` 内实现，目前 `EMAIL_PROVIDER=mock` 时会返回 dev token。
 
 ## 本地运行

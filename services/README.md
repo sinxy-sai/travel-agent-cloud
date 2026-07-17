@@ -5,9 +5,9 @@
 ## 当前服务
 
 - `travel-gateway`：统一入口，负责把前端请求按路径转发到领域服务。
-- `travel-auth`：认证和用户领域服务，负责账户、session、安全事件、profile、邮箱 token、OAuth identity 和 GitHub OAuth 回调。
+- `travel-auth`：认证和用户领域服务，负责账户、session、安全事件、profile、邮箱 token、OAuth identity、GitHub OAuth 回调、账户导入导出聚合和导出文件。
 - `travel-trip`：行程领域服务，负责行程历史、详情、编辑、版本、恢复、收藏、删除和 Markdown 导出。
-- `travel-agent`：Agent 领域入口，负责会话 CRUD 和同步摘要；聊天执行与异步摘要任务仍由 `agent-runtime` 处理。
+- `travel-agent`：Agent 领域入口，负责会话 CRUD、同步摘要和异步摘要 job 生产；聊天执行核心通过 internal 路径调用 `agent-runtime`。
 - `travel-mcp`：旅行工具服务，负责高德数据、工具调用和 fallback。
 - `common`：跨服务共享 Python 包，只放基础设施工具，不放业务逻辑。
 
@@ -21,4 +21,4 @@
 
 ## 迁移提醒
 
-`agent-runtime` 不是立刻删除的旧服务。它会逐步收缩成 Agent 编排/执行核心，在迁移期间继续承担 LangGraph/LangChain 执行、异步 worker 和部分 fallback。
+`agent-runtime` 不是旧服务，而是 Agent 编排/执行核心。用户数据边界已逐步迁出，后续重点是把 worker 镜像和执行 API 进一步内部化。

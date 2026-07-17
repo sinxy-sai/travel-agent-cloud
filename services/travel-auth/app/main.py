@@ -1,7 +1,9 @@
 import os
 import hmac
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID, uuid4
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
@@ -9,6 +11,7 @@ from fastapi.responses import RedirectResponse
 from travel_common.app import add_cors, allowed_origins_from_env
 from travel_common.proxy import check_upstream, proxy_request
 
+from app.account_data import AccountDataStore
 from app.auth import (
     AUTH_COOKIE_NAME,
     AuthSettings,
@@ -40,8 +43,10 @@ from app.oauth import (
     create_oauth_state,
     verify_oauth_state,
 )
+from app.object_storage import MinioObjectStorage, ObjectStorageError, ObjectStorageNotFoundError, ObjectStorageSettings
 from app.profiles import UserProfileStore
 from app.schemas import (
+    AnonymousDataSummary,
     AuthAccountDeleteRequest,
     AuthEmailActionResponse,
     AuthEmailRequest,
@@ -56,6 +61,10 @@ from app.schemas import (
     AuthTokenConfirmRequest,
     AuthUser,
     AuthUserUpdateRequest,
+    UserDataExport,
+    UserDataImportRequest,
+    UserDataImportResponse,
+    UserExportFile,
     UserSecurityEventListResponse,
     UserProfile,
     UserProfileUpdateRequest,
@@ -93,6 +102,13 @@ email_verification_token_ttl_seconds = int(os.getenv("EMAIL_VERIFICATION_TOKEN_T
 password_reset_token_ttl_seconds = int(os.getenv("PASSWORD_RESET_TOKEN_TTL_SECONDS", str(60 * 30)))
 email_provider = os.getenv("EMAIL_PROVIDER", "mock").strip().lower()
 public_app_url = os.getenv("PUBLIC_APP_URL", "http://localhost:5173")
+object_storage_settings = ObjectStorageSettings(
+    minio_endpoint=os.getenv("MINIO_ENDPOINT", "").strip(),
+    minio_access_key=os.getenv("MINIO_ACCESS_KEY", "").strip(),
+    minio_secret_key=os.getenv("MINIO_SECRET_KEY", "").strip(),
+    minio_bucket=os.getenv("MINIO_BUCKET", "travel-agent-exports").strip(),
+    minio_secure=os.getenv("MINIO_SECURE", "false").strip().lower() in {"1", "true", "yes", "on"},
+)
 session_factory = create_session_factory(DATABASE_URL) if DATABASE_URL else None
 profile_store = UserProfileStore(session_factory) if session_factory else None
 user_store = UserStore(session_factory) if session_factory else None
@@ -101,6 +117,8 @@ security_event_store = UserSecurityEventStore(session_factory) if session_factor
 auth_token_store = AuthTokenStore(session_factory) if session_factory else None
 auth_identity_store = AuthIdentityStore(session_factory) if session_factory else None
 github_oauth_client = GitHubOAuthClient(oauth_settings)
+account_data_store = AccountDataStore(session_factory) if session_factory else None
+object_storage = MinioObjectStorage(object_storage_settings)
 
 app = FastAPI(title=APP_NAME, version="0.1.0")
 add_cors(app, allowed_origins=ALLOWED_ORIGINS)
@@ -116,6 +134,7 @@ async def health() -> dict[str, Any]:
         "databaseEnabled": profile_store is not None,
         "localAuthEnabled": _local_auth_enabled(),
         "githubOAuthEnabled": github_oauth_client.enabled,
+        "objectStorageEnabled": object_storage.enabled,
         "upstreams": {"agentRuntime": upstream},
     }
 
@@ -445,55 +464,161 @@ async def delete_current_auth_user(payload: AuthAccountDeleteRequest, request: R
         ) from exc
     except UserNotFoundError as exc:
         raise _not_authenticated(exc)
+    if object_storage.enabled:
+        try:
+            object_storage.delete_user_exports(user.id)
+        except ObjectStorageError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"code": "OBJECT_STORAGE_UNAVAILABLE", "message": "Could not delete stored export files"},
+            ) from exc
     response.status_code = status.HTTP_204_NO_CONTENT
     _delete_auth_cookie(response)
     return response
 
 
-@app.get("/api/v1/me/export")
-async def export_current_user_data_unverified_guard(request: Request) -> Any:
+@app.get("/api/v1/me/export", response_model=UserDataExport)
+async def export_current_user_data_unverified_guard(request: Request) -> UserDataExport:
     user = _get_current_auth_user(request)
     if not user.email_verified:
         raise _email_not_verified()
-    return await _proxy(request, "/api/v1/me/export")
+    _require_account_data_store()
+    exported = account_data_store.export_user_data(user.id, user)  # type: ignore[union-attr]
+    _record_security_event(
+        request,
+        user.id,
+        "user.data_exported",
+        {
+            "conversations": len(exported.conversations),
+            "conversationSummaries": len(exported.conversation_summaries),
+            "tripPlans": len(exported.trip_plans),
+        },
+    )
+    return exported
 
 
-@app.post("/api/v1/me/export-files")
-async def create_current_user_export_file(request: Request) -> Response:
+@app.post("/api/v1/me/export-files", response_model=UserExportFile, status_code=status.HTTP_201_CREATED)
+async def create_current_user_export_file(request: Request) -> UserExportFile:
     user = _get_current_auth_user(request)
     if not user.email_verified:
         raise _email_not_verified()
-    return await _proxy(request, "/api/v1/me/export-files")
+    _require_account_data_store()
+    if not object_storage.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "OBJECT_STORAGE_DISABLED", "message": "Object storage is not configured"},
+        )
+    exported = account_data_store.export_user_data(user.id, user)  # type: ignore[union-attr]
+    payload = json.dumps(exported.model_dump(mode="json", by_alias=True), ensure_ascii=False, indent=2).encode("utf-8")
+    export_id = str(uuid4())
+    try:
+        object_storage.put_user_export(user.id, export_id, payload)
+    except ObjectStorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "OBJECT_STORAGE_UNAVAILABLE", "message": "Could not store export file"},
+        ) from exc
+    filename = f"travel-agent-data-{exported.exported_at.date().isoformat()}.json"
+    _record_security_event(request, user.id, "user.export_file_created", {"sizeBytes": len(payload)})
+    return UserExportFile(
+        id=export_id,
+        filename=filename,
+        content_type="application/json",
+        size_bytes=len(payload),
+        created_at=exported.exported_at,
+        download_url=f"/api/v1/me/export-files/{export_id}",
+    )
 
 
 @app.get("/api/v1/me/export-files/{export_id}")
-async def download_current_user_export_file(export_id: str, request: Request) -> Response:
+async def download_current_user_export_file(export_id: UUID, request: Request) -> Response:
     user = _get_current_auth_user(request)
     if not user.email_verified:
         raise _email_not_verified()
-    return await _proxy(request, f"/api/v1/me/export-files/{export_id}")
+    if not object_storage.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "OBJECT_STORAGE_DISABLED", "message": "Object storage is not configured"},
+        )
+    try:
+        payload = object_storage.get_user_export(user.id, str(export_id))
+    except ObjectStorageNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "EXPORT_FILE_NOT_FOUND", "message": "Export file not found"},
+        ) from exc
+    except ObjectStorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "OBJECT_STORAGE_UNAVAILABLE", "message": "Could not read export file"},
+        ) from exc
+    filename = f"travel-agent-data-{datetime.now(UTC).date().isoformat()}.json"
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
-@app.post("/api/v1/me/import")
-async def import_current_user_data(request: Request) -> Response:
+@app.post("/api/v1/me/import", response_model=UserDataImportResponse)
+async def import_current_user_data(payload: UserDataImportRequest, request: Request) -> UserDataImportResponse:
     user = _get_current_auth_user(request)
     if not user.email_verified:
         raise _email_not_verified()
-    return await _proxy(request, "/api/v1/me/import")
+    _check_auth_rate_limit(request, "import-data", user.id)
+    _require_account_data_store()
+    result = account_data_store.import_user_data(user.id, payload)  # type: ignore[union-attr]
+    _record_security_event(
+        request,
+        user.id,
+        "user.data_imported",
+        {
+            "conversationsImported": result.conversations_imported,
+            "conversationSummariesImported": result.conversation_summaries_imported,
+            "tripPlansImported": result.trip_plans_imported,
+            "skippedItems": result.skipped_items,
+        },
+    )
+    return result
 
 
-@app.get("/api/v1/me/anonymous-data/summary")
-async def summarize_current_anonymous_data(request: Request) -> Response:
+@app.get("/api/v1/me/anonymous-data/summary", response_model=AnonymousDataSummary)
+async def summarize_current_anonymous_data(request: Request) -> AnonymousDataSummary:
     _get_current_auth_user(request)
-    return await _proxy(request, "/api/v1/me/anonymous-data/summary")
+    anonymous_user_id = local_anonymous_user_id(request)
+    if not anonymous_user_id:
+        return AnonymousDataSummary(has_data=False, conversations=0, conversation_summaries=0, trip_plans=0)
+    _require_account_data_store()
+    return account_data_store.summarize_anonymous_data(anonymous_user_id)  # type: ignore[union-attr]
 
 
-@app.post("/api/v1/me/anonymous-data/import")
-async def import_current_anonymous_data(request: Request) -> Response:
+@app.post("/api/v1/me/anonymous-data/import", response_model=UserDataImportResponse)
+async def import_current_anonymous_data(request: Request) -> UserDataImportResponse:
     user = _get_current_auth_user(request)
     if not user.email_verified:
         raise _email_not_verified()
-    return await _proxy(request, "/api/v1/me/anonymous-data/import")
+    anonymous_user_id = local_anonymous_user_id(request)
+    if not anonymous_user_id or anonymous_user_id == user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_ANONYMOUS_USER", "message": "Anonymous user id must be different from account id"},
+        )
+    _require_account_data_store()
+    payload = account_data_store.clone_user_data_for_import(anonymous_user_id, user)  # type: ignore[union-attr]
+    result = account_data_store.import_user_data(user.id, payload)  # type: ignore[union-attr]
+    _record_security_event(
+        request,
+        user.id,
+        "user.anonymous_data_imported",
+        {
+            "sourceUserId": _redact_id(anonymous_user_id),
+            "conversationsImported": result.conversations_imported,
+            "conversationSummariesImported": result.conversation_summaries_imported,
+            "tripPlansImported": result.trip_plans_imported,
+            "skippedItems": result.skipped_items,
+        },
+    )
+    return result
 
 
 @app.api_route("/api/v1/me", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
@@ -775,6 +900,14 @@ def _email_not_verified() -> HTTPException:
         status_code=status.HTTP_403_FORBIDDEN,
         detail={"code": "EMAIL_NOT_VERIFIED", "message": "Verify your email before managing account data"},
     )
+
+
+def _require_account_data_store() -> None:
+    if account_data_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "DATABASE_DISABLED", "message": "Database is not configured"},
+        )
 
 
 def _redact_id(value: str) -> str:

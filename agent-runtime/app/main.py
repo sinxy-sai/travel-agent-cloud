@@ -738,11 +738,13 @@ def logout(request: Request, response: Response) -> Response:
     return response
 
 
+@app.post("/internal/v1/trip-plan", response_model=TripPlanResponse)
 @app.post("/api/v1/trip-plan", response_model=TripPlanResponse)
 def create_trip_plan(request: TripPlanRequest, user_id: str = Depends(get_user_id)) -> TripPlanResponse:
     return _create_trip_plan_for_user(request, user_id)
 
 
+@app.post("/internal/v1/trip-plan-jobs", response_model=TripPlanJob, status_code=status.HTTP_202_ACCEPTED)
 @app.post("/api/v1/trip-plan-jobs", response_model=TripPlanJob, status_code=status.HTTP_202_ACCEPTED)
 def create_trip_plan_job(
     request: TripPlanRequest,
@@ -754,6 +756,7 @@ def create_trip_plan_job(
     return job
 
 
+@app.get("/internal/v1/trip-plan-jobs/{job_id}", response_model=TripPlanJob)
 @app.get("/api/v1/trip-plan-jobs/{job_id}", response_model=TripPlanJob)
 def get_trip_plan_job(job_id: str, user_id: str = Depends(get_user_id)) -> TripPlanJob:
     try:
@@ -762,6 +765,7 @@ def get_trip_plan_job(job_id: str, user_id: str = Depends(get_user_id)) -> TripP
         raise HTTPException(status_code=404, detail={"code": "TRIP_PLAN_JOB_NOT_FOUND", "message": "Trip plan job not found"}) from exc
 
 
+@app.get("/internal/v1/trip-plan-jobs/{job_id}/events")
 @app.get("/api/v1/trip-plan-jobs/{job_id}/events")
 def stream_trip_plan_job(job_id: str, user_id: str = Depends(get_user_id)) -> StreamingResponse:
     try:
@@ -902,6 +906,7 @@ def _update_trip_plan_content(
     return conversation_store.update_trip_plan(user_id, trip_plan_id, request, source=source)
 
 
+@app.post("/internal/v1/agent/chat", response_model=ChatResponse)
 @app.post("/api/v1/chat", response_model=ChatResponse)
 def chat(request: ChatRequest, user_id: str = Depends(get_user_id)) -> ChatResponse:
     try:
@@ -1182,6 +1187,7 @@ def restore_trip_plan_version(
     return trip_plan
 
 
+@app.post("/internal/v1/trip-plans/{trip_plan_id}/revise", response_model=SavedTripPlan)
 @app.post("/api/v1/trip-plans/{trip_plan_id}/revise", response_model=SavedTripPlan)
 def revise_trip_plan(
     trip_plan_id: str,
@@ -1253,6 +1259,7 @@ def revise_trip_plan(
     return trip_plan
 
 
+@app.post("/internal/v1/trip-plans/{trip_plan_id}/days/{day}/regenerate", response_model=SavedTripPlan)
 @app.post("/api/v1/trip-plans/{trip_plan_id}/days/{day}/regenerate", response_model=SavedTripPlan)
 def regenerate_trip_plan_day(
     trip_plan_id: str,

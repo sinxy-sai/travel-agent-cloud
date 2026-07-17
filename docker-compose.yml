@@ -117,12 +117,16 @@ services:
       ALLOWED_ORIGINS: http://localhost:5173
       AGENT_SERVICE_REQUEST_TIMEOUT_SECONDS: 180
       AUTH_SECRET_KEY: travel-agent-cloud-local-dev-secret
+      MESSAGE_QUEUE_URL: amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
+      RPC_TIMEOUT_SECONDS: 5
     ports:
       - "8400:8400"
     depends_on:
       agent-runtime:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8400/health', timeout=2).read()\""]
@@ -152,6 +156,11 @@ services:
       GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
       GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI:-http://localhost:5173/api/v1/auth/oauth/github/callback}
       OAUTH_HTTP_TIMEOUT_SECONDS: 10
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: travel-agent-exports
+      MINIO_SECURE: "false"
       EMAIL_VERIFICATION_TOKEN_TTL_SECONDS: 86400
       PASSWORD_RESET_TOKEN_TTL_SECONDS: 1800
     ports:
@@ -160,6 +169,8 @@ services:
       agent-runtime:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8300/health', timeout=2).read()\""]
@@ -234,31 +245,25 @@ services:
       retries: 12
       start_period: 10s
 
-  agent-runtime-worker:
+  travel-agent-worker:
     build:
-      context: ./agent-runtime
-    container_name: travel-agent-runtime-worker
+      context: ./services
+      dockerfile: travel-agent/Dockerfile
+    container_name: travel-agent-worker
     command: ["python", "-m", "app.worker_main"]
     profiles:
       - worker
     environment:
-      APP_ENV: local
       DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
       MESSAGE_QUEUE_URL: amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
-      REDIS_URL: redis://redis:6379/0
-      REDIS_KEY_PREFIX: travel-agent-cloud
       RPC_TIMEOUT_SECONDS: 5
       WORKER_RECONNECT_INITIAL_SECONDS: 2
       WORKER_RECONNECT_MAX_SECONDS: 30
       LOG_LEVEL: INFO
-      TRAVEL_TOOL_PROVIDER: fastmcp
-      FASTMCP_BASE_URL: http://travel-mcp:8100/mcp
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
-        condition: service_healthy
-      redis:
         condition: service_healthy
 
   frontend:

@@ -67,3 +67,21 @@ class ConversationSummary(APIModel):
     message_count: int
     created_at: datetime
     updated_at: datetime
+
+
+class ConversationSummaryJobStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class ConversationSummaryJob(APIModel):
+    id: str
+    conversation_id: str
+    status: ConversationSummaryJobStatus
+    event_type: str
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None

@@ -7,7 +7,7 @@
 - 处理登录用户和匿名本地用户的行程历史、详情、编辑、版本、恢复、收藏、删除和 Markdown 导出。
 - 通过 `POST /internal/v1/trip-plans` 承接 `agent-runtime` 的生成后保存请求。
 - 通过 `PATCH /internal/v1/trip-plans/{tripPlanId}` 承接 `agent-runtime` 的 AI 修订和单日重生成保存请求。
-- 对行程生成、异步生成、AI 修订和单日重生成入口继续代理到 `agent-runtime`，因为这些仍属于 Agent 执行能力。
+- 对行程生成、异步生成、AI 修订和单日重生成入口使用 runtime internal execution 路径，因为这些仍属于 Agent 执行核心能力。
 - 通过 `/health` 暴露自身、数据库和上游 runtime 状态。
 
 ## 后续职责

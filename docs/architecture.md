@@ -7,28 +7,25 @@ frontend
   -> travel-gateway
       -> travel-auth  -> PostgreSQL
       -> travel-trip  -> PostgreSQL
-      -> travel-agent -> PostgreSQL / agent-runtime
+      -> travel-agent -> PostgreSQL / RabbitMQ / agent-runtime internal execution
       -> travel-mcp
-      -> agent-runtime -> PostgreSQL / Redis / RabbitMQ / MinIO / travel-mcp
+      -> agent-runtime -> PostgreSQL / Redis / RabbitMQ / travel-mcp
 ```
 
 ## 服务职责
 
 - `travel-gateway`：统一 API 入口，保持前端只需要访问一个后端地址。
-- `travel-auth`：用户认证、session、profile、安全事件、邮箱 token、OAuth identity、GitHub OAuth 回调。
+- `travel-auth`：用户认证、session、profile、安全事件、邮箱 token、OAuth identity、GitHub OAuth 回调、账户导入导出聚合和导出文件。
 - `travel-trip`：行程持久化、版本、恢复、收藏、删除和导出。
-- `travel-agent`：会话数据边界、同步摘要和 Agent API 门面。
+- `travel-agent`：会话数据边界、同步摘要、异步摘要 job 生产者和 Agent API 门面。
 - `travel-mcp`：旅行工具数据源，当前主要封装高德 Web 服务和 fallback。
-- `agent-runtime`：Agent 执行核心，负责 LangGraph/LangChain 编排、聊天回复、行程生成和异步 worker。
+- `agent-runtime`：Agent 执行核心，负责 LangGraph/LangChain 编排、聊天回复、行程生成和后台 worker 执行。
 
-## 当前仍由 agent-runtime 承担的接口类型
+## agent-runtime 的当前定位
 
-- Agent 执行：`/api/v1/chat`、`/api/v1/agent/*`。
-- 行程执行：`/api/v1/trip-plan`、行程 AI 修订、单日重生成。
-- 异步任务：会话摘要 job、worker 消费。
-- 迁移期聚合：账户导入导出和导出文件。
+`agent-runtime` 不再作为主要用户数据边界。用户侧 API 入口由 `travel-auth`、`travel-trip`、`travel-agent` 承接；runtime 通过 internal execution 路径提供 Agent 执行能力。
 
-外部访问优先经过 `travel-gateway`。即使某个路径仍由 `agent-runtime` 实际处理，也应该先由对应领域服务承接路由，便于后续逐步迁移。
+保留的公开 `/api/v1` runtime 路径只用于兼容旧调用和迁移期回退，新开发应优先通过领域服务调用。
 
 ## 服务通信
 

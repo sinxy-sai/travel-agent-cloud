@@ -53,17 +53,17 @@ async def health() -> dict[str, Any]:
 
 @app.api_route("/api/v1/trip-plan", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_trip_plan_root(request: Request) -> Response:
-    return await _proxy(request, "/api/v1/trip-plan")
+    return await _proxy(request, "/internal/v1/trip-plan")
 
 
 @app.api_route("/api/v1/trip-plan-jobs", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_trip_plan_jobs_root(request: Request) -> Response:
-    return await _proxy(request, "/api/v1/trip-plan-jobs")
+    return await _proxy(request, "/internal/v1/trip-plan-jobs")
 
 
 @app.api_route("/api/v1/trip-plan-jobs/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_trip_plan_jobs(path: str, request: Request) -> Response:
-    return await _proxy(request, f"/api/v1/trip-plan-jobs/{path}")
+    return await _proxy(request, f"/internal/v1/trip-plan-jobs/{path}")
 
 
 @app.post("/internal/v1/trip-plans", response_model=SavedTripPlan)
@@ -179,12 +179,12 @@ async def export_trip_plan(trip_plan_id: str, request: Request) -> Any:
 
 @app.post("/api/v1/trip-plans/{trip_plan_id}/revise")
 async def proxy_trip_plan_revise(trip_plan_id: str, request: Request) -> Response:
-    return await _proxy(request, f"/api/v1/trip-plans/{trip_plan_id}/revise")
+    return await _proxy(request, f"/internal/v1/trip-plans/{trip_plan_id}/revise")
 
 
 @app.post("/api/v1/trip-plans/{trip_plan_id}/days/{day}/regenerate")
 async def proxy_trip_plan_day_regenerate(trip_plan_id: str, day: int, request: Request) -> Response:
-    return await _proxy(request, f"/api/v1/trip-plans/{trip_plan_id}/days/{day}/regenerate")
+    return await _proxy(request, f"/internal/v1/trip-plans/{trip_plan_id}/days/{day}/regenerate")
 
 
 @app.get("/api/v1/trip-plans/{trip_plan_id}", response_model=SavedTripPlan)

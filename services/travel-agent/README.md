@@ -6,15 +6,17 @@
 
 - 本地处理登录用户和匿名用户的会话列表、详情、重命名、删除。
 - 本地读取和生成同步会话摘要。
+- 本地创建异步摘要 job，并通过 RabbitMQ 发布 `agent.conversation.summarize.requested`。
 - 删除会话前清空相关行程的 `conversation_id`，避免行程和会话之间的外键关系阻塞删除。
-- 继续代理 `/api/v1/chat`、`/api/v1/agent/*`、异步摘要任务到 `agent-runtime`。
+- `/api/v1/chat` 通过 runtime internal execution 路径调用 LangGraph/LangChain 执行核心。
+- `/api/v1/agent/*` 仍作为 Agent 状态、诊断和工具门面转发到 `agent-runtime`。
 - 通过 `/health` 暴露自身数据库和 runtime upstream 状态。
 
 ## 仍由 agent-runtime 承担的职责
 
 - LangGraph/LangChain Agent 执行。
 - 聊天回复生成。
-- 异步摘要任务和 worker 消费。
+- 异步摘要 worker 消费。
 - 行程生成、行程修订、单日重生成等执行型请求。
 
 ## 迁移原则

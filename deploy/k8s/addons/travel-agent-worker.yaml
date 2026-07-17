@@ -1,38 +1,30 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: agent-runtime-worker
+  name: travel-agent-worker
   namespace: travel-agent-cloud
   labels:
-    app: agent-runtime-worker
+    app: travel-agent-worker
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: agent-runtime-worker
+      app: travel-agent-worker
   template:
     metadata:
       labels:
-        app: agent-runtime-worker
+        app: travel-agent-worker
     spec:
       containers:
-        - name: agent-runtime-worker
-          image: docker.io/sinxysai/travel-agent-cloud-agent-runtime:latest
+        - name: travel-agent-worker
+          image: docker.io/sinxysai/travel-agent-cloud-travel-agent:latest
           imagePullPolicy: Always
           command: ["python", "-m", "app.worker_main"]
           env:
-            - name: APP_ENV
-              value: production
             - name: LOG_LEVEL
               value: INFO
             - name: RPC_TIMEOUT_SECONDS
               value: "5"
-            - name: AGENT_ENGINE
-              value: langgraph
-            - name: TRAVEL_TOOL_PROVIDER
-              value: fastmcp
-            - name: FASTMCP_BASE_URL
-              value: http://travel-mcp:8100/mcp
             - name: WORKER_RECONNECT_INITIAL_SECONDS
               value: "2"
             - name: WORKER_RECONNECT_MAX_SECONDS
@@ -49,15 +41,3 @@ spec:
                   name: agent-runtime-secrets
                   key: MESSAGE_QUEUE_URL
                   optional: false
-            - name: REDIS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: agent-runtime-secrets
-                  key: REDIS_URL
-                  optional: true
-            - name: REDIS_KEY_PREFIX
-              valueFrom:
-                secretKeyRef:
-                  name: agent-runtime-secrets
-                  key: REDIS_KEY_PREFIX
-                  optional: true

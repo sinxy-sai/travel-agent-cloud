@@ -8,6 +8,6 @@ services:
     #   TRAVEL_TOOL_PROVIDER: fastmcp
     #   FASTMCP_BASE_URL: http://travel-mcp:8100/mcp
 
-  agent-runtime-worker:
+  travel-agent-worker:
     env_file:
       - ./agent-runtime/.env

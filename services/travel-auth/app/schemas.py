@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def to_camel(value: str) -> str:
@@ -215,3 +217,103 @@ class UserProfileUpdateRequest(APIModel):
                 normalized.append(interest)
                 seen.add(key)
         return normalized[:12]
+
+
+class MessageRole(StrEnum):
+    USER = "USER"
+    ASSISTANT = "ASSISTANT"
+    SYSTEM = "SYSTEM"
+
+
+class AgentMode(StrEnum):
+    CHAT = "CHAT"
+    TRIP_PLANNING = "TRIP_PLANNING"
+
+
+class ChatMessage(APIModel):
+    id: str
+    role: MessageRole
+    content: str
+    created_at: datetime
+
+
+class Conversation(APIModel):
+    id: str
+    mode: AgentMode
+    title: str
+    created_at: datetime
+    updated_at: datetime
+    messages: list[ChatMessage]
+
+
+class ConversationSummary(APIModel):
+    id: str
+    conversation_id: str
+    summary: str
+    message_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class SavedTripPlan(APIModel):
+    id: str
+    conversation_id: str | None = None
+    title: str
+    destination: str
+    days: int
+    budget: str
+    interests: str
+    plan: dict
+    favorite: bool = False
+    version: int = 1
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class UserDataExport(APIModel):
+    exported_at: datetime
+    user: AuthUser
+    profile: UserProfile
+    conversations: list[Conversation]
+    conversation_summaries: list[ConversationSummary]
+    trip_plans: list[SavedTripPlan]
+
+
+class UserExportFile(APIModel):
+    id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    created_at: datetime
+    download_url: str
+
+
+class UserDataImportRequest(UserDataExport):
+    @model_validator(mode="after")
+    def validate_import_size(self) -> "UserDataImportRequest":
+        message_count = sum(len(conversation.messages) for conversation in self.conversations)
+        if len(self.conversations) > 200:
+            raise ValueError("Cannot import more than 200 conversations at once")
+        if message_count > 5000:
+            raise ValueError("Cannot import more than 5000 messages at once")
+        if len(self.conversation_summaries) > 200:
+            raise ValueError("Cannot import more than 200 conversation summaries at once")
+        if len(self.trip_plans) > 500:
+            raise ValueError("Cannot import more than 500 trip plans at once")
+        return self
+
+
+class UserDataImportResponse(APIModel):
+    imported_at: datetime
+    profile_imported: bool
+    conversations_imported: int
+    conversation_summaries_imported: int
+    trip_plans_imported: int
+    skipped_items: int
+
+
+class AnonymousDataSummary(APIModel):
+    has_data: bool
+    conversations: int
+    conversation_summaries: int
+    trip_plans: int

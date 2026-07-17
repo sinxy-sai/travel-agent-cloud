@@ -122,7 +122,7 @@ Copy-Item docker-compose.override.example.yml docker-compose.override.yml
 - `CI` 成功后触发 `Build Images Docker Hub`。
 - Docker Hub 镜像构建成功后触发 `Deploy K3s`。
 - `Deploy K3s` 执行 `kubectl apply -k deploy/k8s`。
-- K3s 默认部署 frontend、travel-gateway、travel-auth、travel-trip、travel-agent、agent-runtime、agent-runtime-worker、travel-mcp、PostgreSQL、RabbitMQ、Redis、MinIO 和 Ingress。
+- K3s 默认部署 frontend、travel-gateway、travel-auth、travel-trip、travel-agent、travel-agent-worker、agent-runtime、travel-mcp、PostgreSQL、RabbitMQ、Redis、MinIO 和 Ingress。
 
 GitHub repository secrets：
 

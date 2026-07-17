@@ -6,7 +6,7 @@ resources:
   - addons/minio.yaml
   - travel-mcp.yaml
   - agent-runtime.yaml
-  - addons/agent-runtime-worker.yaml
+  - addons/travel-agent-worker.yaml
   - travel-auth.yaml
   - travel-trip.yaml
   - travel-agent.yaml

@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 公共 API | HTTP REST | 前端到 `travel-gateway` |
 | Python 服务内部调用 | HTTP REST | `travel-gateway` 到各后端服务 |
-| Agent Runtime 调用 | HTTP REST | `travel-agent` 到 `agent-runtime` |
+| Agent 执行调用 | HTTP REST internal API | `travel-agent` / `travel-trip` 到 `agent-runtime` |
 | 旅行工具调用 | MCP 风格 HTTP JSON-RPC | `agent-runtime` 到 `travel-mcp` |
 | 异步事件和后台任务 | RabbitMQ | 跨服务事件和后台任务 |
 | 未来流式 RPC | gRPC 或 WebSocket | 保留，不是当前默认实现 |
@@ -41,11 +41,11 @@
 - `travel-gateway -> travel-auth`
 - `travel-gateway -> travel-trip`
 - `travel-gateway -> travel-agent`
-- `travel-gateway -> agent-runtime`
 - `travel-gateway -> travel-mcp`
-- 未来 `travel-agent -> agent-runtime`
+- `travel-agent -> agent-runtime` internal execution
+- `travel-trip -> agent-runtime` internal execution
 
-`agent-runtime` 应始终通过明确 HTTP 契约暴露能力，避免其他服务耦合到 Python 内部实现。
+`agent-runtime` 应始终通过明确 HTTP 契约暴露执行能力，避免其他服务耦合到 Python 内部实现。用户数据和用户 API 边界应留在 `travel-auth`、`travel-trip`、`travel-agent`。
 
 ## MCP 风格工具调用
 
@@ -109,9 +109,9 @@ user.profile.updated
 
 - Docker Compose 已包含 RabbitMQ。
 - K3s 默认通过 `deploy/k8s/addons/rabbitmq.yaml` 部署 RabbitMQ。
-- `agent-runtime` 支持 `MESSAGE_QUEUE_URL` 和 `RPC_TIMEOUT_SECONDS`。
-- 配置 `MESSAGE_QUEUE_URL` 后，`agent-runtime` 会向 `travel.events` topic exchange 发布领域事件。
+- `travel-agent` 和 `agent-runtime` 支持 `MESSAGE_QUEUE_URL` 和 `RPC_TIMEOUT_SECONDS`。
+- 配置 `MESSAGE_QUEUE_URL` 后，`travel-agent` 会发布会话摘要任务事件，`agent-runtime` 会发布执行期领域事件。
 - `python -m app.worker_main` 是 RabbitMQ consumer 入口。
-- `agent-runtime-worker` 会处理异步会话摘要任务，并更新任务状态。
-- Docker Compose 通过 `worker` profile 启动 `agent-runtime-worker`。
-- K3s 默认通过 Kustomize 部署 `agent-runtime-worker`。
+- `travel-agent-worker` 会处理异步会话摘要任务，并更新任务状态。
+- Docker Compose 通过 `worker` profile 启动 `travel-agent-worker`。
+- K3s 默认通过 Kustomize 部署 `travel-agent-worker`。

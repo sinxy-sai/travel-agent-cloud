@@ -1,18 +1,20 @@
 from datetime import UTC, datetime
 from math import ceil
 
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import delete, desc, func, or_, select, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import session_scope
-from app.models import ConversationRecord, ConversationSummaryRecord, MessageRecord
+from app.models import ConversationRecord, ConversationSummaryJobRecord, ConversationSummaryRecord, MessageRecord
 from app.schemas import (
     AgentMode,
     ChatMessage,
     Conversation,
     ConversationListResponse,
     ConversationSummary,
+    ConversationSummaryJob,
+    ConversationSummaryJobStatus,
     MessageRole,
 )
 
@@ -22,6 +24,10 @@ class ConversationNotFoundError(Exception):
 
 
 class ConversationSummaryNotFoundError(Exception):
+    pass
+
+
+class ConversationSummaryJobNotFoundError(Exception):
     pass
 
 
@@ -110,6 +116,101 @@ class ConversationSummaryStore:
             if record is None:
                 raise ConversationSummaryNotFoundError(conversation_id)
             return _to_summary(record)
+
+    def delete_for_conversation(self, user_id: str, conversation_id: str) -> None:
+        with session_scope(self._session_factory) as session:
+            session.execute(
+                delete(ConversationSummaryRecord).where(
+                    ConversationSummaryRecord.conversation_id == conversation_id,
+                    ConversationSummaryRecord.user_id == user_id,
+                )
+            )
+
+
+class ConversationSummaryJobStore:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def create(self, user_id: str, conversation_id: str, event_type: str) -> ConversationSummaryJob:
+        with session_scope(self._session_factory) as session:
+            conversation = _get_conversation_record(session, user_id, conversation_id)
+            if conversation is None:
+                raise ConversationNotFoundError(conversation_id)
+            record = ConversationSummaryJobRecord(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                status=ConversationSummaryJobStatus.QUEUED.value,
+                event_type=event_type,
+            )
+            session.add(record)
+            session.flush()
+            return _to_summary_job(record)
+
+    def get_latest(self, user_id: str, conversation_id: str) -> ConversationSummaryJob:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(
+                select(ConversationSummaryJobRecord)
+                .where(
+                    ConversationSummaryJobRecord.user_id == user_id,
+                    ConversationSummaryJobRecord.conversation_id == conversation_id,
+                )
+                .order_by(desc(ConversationSummaryJobRecord.updated_at), desc(ConversationSummaryJobRecord.created_at))
+                .limit(1)
+            )
+            if record is None:
+                raise ConversationSummaryJobNotFoundError(conversation_id)
+            return _to_summary_job(record)
+
+    def mark_failed(self, user_id: str, job_id: str, error_message: str) -> ConversationSummaryJob:
+        return self._update_status(
+            user_id,
+            job_id,
+            ConversationSummaryJobStatus.FAILED,
+            completed=True,
+            error_message=_compact(error_message, max_length=1000),
+        )
+
+    def mark_running(self, user_id: str, job_id: str) -> ConversationSummaryJob:
+        return self._update_status(user_id, job_id, ConversationSummaryJobStatus.RUNNING)
+
+    def mark_succeeded(self, user_id: str, job_id: str) -> ConversationSummaryJob:
+        return self._update_status(user_id, job_id, ConversationSummaryJobStatus.SUCCEEDED, completed=True)
+
+    def _update_status(
+        self,
+        user_id: str,
+        job_id: str,
+        job_status: ConversationSummaryJobStatus,
+        *,
+        completed: bool = False,
+        error_message: str | None = None,
+    ) -> ConversationSummaryJob:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(
+                select(ConversationSummaryJobRecord).where(
+                    ConversationSummaryJobRecord.id == job_id,
+                    ConversationSummaryJobRecord.user_id == user_id,
+                )
+            )
+            if record is None:
+                raise ConversationSummaryJobNotFoundError(job_id)
+            now = _now()
+            record.status = job_status.value
+            record.updated_at = now
+            record.error_message = _compact(error_message, max_length=1000) if error_message else None
+            if completed:
+                record.completed_at = now
+            session.flush()
+            return _to_summary_job(record)
+
+    def delete_for_conversation(self, user_id: str, conversation_id: str) -> None:
+        with session_scope(self._session_factory) as session:
+            session.execute(
+                delete(ConversationSummaryJobRecord).where(
+                    ConversationSummaryJobRecord.conversation_id == conversation_id,
+                    ConversationSummaryJobRecord.user_id == user_id,
+                )
+            )
 
     def save(self, user_id: str, conversation_id: str, summary: str, message_count: int) -> ConversationSummary:
         with session_scope(self._session_factory) as session:
@@ -214,6 +315,19 @@ def _to_summary(record: ConversationSummaryRecord) -> ConversationSummary:
         message_count=record.message_count,
         created_at=record.created_at,
         updated_at=record.updated_at,
+    )
+
+
+def _to_summary_job(record: ConversationSummaryJobRecord) -> ConversationSummaryJob:
+    return ConversationSummaryJob(
+        id=record.id,
+        conversation_id=record.conversation_id,
+        status=ConversationSummaryJobStatus(record.status),
+        event_type=record.event_type,
+        error_message=record.error_message,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        completed_at=record.completed_at,
     )
 
 
