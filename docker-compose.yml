@@ -113,12 +113,16 @@ services:
     container_name: travel-agent-agent
     environment:
       AGENT_RUNTIME_URL: http://agent-runtime:8000
+      DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
       ALLOWED_ORIGINS: http://localhost:5173
       AGENT_SERVICE_REQUEST_TIMEOUT_SECONDS: 180
+      AUTH_SECRET_KEY: travel-agent-cloud-local-dev-secret
     ports:
       - "8400:8400"
     depends_on:
       agent-runtime:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8400/health', timeout=2).read()\""]
@@ -144,6 +148,10 @@ services:
       AUTH_RATE_LIMIT_WINDOW_SECONDS: 900
       EMAIL_PROVIDER: mock
       PUBLIC_APP_URL: http://localhost:5173
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI:-http://localhost:5173/api/v1/auth/oauth/github/callback}
+      OAUTH_HTTP_TIMEOUT_SECONDS: 10
       EMAIL_VERIFICATION_TOKEN_TTL_SECONDS: 86400
       PASSWORD_RESET_TOKEN_TTL_SECONDS: 1800
     ports:

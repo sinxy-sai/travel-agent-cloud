@@ -67,6 +67,23 @@ class UserStore:
                 raise EmailAlreadyRegisteredError(normalized_email) from exc
             return _to_auth_user(record)
 
+    def create_oauth_user(self, email: str, display_name: str = "") -> AuthUser:
+        normalized_email = _normalize_email(email)
+        with session_scope(self._session_factory) as session:
+            record = UserRecord(
+                email=normalized_email,
+                password_hash=f"{UNUSABLE_PASSWORD_HASH_PREFIX}{secrets.token_urlsafe(32)}",
+                display_name=display_name.strip(),
+                email_verified=True,
+                email_verified_at=_now(),
+            )
+            session.add(record)
+            try:
+                session.flush()
+            except IntegrityError as exc:
+                raise EmailAlreadyRegisteredError(normalized_email) from exc
+            return _to_auth_user(record)
+
     def authenticate(self, email: str, password: str) -> AuthUser:
         normalized_email = _normalize_email(email)
         with session_scope(self._session_factory) as session:

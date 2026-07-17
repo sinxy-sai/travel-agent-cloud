@@ -76,6 +76,30 @@ spec:
                   name: agent-runtime-secrets
                   key: PUBLIC_APP_URL
                   optional: true
+            - name: GITHUB_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: GITHUB_OAUTH_CLIENT_ID
+                  optional: true
+            - name: GITHUB_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: GITHUB_OAUTH_CLIENT_SECRET
+                  optional: true
+            - name: GITHUB_OAUTH_REDIRECT_URI
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: GITHUB_OAUTH_REDIRECT_URI
+                  optional: true
+            - name: OAUTH_HTTP_TIMEOUT_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: OAUTH_HTTP_TIMEOUT_SECONDS
+                  optional: true
             - name: EMAIL_VERIFICATION_TOKEN_TTL_SECONDS
               valueFrom:
                 secretKeyRef:

@@ -1,62 +1,34 @@
 # 架构说明
 
-Travel Agent Cloud 当前从一个可部署核心逐步演进为 Kubernetes 原生 Python/FastAPI 微服务系统。
+Travel Agent Cloud 正在从可部署单体演进为 Kubernetes 原生 Python/FastAPI 微服务系统。
 
 ```text
 frontend
   -> travel-gateway
-      -> travel-auth -> PostgreSQL / agent-runtime
-      -> travel-trip -> PostgreSQL / agent-runtime
-      -> travel-agent -> agent-runtime
+      -> travel-auth  -> PostgreSQL
+      -> travel-trip  -> PostgreSQL
+      -> travel-agent -> PostgreSQL / agent-runtime
       -> travel-mcp
-      -> agent-runtime -> PostgreSQL / Redis / RabbitMQ / MinIO
+      -> agent-runtime -> PostgreSQL / Redis / RabbitMQ / MinIO / travel-mcp
 ```
 
-`travel-trip` 已经开始从纯代理服务转为行程领域服务：匿名本地用户的行程读写、版本、恢复、删除和 Markdown 导出直接由 `travel-trip` 处理。`agent-runtime` 生成、AI 修订或单日重生成行程内容后，会通过 `travel-trip` 的 internal API 保存结果。仍需要 Agent 执行或登录身份校验的入口暂时回落到 `agent-runtime`。
+## 服务职责
 
-`travel-auth` 已经开始从纯代理服务转为用户与认证领域服务：注册、登录、退出登录、当前用户、密码修改、session 管理、安全事件、账号删除、邮箱验证 token、密码重置 token、身份列表，以及登录用户和匿名本地用户 profile 读写直接由 `travel-auth` 处理。OAuth 和账户数据导入导出仍在迁移中。
+- `travel-gateway`：统一 API 入口，保持前端只需要访问一个后端地址。
+- `travel-auth`：用户认证、session、profile、安全事件、邮箱 token、OAuth identity、GitHub OAuth 回调。
+- `travel-trip`：行程持久化、版本、恢复、收藏、删除和导出。
+- `travel-agent`：会话数据边界、同步摘要和 Agent API 门面。
+- `travel-mcp`：旅行工具数据源，当前主要封装高德 Web 服务和 fallback。
+- `agent-runtime`：Agent 执行核心，负责 LangGraph/LangChain 编排、聊天回复、行程生成和异步 worker。
 
-## 当前 Agent Runtime API
+## 当前仍由 agent-runtime 承担的接口类型
 
-这些接口仍由 `agent-runtime` 直接拥有或作为迁移期间的 fallback：
+- Agent 执行：`/api/v1/chat`、`/api/v1/agent/*`。
+- 行程执行：`/api/v1/trip-plan`、行程 AI 修订、单日重生成。
+- 异步任务：会话摘要 job、worker 消费。
+- 迁移期聚合：账户导入导出和导出文件。
 
-```text
-GET    /health
-GET    /api/v1/me
-GET    /api/v1/me/profile
-PATCH  /api/v1/me/profile
-POST   /api/v1/trip-plan
-POST   /api/v1/chat
-GET    /api/v1/conversations
-GET    /api/v1/conversations/{conversationId}
-PATCH  /api/v1/conversations/{conversationId}
-GET    /api/v1/conversations/{conversationId}/summary
-POST   /api/v1/conversations/{conversationId}/summary
-POST   /api/v1/conversations/{conversationId}/summary-jobs
-GET    /api/v1/conversations/{conversationId}/summary-jobs/latest
-DELETE /api/v1/conversations/{conversationId}
-GET    /api/v1/trip-plans
-GET    /api/v1/trip-plans/{tripPlanId}
-PATCH  /api/v1/trip-plans/{tripPlanId}
-DELETE /api/v1/trip-plans/{tripPlanId}
-GET    /api/v1/trip-plans/{tripPlanId}/export
-```
-
-外部访问优先经过 `travel-gateway`。即使某个路径仍由 `agent-runtime` 实际处理，也应该先由对应领域门面承接路由，方便逐步迁移。
-
-## 目标微服务结构
-
-```text
-frontend
-  -> travel-gateway
-      -> travel-auth
-      -> travel-trip
-      -> travel-agent
-      -> travel-mcp
-
-travel-auth / travel-trip / travel-agent / agent-runtime
-  -> PostgreSQL / Redis / MinIO / RabbitMQ
-```
+外部访问优先经过 `travel-gateway`。即使某个路径仍由 `agent-runtime` 实际处理，也应该先由对应领域服务承接路由，便于后续逐步迁移。
 
 ## 服务通信
 
@@ -64,11 +36,10 @@ travel-auth / travel-trip / travel-agent / agent-runtime
 - 对外 HTTP API 使用 `/api/v1` 下的 REST 风格。
 - Python/FastAPI 服务之间优先使用 HTTP REST。
 - `agent-runtime` 通过 MCP 风格 JSON-RPC 调用 `travel-mcp`。
-- gRPC 暂时保留，不作为当前默认方案；只有出现明确的低延迟或双向流式需求时再引入。
+- RabbitMQ 用于领域事件和后台任务。
+- gRPC 暂时保留，不作为当前默认方案。
 
 ## 消息队列
-
-RabbitMQ 是当前默认消息队列，用于领域事件和后台任务。
 
 候选事件：
 
@@ -82,35 +53,23 @@ RabbitMQ 是当前默认消息队列，用于领域事件和后台任务。
 - `agent.conversation.summary.created`
 - `user.profile.updated`
 
-当前异步摘要流程：
+队列规则：
+
+- 事件字段使用 camelCase。
+- 消费者必须幂等。
+- 消息只携带 ID 和必要上下文，业务数据仍以 PostgreSQL 为准。
+- 长耗时任务必须持久化状态，并提供查询接口给前端轮询。
+
+## 基础设施
 
 ```text
-POST /api/v1/conversations/{conversationId}/summary-jobs
-  -> PostgreSQL conversation_summary_jobs status=QUEUED
-  -> RabbitMQ agent.conversation.summarize.requested
-  -> agent-runtime-worker
-  -> PostgreSQL conversation_summary_jobs status=RUNNING/SUCCEEDED/FAILED
-  -> ConversationSummarizerWorker
-```
-
-## 队列规则
-
-- 生产者发布小型 JSON 事件，字段使用 camelCase。
-- 消费者必须幂等，因为队列消息可能重试。
-- 业务数据仍以 PostgreSQL 为准，消息只携带 ID 和必要上下文。
-- 长耗时任务必须持久化状态，并提供查询接口供前端轮询。
-- Secret 只能通过 `.env` 或 Kubernetes Secret 注入，不能提交到仓库。
-
-## 支撑基础设施
-
-```text
-PostgreSQL, Redis, RabbitMQ, MinIO, pgvector, Docker Compose, K3s, Ingress, GitHub Actions
+PostgreSQL, Redis, RabbitMQ, MinIO, Docker Compose, K3s, Ingress
 ```
 
 ## 代码组织原则
 
 - `services/common` 只放跨服务基础设施代码，例如 HTTP 代理、header 转发、健康检查和通用错误结构。
-- 业务规则不能放入 `services/common`，避免共享包变成隐形单体。
-- 新服务应优先复用 `services/common` 中的基础设施能力，但保持自己的路由、配置和业务模块独立。
+- 业务规则留在各自服务内，避免共享包变成隐形单体。
+- 新服务应拥有自己的路由、配置、模型、README、Dockerfile 和部署清单。
 
 API 规范见 [api-guidelines.md](api-guidelines.md)，服务通信细节见 [service-communication.md](service-communication.md)。

@@ -1,33 +1,23 @@
 # travel-auth
 
-`travel-auth` 是 Python/FastAPI 认证与用户领域服务。
-
-当前阶段它已经作为独立服务运行，并开始从纯代理门面进入渐进实迁：核心账号认证、会话管理和 profile 读写由 `travel-auth` 直接访问 PostgreSQL 处理；OAuth、邮箱验证、密码重置、账号删除、账户导入导出等跨外部系统或跨领域数据的接口暂时继续代理到 `agent-runtime`。
+`travel-auth` 是认证与用户领域服务。
 
 ## 当前职责
 
-- 承接 `travel-gateway` 转发过来的认证与用户 API。
-- 直接处理注册、登录、退出登录、当前用户读取、当前用户显示名更新和密码修改。
-- 直接处理当前 session 列表、当前 session 撤销和其他 session 批量撤销。
-- 对登录用户和带合法 `X-User-Id` 的匿名本地用户，直接处理 `GET/PATCH /api/v1/me/profile`。
-- 本地处理安全事件记录与查询、身份列表空结果、未验证账户的数据导出拦截和账号删除。
-- 邮箱验证和密码重置请求当前由 `travel-auth` 返回 accepted，占位保留真实邮件 token 迁移空间。
-- 代理 OAuth、账户导入导出文件、已验证账户完整数据导出和其他 `/api/v1/me/*` 到 `agent-runtime`。
+- 处理注册、登录、退出登录、当前用户读取和当前用户显示名更新。
+- 处理密码修改、密码重置 token、邮箱验证 token。
+- 处理当前 session 列表、单个 session 撤销和其他 session 批量撤销。
+- 处理登录用户和匿名本地用户的 `GET/PATCH /api/v1/me/profile`。
+- 记录和查询安全事件。
+- 管理 OAuth identity 列表、解绑，以及 GitHub OAuth start/callback。
+- 删除当前账户。
+- 对账户导入导出、导出文件和匿名数据导入路径执行认证与邮箱验证策略，再转发到迁移期聚合实现。
 - 通过 `/health` 暴露自身、数据库和上游 runtime 状态。
-- 通过 `X-Travel-Service-Boundary: travel-auth` 标记内部服务边界，便于日志和排查。
 
-## 未来职责
+## 仍在迁移中的职责
 
-- 邮箱验证 token、找回密码 token、OAuth 回调和第三方身份绑定。
-- 完整拥有账户数据导入导出边界。
-- 必要时使用 Redis 做分布式登录限流和会话状态。
-- 通过 RabbitMQ 发布用户生命周期事件。
-
-## 迁移原则
-
-- 保持现有 `agent-runtime` API 契约稳定。
-- 通过 `travel-gateway` 按接口逐步迁移。
-- 不让密码、会话逻辑在两个运行服务里长期重复存在。
+- 账户导入导出的真实聚合逻辑仍回落到 `agent-runtime`，后续应改为由 `travel-auth` 调用 `travel-agent`、`travel-trip` 和对象存储完成。
+- SMTP 真发送还未在 `travel-auth` 内实现，目前 `EMAIL_PROVIDER=mock` 时会返回 dev token。
 
 ## 本地运行
 
@@ -37,7 +27,16 @@ python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
 $env:AGENT_RUNTIME_URL="http://localhost:8000"
 $env:DATABASE_URL="postgresql://travel_agent:travel_agent_dev@localhost:5432/travel_agent_cloud"
+$env:AUTH_SECRET_KEY="travel-agent-cloud-local-dev-secret"
 .\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8300
 ```
 
-`requirements.txt` 会以 editable 方式安装 `../common`，因此本地运行时要保持 `services/common` 目录存在。
+GitHub OAuth 需要额外配置：
+
+```powershell
+$env:GITHUB_OAUTH_CLIENT_ID="..."
+$env:GITHUB_OAUTH_CLIENT_SECRET="..."
+$env:GITHUB_OAUTH_REDIRECT_URI="http://localhost:5173/api/v1/auth/oauth/github/callback"
+```
+
+`requirements.txt` 会以 editable 方式安装 `../common`，因此本地运行时需要保留 `services/common` 目录。

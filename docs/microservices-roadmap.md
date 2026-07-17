@@ -1,6 +1,6 @@
 # Kubernetes 原生 Python 微服务路线图
 
-本项目后续采用 Kubernetes 原生 + Python/FastAPI 微服务路线。这里的“微服务化”指服务边界、独立部署、服务发现、网关入口、异步消息和可观测性，不要求使用 Spring Boot、Spring Cloud 或 gRPC。
+本项目采用 Kubernetes 原生 + Python/FastAPI 微服务路线。这里的“微服务化”指服务边界、独立镜像、独立健康检查、网关路由、异步消息和可观测性，不要求使用 Spring Boot、Spring Cloud 或 gRPC。
 
 ## 当前运行边界
 
@@ -10,8 +10,8 @@ frontend
       -> travel-auth
       -> travel-trip
       -> travel-agent
-      -> agent-runtime
       -> travel-mcp
+      -> agent-runtime
 
 agent-runtime
   -> PostgreSQL
@@ -21,44 +21,41 @@ agent-runtime
   -> travel-mcp
 ```
 
-## 当前和规划中的服务
+## 当前服务
 
-- `travel-gateway`：轻量 FastAPI 网关，作为前端访问后端的统一入口。
-- `agent-runtime`：当前仍承载认证、行程生成、聊天、导出和 Agent 编排中的一部分核心能力。
-- `travel-mcp`：旅行工具服务，当前支持高德数据和确定性 fallback。
-- `agent-runtime-worker`：消费 RabbitMQ 任务的后台 worker。
-- `services/common`：微服务共享 Python 包，存放跨服务基础设施工具，不放业务逻辑。
-- `travel-auth`：用户与认证领域服务。当前已经实迁注册、登录、退出登录、当前用户、密码修改、session 管理、安全事件、账号删除、邮箱验证 token、密码重置 token、身份列表，以及登录用户和匿名本地用户 profile 读写；OAuth 和账户数据导入导出暂时仍在迁移中。
-- `travel-trip`：行程领域服务。当前已经实迁登录用户和匿名本地用户的行程列表、详情、编辑、版本、恢复、删除和 Markdown 导出；`agent-runtime` 生成、AI 修订和单日重生成后的行程也通过它的内部接口保存。
-- `travel-agent`：Agent API 门面服务。当前仍代理到 `agent-runtime`，后续迁移配额、审计、权限和 Agent 请求策略。
+- `travel-gateway`：前端访问后端的统一入口，按路径转发到领域服务。
+- `travel-auth`：用户、认证、profile、安全事件、session、邮箱 token、OAuth identity 和 GitHub OAuth 回调。
+- `travel-trip`：行程历史、详情、编辑、版本、恢复、收藏、删除和 Markdown 导出。
+- `travel-agent`：会话列表、详情、重命名、删除和同步摘要；聊天执行和异步摘要任务仍转发到 `agent-runtime`。
+- `travel-mcp`：旅行工具服务，封装高德数据、工具调用和 fallback 行为。
+- `agent-runtime`：Agent 编排和执行核心，仍承担 LangGraph/LangChain 执行、聊天回复、异步 worker、行程生成入口和部分迁移期 fallback。
+- `services/common`：跨服务基础设施工具包，只放代理、CORS、健康检查等非业务逻辑。
 
-## Kubernetes 职责
+## 已完成的实迁
 
-- 服务发现使用 Kubernetes Service DNS，例如 `http://agent-runtime:8000`。
-- 公网入口使用 Ingress，并优先路由到 `travel-gateway`。
-- 配置通过环境变量注入，敏感信息放在 Kubernetes Secret。
-- 异步任务通过 RabbitMQ，不依赖进程内调用。
-- 共享基础设施包括 PostgreSQL、Redis、MinIO 和 RabbitMQ。
-- 跨服务通用代码放在 `services/common`，业务逻辑仍留在各自服务内。
+1. `travel-auth` 已接管注册、登录、退出、当前用户、密码修改、session 管理、安全事件、账户删除、邮箱验证 token、密码重置 token、OAuth identity、GitHub OAuth 回调，以及登录/匿名用户 profile。
+2. `travel-trip` 已接管登录和匿名用户的行程持久化、版本、恢复、收藏、删除和 Markdown 导出。
+3. `travel-agent` 已接管会话 CRUD 和同步摘要，并在删除会话时维护行程引用一致性。
+4. Docker Compose 和 K8s 清单已经包含 `travel-auth`、`travel-trip`、`travel-agent`、`travel-mcp`、`travel-gateway` 等独立服务。
 
-## 迁移顺序
+## 迁移期仍保留在 agent-runtime 的内容
 
-1. 让 `travel-gateway` 站到现有 API 前面。
-2. 将 `travel-mcp` 作为第一个真实工具微服务运行。
-3. 保持 `agent-runtime` 稳定，继续打磨旅行规划行为。
-4. 将 `travel-trip` 从代理门面升级为真正拥有行程、版本和导出元数据的服务。当前已完成匿名用户读写路径、生成后保存、AI 修订保存和单日重生成保存的实迁。
-5. 将 `travel-auth` 从代理门面升级为真正拥有用户、profile、会话、邮箱 token 和 OAuth identity 的服务。当前已完成核心账号认证、session 管理和 profile 读写的实迁。
-6. 将 `travel-agent` 从代理门面升级为真正承载配额、审计、权限和 Agent 请求策略的服务。
+- LangGraph/LangChain Agent 执行。
+- `/api/v1/chat` 的真实回复生成。
+- 行程生成、行程修订、单日重生成的执行入口。
+- 异步摘要 job 和 worker 消费。
+- 账户导入导出聚合和 MinIO 导出文件读写仍作为迁移期 fallback 保留。
 
-## 暂不做的事
+## 后续收敛方向
+
+- 把账户导入导出聚合改为 `travel-auth` 调用 `travel-agent`、`travel-trip` 和对象存储，而不是回落到 `agent-runtime`。
+- 把异步摘要任务生产者迁到 `travel-agent`，worker 可以先继续由 `agent-runtime-worker` 执行。
+- 把 Agent 请求策略、配额、审计和权限判断迁到 `travel-agent`。
+- 等领域边界稳定后，再考虑每个服务独立数据库；当前阶段仍使用共享 PostgreSQL，靠服务代码边界先拆单体。
+
+## 暂不做
 
 - 暂不迁移到 Spring Cloud。
 - 暂不引入服务网格。
 - 暂不默认使用 gRPC，除非出现明确的低延迟或双向流式内部调用需求。
-- 暂不急着拆分每个服务的独立数据库，先等数据所有权稳定。
-
-## 下一批高价值迁移候选
-
-- `travel-trip`：登录用户行程读写和导出元数据，减少行程领域对 `agent-runtime` 的依赖。
-- `travel-auth`：OAuth identity、GitHub OAuth 回调和账户数据导入导出，逐步把完整账户生命周期下沉到用户服务。
-- `travel-agent`：会话列表、会话摘要和聊天历史边界，后续再迁移真正的 Agent 执行策略。
+- 暂不强制每个微服务独立数据库，先稳定服务所有权和 API 边界。

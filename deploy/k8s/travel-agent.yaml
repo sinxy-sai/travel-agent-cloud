@@ -24,10 +24,22 @@ spec:
           env:
             - name: AGENT_RUNTIME_URL
               value: http://agent-runtime:8000
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: DATABASE_URL
+                  optional: true
             - name: ALLOWED_ORIGINS
               value: "*"
             - name: AGENT_SERVICE_REQUEST_TIMEOUT_SECONDS
               value: "180"
+            - name: AUTH_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_SECRET_KEY
+                  optional: true
           readinessProbe:
             httpGet:
               path: /health

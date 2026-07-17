@@ -1,9 +1,11 @@
 import os
+import hmac
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi import FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.responses import RedirectResponse
 from travel_common.app import add_cors, allowed_origins_from_env
 from travel_common.proxy import check_upstream, proxy_request
 
@@ -17,7 +19,7 @@ from app.auth import (
     create_access_token,
     verify_access_token_claims,
 )
-from app.auth_identities import AuthIdentityNotFoundError, AuthIdentityStore
+from app.auth_identities import AuthIdentityConflictError, AuthIdentityNotFoundError, AuthIdentityStore
 from app.auth_tokens import (
     TOKEN_PURPOSE_EMAIL_VERIFICATION,
     TOKEN_PURPOSE_PASSWORD_RESET,
@@ -25,6 +27,19 @@ from app.auth_tokens import (
     InvalidAuthTokenError,
 )
 from app.db import create_session_factory
+from app.oauth import (
+    GITHUB_PROVIDER,
+    OAUTH_STATE_COOKIE_NAME,
+    OAUTH_STATE_TTL_SECONDS,
+    GitHubOAuthClient,
+    OAuthConfigurationError,
+    OAuthProfile,
+    OAuthProviderError,
+    OAuthSettings,
+    OAuthStateError,
+    create_oauth_state,
+    verify_oauth_state,
+)
 from app.profiles import UserProfileStore
 from app.schemas import (
     AuthAccountDeleteRequest,
@@ -60,6 +75,16 @@ auth_settings = AuthSettings(
     auth_token_ttl_seconds=int(os.getenv("AUTH_TOKEN_TTL_SECONDS", str(60 * 60 * 24 * 7))),
     auth_cookie_secure=os.getenv("AUTH_COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes", "on"},
 )
+oauth_settings = OAuthSettings(
+    auth_secret_key=auth_settings.auth_secret_key,
+    github_oauth_client_id=os.getenv("GITHUB_OAUTH_CLIENT_ID", "").strip(),
+    github_oauth_client_secret=os.getenv("GITHUB_OAUTH_CLIENT_SECRET", "").strip(),
+    github_oauth_redirect_uri=os.getenv(
+        "GITHUB_OAUTH_REDIRECT_URI",
+        "http://localhost:8300/api/v1/auth/oauth/github/callback",
+    ).strip(),
+    oauth_http_timeout_seconds=float(os.getenv("OAUTH_HTTP_TIMEOUT_SECONDS", "10")),
+)
 auth_rate_limiter = FixedWindowRateLimiter(
     int(os.getenv("AUTH_RATE_LIMIT_MAX_ATTEMPTS", "20")),
     int(os.getenv("AUTH_RATE_LIMIT_WINDOW_SECONDS", str(15 * 60))),
@@ -75,6 +100,7 @@ auth_session_store = AuthSessionStore(session_factory) if session_factory else N
 security_event_store = UserSecurityEventStore(session_factory) if session_factory else None
 auth_token_store = AuthTokenStore(session_factory) if session_factory else None
 auth_identity_store = AuthIdentityStore(session_factory) if session_factory else None
+github_oauth_client = GitHubOAuthClient(oauth_settings)
 
 app = FastAPI(title=APP_NAME, version="0.1.0")
 add_cors(app, allowed_origins=ALLOWED_ORIGINS)
@@ -89,6 +115,7 @@ async def health() -> dict[str, Any]:
         "mode": "auth-api-service-with-runtime-fallback",
         "databaseEnabled": profile_store is not None,
         "localAuthEnabled": _local_auth_enabled(),
+        "githubOAuthEnabled": github_oauth_client.enabled,
         "upstreams": {"agentRuntime": upstream},
     }
 
@@ -317,6 +344,54 @@ async def proxy_password_reset(path: str, request: Request) -> Response:
     return await _proxy(request, f"/api/v1/auth/password-reset/{path}")
 
 
+@app.get("/api/v1/auth/oauth/github/start")
+def start_github_oauth() -> RedirectResponse:
+    try:
+        state_value = create_oauth_state(oauth_settings, GITHUB_PROVIDER)
+        redirect = RedirectResponse(github_oauth_client.authorization_url(state_value), status_code=status.HTTP_302_FOUND)
+    except OAuthConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "OAUTH_PROVIDER_DISABLED", "message": "GitHub OAuth is not configured"},
+        ) from exc
+    _set_oauth_state_cookie(redirect, state_value)
+    return redirect
+
+
+@app.get("/api/v1/auth/oauth/github/callback")
+def github_oauth_callback(
+    request: Request,
+    code: str = Query(default="", max_length=300),
+    state: str = Query(default="", max_length=1000),
+    error: str = Query(default="", max_length=120),
+) -> RedirectResponse:
+    if error:
+        return _oauth_frontend_redirect("error", error)
+    cookie_state = request.cookies.get(OAUTH_STATE_COOKIE_NAME, "")
+    if not state or not cookie_state or not hmac.compare_digest(state, cookie_state):
+        return _oauth_frontend_redirect("error", "invalid_state")
+    try:
+        verify_oauth_state(oauth_settings, state, GITHUB_PROVIDER)
+    except OAuthStateError:
+        return _oauth_frontend_redirect("error", "invalid_state")
+    if not code:
+        return _oauth_frontend_redirect("error", "missing_code")
+
+    try:
+        profile = github_oauth_client.exchange_code(code)
+        user, event_type = _resolve_oauth_user(request, profile)
+    except (OAuthConfigurationError, OAuthProviderError, AuthIdentityConflictError, UserNotFoundError, ValueError):
+        return _oauth_frontend_redirect("error", "github_login_failed")
+
+    session_info = _create_auth_session(request, user)
+    token = create_access_token(auth_settings, user.id, session_info.id)
+    redirect = _oauth_frontend_redirect("success")
+    _set_auth_cookie(redirect, token)
+    _delete_oauth_state_cookie(redirect)
+    _record_security_event(request, user.id, event_type, {"provider": GITHUB_PROVIDER})
+    return redirect
+
+
 @app.api_route(
     "/api/v1/auth/oauth/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -379,11 +454,46 @@ async def delete_current_auth_user(payload: AuthAccountDeleteRequest, request: R
 async def export_current_user_data_unverified_guard(request: Request) -> Any:
     user = _get_current_auth_user(request)
     if not user.email_verified:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": "EMAIL_NOT_VERIFIED", "message": "Verify your email before managing account data"},
-        )
+        raise _email_not_verified()
     return await _proxy(request, "/api/v1/me/export")
+
+
+@app.post("/api/v1/me/export-files")
+async def create_current_user_export_file(request: Request) -> Response:
+    user = _get_current_auth_user(request)
+    if not user.email_verified:
+        raise _email_not_verified()
+    return await _proxy(request, "/api/v1/me/export-files")
+
+
+@app.get("/api/v1/me/export-files/{export_id}")
+async def download_current_user_export_file(export_id: str, request: Request) -> Response:
+    user = _get_current_auth_user(request)
+    if not user.email_verified:
+        raise _email_not_verified()
+    return await _proxy(request, f"/api/v1/me/export-files/{export_id}")
+
+
+@app.post("/api/v1/me/import")
+async def import_current_user_data(request: Request) -> Response:
+    user = _get_current_auth_user(request)
+    if not user.email_verified:
+        raise _email_not_verified()
+    return await _proxy(request, "/api/v1/me/import")
+
+
+@app.get("/api/v1/me/anonymous-data/summary")
+async def summarize_current_anonymous_data(request: Request) -> Response:
+    _get_current_auth_user(request)
+    return await _proxy(request, "/api/v1/me/anonymous-data/summary")
+
+
+@app.post("/api/v1/me/anonymous-data/import")
+async def import_current_anonymous_data(request: Request) -> Response:
+    user = _get_current_auth_user(request)
+    if not user.email_verified:
+        raise _email_not_verified()
+    return await _proxy(request, "/api/v1/me/anonymous-data/import")
 
 
 @app.api_route("/api/v1/me", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
@@ -543,6 +653,97 @@ def _check_auth_rate_limit(request: Request, action: str, email: str) -> None:
     )
 
 
+def _resolve_oauth_user(request: Request, profile: OAuthProfile) -> tuple[AuthUser, str]:
+    current_user = _get_optional_current_auth_user(request)
+    try:
+        identity = auth_identity_store.get_by_provider_user_id(profile.provider, profile.provider_user_id)  # type: ignore[union-attr]
+        if current_user and identity.user_id != current_user.id:
+            raise AuthIdentityConflictError(profile.provider)
+        user = user_store.get_user(identity.user_id)  # type: ignore[union-attr]
+        auth_identity_store.upsert(  # type: ignore[union-attr]
+            user.id,
+            profile.provider,
+            profile.provider_user_id,
+            email=profile.email,
+            display_name=profile.display_name,
+            avatar_url=profile.avatar_url,
+        )
+        return user, "auth.oauth_logged_in"
+    except AuthIdentityNotFoundError:
+        pass
+
+    if current_user:
+        auth_identity_store.upsert(  # type: ignore[union-attr]
+            current_user.id,
+            profile.provider,
+            profile.provider_user_id,
+            email=profile.email,
+            display_name=profile.display_name,
+            avatar_url=profile.avatar_url,
+        )
+        return current_user, "auth.identity_linked"
+
+    try:
+        user = user_store.get_user_by_email(profile.email)  # type: ignore[union-attr]
+        if not user.email_verified:
+            user = user_store.mark_email_verified(user.id)  # type: ignore[union-attr]
+    except UserNotFoundError:
+        try:
+            user = user_store.create_oauth_user(profile.email, profile.display_name)  # type: ignore[union-attr]
+        except EmailAlreadyRegisteredError:
+            user = user_store.get_user_by_email(profile.email)  # type: ignore[union-attr]
+            if not user.email_verified:
+                user = user_store.mark_email_verified(user.id)  # type: ignore[union-attr]
+
+    auth_identity_store.upsert(  # type: ignore[union-attr]
+        user.id,
+        profile.provider,
+        profile.provider_user_id,
+        email=profile.email,
+        display_name=profile.display_name,
+        avatar_url=profile.avatar_url,
+    )
+    return user, "auth.oauth_logged_in"
+
+
+def _get_optional_current_auth_user(request: Request) -> AuthUser | None:
+    try:
+        return _get_current_auth_user(request)
+    except HTTPException:
+        return None
+
+
+def _oauth_frontend_redirect(status_value: str, error: str = "") -> RedirectResponse:
+    params = {"authAction": "oauth-github", "authStatus": status_value}
+    if error:
+        params["authError"] = error
+    return RedirectResponse(
+        f"{public_app_url.rstrip('/')}?{urlencode(params)}",
+        status_code=status.HTTP_302_FOUND,
+    )
+
+
+def _set_oauth_state_cookie(response: Response, state_value: str) -> None:
+    response.set_cookie(
+        OAUTH_STATE_COOKIE_NAME,
+        state_value,
+        max_age=OAUTH_STATE_TTL_SECONDS,
+        httponly=True,
+        secure=auth_settings.auth_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+
+
+def _delete_oauth_state_cookie(response: Response) -> None:
+    response.delete_cookie(
+        OAUTH_STATE_COOKIE_NAME,
+        path="/",
+        samesite="lax",
+        secure=auth_settings.auth_cookie_secure,
+    )
+
+
 def _record_security_event(
     request: Request,
     user_id: str,
@@ -567,6 +768,13 @@ def _not_authenticated(exc: Exception | None = None) -> HTTPException:
     if exc is not None:
         return error
     return error
+
+
+def _email_not_verified() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"code": "EMAIL_NOT_VERIFIED", "message": "Verify your email before managing account data"},
+    )
 
 
 def _redact_id(value: str) -> str:

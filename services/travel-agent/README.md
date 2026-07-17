@@ -1,29 +1,27 @@
 # travel-agent
 
-`travel-agent` 是 Python/FastAPI Agent 门面服务。
-
-当前阶段它已经作为独立服务运行，但内部仍以门面方式代理到 `agent-runtime` 的聊天、会话和 Agent 状态接口。这样可以先建立服务边界、镜像、健康检查、网关路由和 K3s 部署形态，再逐步迁移配额、审计、权限策略和真实 Agent 门面逻辑。
+`travel-agent` 是面向用户 Agent 能力的服务入口，负责会话数据边界、同步摘要和 Agent API 门面。
 
 ## 当前职责
 
-- 承接 `travel-gateway` 转发过来的 Agent API。
-- 代理 `/api/v1/chat`、`/api/v1/agent/*` 和 `/api/v1/conversations/*` 到 `agent-runtime`。
-- 通过 `/health` 暴露自身和 upstream 状态。
-- 通过 `X-Travel-Service-Boundary: travel-agent` 标记内部服务边界，便于后续日志和排查。
+- 本地处理登录用户和匿名用户的会话列表、详情、重命名、删除。
+- 本地读取和生成同步会话摘要。
+- 删除会话前清空相关行程的 `conversation_id`，避免行程和会话之间的外键关系阻塞删除。
+- 继续代理 `/api/v1/chat`、`/api/v1/agent/*`、异步摘要任务到 `agent-runtime`。
+- 通过 `/health` 暴露自身数据库和 runtime upstream 状态。
 
-## 未来职责
+## 仍由 agent-runtime 承担的职责
 
-- 作为用户侧 Agent 请求的门面入口。
-- 在进入执行引擎前做配额、审计、权限和用户归属校验。
-- 调用 `agent-runtime` 执行 LangGraph/LangChain 工作流。
-- 调用 `travel-trip` 读取或写入行程元数据。
-- 将非阻塞 Agent 任务发布到 RabbitMQ。
+- LangGraph/LangChain Agent 执行。
+- 聊天回复生成。
+- 异步摘要任务和 worker 消费。
+- 行程生成、行程修订、单日重生成等执行型请求。
 
 ## 迁移原则
 
-- 在旅行规划行为稳定前，先让 `agent-runtime` 保持执行引擎角色。
-- 当配额、审计、权限策略明显变复杂后，再把这些逻辑迁入独立 `travel-agent` 服务。
-- 不把 LangGraph/LangChain 的执行细节泄漏到 gateway 或前端。
+- `travel-agent` 逐步接管“用户请求入口、会话归属、策略、审计、配额”。
+- `agent-runtime` 逐步收缩为“Agent 编排和执行核心”。
+- 对外保持 `/api/v1` 兼容，迁移期间由 gateway 和服务内 fallback 保证旧流程可用。
 
 ## 本地运行
 
@@ -32,7 +30,9 @@ cd services/travel-agent
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
 $env:AGENT_RUNTIME_URL="http://localhost:8000"
+$env:DATABASE_URL="postgresql://travel_agent:travel_agent_dev@localhost:5432/travel_agent_cloud"
+$env:AUTH_SECRET_KEY="travel-agent-cloud-local-dev-secret"
 .\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8400
 ```
 
-`requirements.txt` 会以 editable 方式安装 `../common`，因此本地运行时要保持 `services/common` 目录存在。
+`requirements.txt` 会以 editable 方式安装 `../common`，因此本地运行时需要保留 `services/common` 目录。
