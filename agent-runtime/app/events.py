@@ -8,8 +8,6 @@ from app.settings import Settings
 
 logger = logging.getLogger("travel_agent_runtime.events")
 EVENT_EXCHANGE = "travel.events"
-CONVERSATION_SUMMARY_REQUESTED_EVENT = "agent.conversation.summarize.requested"
-CONVERSATION_SUMMARY_CREATED_EVENT = "agent.conversation.summary.created"
 
 
 class EventPublisher(Protocol):
