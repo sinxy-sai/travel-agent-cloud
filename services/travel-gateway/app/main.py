@@ -1,7 +1,9 @@
 import os
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, Request, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 from travel_common.app import add_cors, allowed_origins_from_env
 from travel_common.internal_auth import RequestContextMiddleware, internal_service_headers
 from travel_common.proxy import check_upstream, proxy_request
@@ -17,32 +19,27 @@ REQUEST_TIMEOUT_SECONDS = float(os.getenv("GATEWAY_REQUEST_TIMEOUT_SECONDS", "18
 ALLOWED_ORIGINS = allowed_origins_from_env()
 INTERNAL_SERVICE_HEADERS = internal_service_headers()
 
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        return response
+
+
 app = FastAPI(title=APP_NAME, version="0.1.0")
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestContextMiddleware)
 add_cors(app, allowed_origins=ALLOWED_ORIGINS)
 
 
+@app.api_route("/health", methods=["GET", "HEAD"])
 @app.get("/gateway/health")
 async def gateway_health() -> dict[str, Any]:
-    checks = {
-        "agentRuntime": await _check_upstream(f"{AGENT_RUNTIME_URL}/health"),
-        "travelAuth": await _check_upstream(f"{TRAVEL_AUTH_URL}/health"),
-        "travelTrip": await _check_upstream(f"{TRAVEL_TRIP_URL}/health"),
-        "travelAgent": await _check_upstream(f"{TRAVEL_AGENT_URL}/health"),
-        "travelMcp": await _check_upstream(f"{TRAVEL_MCP_URL}/health"),
-    }
-    required_upstreams = ("agentRuntime", "travelAuth", "travelTrip", "travelAgent")
-    status = "ok" if all(checks[name]["ok"] for name in required_upstreams) else "degraded"
-    return {
-        "status": status,
-        "service": APP_NAME,
-        "upstreams": checks,
-    }
-
-
-@app.api_route("/health", methods=["GET", "HEAD"])
-async def proxy_agent_health(request: Request) -> Response:
-    return await _proxy(request, AGENT_RUNTIME_URL, "/health")
+    return await _gateway_health_payload()
 
 
 @app.api_route("/api/v1/trip-plan", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
@@ -142,6 +139,73 @@ async def proxy_tools_root(request: Request) -> Response:
 
 async def _check_upstream(url: str) -> dict[str, Any]:
     return await check_upstream(url)
+
+
+async def _gateway_health_payload() -> dict[str, Any]:
+    checks = {
+        "agentRuntime": await _fetch_health(f"{AGENT_RUNTIME_URL}/health"),
+        "travelAuth": await _fetch_health(f"{TRAVEL_AUTH_URL}/health"),
+        "travelTrip": await _fetch_health(f"{TRAVEL_TRIP_URL}/health"),
+        "travelAgent": await _fetch_health(f"{TRAVEL_AGENT_URL}/health"),
+        "travelMcp": await _fetch_health(f"{TRAVEL_MCP_URL}/health"),
+    }
+    required_upstreams = ("agentRuntime", "travelAuth", "travelTrip", "travelAgent")
+    status_value = "ok" if all(_healthy(checks[name]) for name in required_upstreams) else "degraded"
+
+    runtime = _health_data(checks["agentRuntime"])
+    auth = _health_data(checks["travelAuth"])
+    trip = _health_data(checks["travelTrip"])
+    agent = _health_data(checks["travelAgent"])
+
+    return {
+        "status": status_value,
+        "service": APP_NAME,
+        "env": runtime.get("env", os.getenv("APP_ENV", "local")),
+        "llmEnabled": bool(runtime.get("llmEnabled", False)),
+        "databaseEnabled": all(
+            bool(service.get("databaseEnabled", False))
+            for service in (auth, trip, agent)
+        ),
+        "messageQueueEnabled": bool(agent.get("messageQueueEnabled", False)),
+        "redisRateLimitEnabled": False,
+        "objectStorageEnabled": bool(auth.get("objectStorageEnabled", False)),
+        "githubOAuthEnabled": bool(auth.get("githubOAuthEnabled", False)),
+        "agentEngine": str(runtime.get("agentEngine", "unknown")),
+        "agentEngineCapabilities": runtime.get("agentEngineCapabilities", {}),
+        "travelToolsProvider": str(runtime.get("travelToolsProvider", "unknown")),
+        "upstreams": checks,
+    }
+
+
+async def _fetch_health(url: str) -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            response = await client.get(url)
+        data: dict[str, Any] = {}
+        try:
+            parsed = response.json()
+            if isinstance(parsed, dict):
+                data = parsed
+        except ValueError:
+            data = {}
+        return {
+            "ok": response.status_code < 500,
+            "statusCode": response.status_code,
+            "status": data.get("status", "unknown"),
+            "service": data.get("service", ""),
+            "data": data,
+        }
+    except httpx.HTTPError as exc:
+        return {"ok": False, "status": "unreachable", "error": exc.__class__.__name__, "data": {}}
+
+
+def _healthy(check: dict[str, Any]) -> bool:
+    return bool(check.get("ok")) and check.get("status") == "ok"
+
+
+def _health_data(check: dict[str, Any]) -> dict[str, Any]:
+    data = check.get("data", {})
+    return data if isinstance(data, dict) else {}
 
 
 async def _proxy(request: Request, upstream_base_url: str, path: str) -> Response:
