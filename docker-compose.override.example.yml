@@ -1,7 +1,5 @@
 services:
   agent-runtime:
-    env_file:
-      - ./agent-runtime/.env
     # Enable these when running `docker compose --profile worker --profile tools up --build`
     # and you want Agent Runtime to call the local travel-mcp stub.
     # environment:
@@ -10,4 +8,4 @@ services:
 
   travel-agent-worker:
     env_file:
-      - ./agent-runtime/.env
+      - ./services/travel-agent/.env

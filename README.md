@@ -19,7 +19,7 @@ Travel Agent Cloud 是一个面向旅行规划场景的 AI 助手项目。当前
 
 ## 技术栈
 
-- 前端：React、Vite、TypeScript、Tailwind CSS、Ant Design、TanStack Query、Zustand
+- 前端：React、Vite、TypeScript、Tailwind CSS、Ant Design、TanStack Query、zustand
 - Agent Runtime：Python、FastAPI、LangGraph、LangChain、OpenAI-compatible LLM API
 - 工具服务：FastAPI、MCP 风格 JSON-RPC、高德 Web Service
 - 网关：Python/FastAPI `travel-gateway`
@@ -30,16 +30,30 @@ Travel Agent Cloud 是一个面向旅行规划场景的 AI 助手项目。当前
 ## 当前模块
 
 - `frontend`：React + Vite 前端工作台。
-- `agent-runtime`：核心 FastAPI 服务，当前承载认证、行程、聊天、导出和 Agent 编排。
-- `services/travel-gateway`：轻量 FastAPI 网关，本地和 K3s 的后端入口。
+- `services/travel-gateway`：统一 API 入口，负责把 `/api/v1` 请求转发到领域服务。
+- `services/travel-auth`：认证和用户领域服务，负责账号、session、profile、邮箱 token、OAuth identity、GitHub OAuth、账户导入导出和导出文件。
+- `services/travel-trip`：行程领域服务，负责行程历史、详情、编辑、版本、恢复、收藏、删除和 Markdown 导出。
+- `services/travel-agent`：Agent 领域入口，负责会话 CRUD、同步摘要、异步摘要 job 生产；执行核心通过内部接口调用 `agent-runtime`。
 - `services/travel-mcp`：旅行工具微服务，负责高德 POI、天气、路线等工具数据。
-- `services/common`：Python 微服务共享工具包，当前包含 HTTP 代理、header 转发和 upstream 健康检查。
-- `services/travel-auth`：已运行的认证门面服务，当前代理到 `agent-runtime`，后续迁移真实认证存储逻辑。
-- `services/travel-trip`：已运行的行程管理门面服务，当前代理到 `agent-runtime`，后续迁移真实行程存储逻辑。
-- `services/travel-agent`：已运行的 Agent 门面服务，当前代理到 `agent-runtime`，后续迁移配额、审计和请求策略逻辑。
+- `services/common`：Python 微服务共享工具包，只放 HTTP 代理、CORS、健康检查、通用错误等基础设施能力。
+- `agent-runtime`：Agent 编排/执行核心，负责 LangGraph/LangChain 工作流、LLM 调用和旅行工具编排。
 - `deploy/k8s`：K3s/Kubernetes 部署清单。
 - `docs`：架构、API、通信和原型对齐文档。
 - `scripts`：服务器初始化和 smoke test 脚本。
+
+## 环境变量
+
+本项目采用“每个服务一个 `.env`”的配置边界：
+
+- `agent-runtime/.env`：Agent 编排/执行、LLM、LangGraph、FastMCP、Redis、RabbitMQ 等运行时配置。
+- `frontend/.env`：Vite 前端构建配置，例如 API 地址和高德 JS SDK key。
+- `services/travel-gateway/.env`：网关上游服务地址和请求超时。
+- `services/travel-auth/.env`：认证、SMTP、OAuth、MinIO、账户导入导出等配置。
+- `services/travel-trip/.env`：行程服务数据库、认证密钥和 runtime 内部调用配置。
+- `services/travel-agent/.env`：会话服务数据库、RabbitMQ、worker 和 runtime 内部调用配置。
+- `services/travel-mcp/.env`：高德 Web Service key 和工具服务配置。
+
+`.env` 文件只用于本地，不提交到 Git；`.env.example` 是模板，需要随代码维护。VPS/K3s 环境应把这些配置迁移为 Kubernetes `ConfigMap` 和 `Secret`。
 
 ## 本地开发
 
@@ -59,12 +73,6 @@ cd frontend
 npm install
 $env:VITE_AGENT_API_BASE_URL="http://localhost:8000"
 npm run dev
-```
-
-访问：
-
-```text
-http://localhost:5173
 ```
 
 本地 API smoke test：
@@ -100,14 +108,6 @@ RabbitMQ 管理后台：
 ```text
 http://localhost:15672
 ```
-
-如果希望 Docker Compose 中的容器读取本地 `agent-runtime/.env` 里的真实 LLM 配置，先创建本地 override 文件：
-
-```powershell
-Copy-Item docker-compose.override.example.yml docker-compose.override.yml
-```
-
-`docker-compose.override.yml` 已被 `.gitignore` 忽略，不要提交。
 
 ## K3s/VPS 部署
 
@@ -146,7 +146,7 @@ VPS_SSH_KEY
 
 ## 当前部署差异
 
-本地开发使用 Docker Compose；VPS 使用 K3s。
+本地开发使用 Docker Compose，VPS 使用 K3s。
 
 ```text
 本地 Docker Compose:

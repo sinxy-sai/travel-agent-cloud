@@ -11,7 +11,7 @@
 | Agent 执行调用 | HTTP REST internal API | `travel-agent` / `travel-trip` 到 `agent-runtime` |
 | 旅行工具调用 | MCP 风格 HTTP JSON-RPC | `agent-runtime` 到 `travel-mcp` |
 | 异步事件和后台任务 | RabbitMQ | 跨服务事件和后台任务 |
-| 未来流式 RPC | gRPC 或 WebSocket | 保留，不是当前默认实现 |
+| 未来流式 RPC | SSE、WebSocket 或 gRPC | 保留，不是当前默认实现 |
 
 ## 为什么使用 RabbitMQ
 
@@ -89,7 +89,7 @@ user.profile.updated
 }
 ```
 
-## 可靠性规则
+## 可靠性规划
 
 - 消费者必须幂等。
 - 每个事件必须包含 `eventId`、`eventType`、`occurredAt` 和归属用户 `userId`。
@@ -101,16 +101,16 @@ user.profile.updated
 ## 安全规则
 
 - 不要把 API key、JWT、密码或供应商密钥放进事件。
-- RabbitMQ 凭据本地来自 `.env`，VPS 来自 Kubernetes Secret。
-- 管理后台端口 `15672` 只用于本地开发，不应在 VPS 公网暴露。
-- 真正用户体系稳定后，服务间调用需要传递内部用户上下文头。
+- 本地 Docker Compose 使用每个服务自己的 `.env`；VPS/K3s 使用 Kubernetes Secret 和 ConfigMap。
+- RabbitMQ 管理后台端口 `15672` 只用于本地开发，不应在 VPS 公网暴露。
+- 服务间调用需要传递明确的内部用户上下文头，不能依赖浏览器 cookie 自动跨服务生效。
 
 ## 当前实现状态
 
 - Docker Compose 已包含 RabbitMQ。
 - K3s 默认通过 `deploy/k8s/addons/rabbitmq.yaml` 部署 RabbitMQ。
-- `travel-agent` 和 `agent-runtime` 支持 `MESSAGE_QUEUE_URL` 和 `RPC_TIMEOUT_SECONDS`。
-- 配置 `MESSAGE_QUEUE_URL` 后，`travel-agent` 会发布会话摘要任务事件，`agent-runtime` 会发布执行期领域事件。
+- `travel-agent` 支持 `MESSAGE_QUEUE_URL` 和 `RPC_TIMEOUT_SECONDS`。
+- 配置 `MESSAGE_QUEUE_URL` 后，`travel-agent` 会发布会话摘要任务事件。
 - `python -m app.worker_main` 是 RabbitMQ consumer 入口。
 - `travel-agent-worker` 会处理异步会话摘要任务，并更新任务状态。
 - Docker Compose 通过 `worker` profile 启动 `travel-agent-worker`。

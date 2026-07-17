@@ -12,11 +12,21 @@
 - 管理 OAuth identity 列表、解绑，以及 GitHub OAuth start/callback。
 - 删除当前账户。
 - 直接处理账户导入导出、导出文件和匿名数据导入聚合。
-- 通过 `/health` 暴露自身、数据库和上游 runtime 状态。
+- 根据 `EMAIL_PROVIDER` 使用 mock 或 SMTP 发送认证邮件。
+- 通过 `/health` 暴露自身、数据库、对象存储和上游 runtime 状态。
 
-## 仍在迁移中的职责
+## 环境变量
 
-- SMTP 真发送还未在 `travel-auth` 内实现，目前 `EMAIL_PROVIDER=mock` 时会返回 dev token。
+本服务的本地配置放在 `services/travel-auth/.env`，模板为 `services/travel-auth/.env.example`。
+
+常用配置：
+
+- `DATABASE_URL`：PostgreSQL 连接串。
+- `AUTH_SECRET_KEY`：session/JWT 签名密钥，必须和需要识别用户上下文的服务保持一致。
+- `EMAIL_PROVIDER`：`mock` 或 `smtp`。
+- `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`：SMTP 发送配置。
+- `GITHUB_OAUTH_CLIENT_ID`、`GITHUB_OAUTH_CLIENT_SECRET`、`GITHUB_OAUTH_REDIRECT_URI`：GitHub OAuth 配置。
+- `MINIO_ENDPOINT`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`MINIO_BUCKET`：账户导出文件存储配置。
 
 ## 本地运行
 
@@ -24,18 +34,9 @@
 cd services/travel-auth
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
-$env:AGENT_RUNTIME_URL="http://localhost:8000"
-$env:DATABASE_URL="postgresql://travel_agent:travel_agent_dev@localhost:5432/travel_agent_cloud"
-$env:AUTH_SECRET_KEY="travel-agent-cloud-local-dev-secret"
 .\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8300
 ```
 
-GitHub OAuth 需要额外配置：
-
-```powershell
-$env:GITHUB_OAUTH_CLIENT_ID="..."
-$env:GITHUB_OAUTH_CLIENT_SECRET="..."
-$env:GITHUB_OAUTH_REDIRECT_URI="http://localhost:5173/api/v1/auth/oauth/github/callback"
-```
+如果不用 Docker Compose，需要自己把 `.env` 中的容器内地址改成本机地址，例如把 `postgres:5432` 改成 `localhost:5432`，把 `minio:9000` 改成 `localhost:9000`。
 
 `requirements.txt` 会以 editable 方式安装 `../common`，因此本地运行时需要保留 `services/common` 目录。

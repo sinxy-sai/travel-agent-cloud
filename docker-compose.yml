@@ -73,9 +73,6 @@ services:
     container_name: travel-agent-mcp
     env_file:
       - ./services/travel-mcp/.env
-    environment:
-      AMAP_BASE_URL: https://restapi.amap.com
-      AMAP_TIMEOUT_SECONDS: 8
     ports:
       - "8100:8100"
 
@@ -84,14 +81,8 @@ services:
       context: ./services
       dockerfile: travel-gateway/Dockerfile
     container_name: travel-agent-gateway
-    environment:
-      AGENT_RUNTIME_URL: http://agent-runtime:8000
-      TRAVEL_AUTH_URL: http://travel-auth:8300
-      TRAVEL_TRIP_URL: http://travel-trip:8200
-      TRAVEL_AGENT_URL: http://travel-agent:8400
-      TRAVEL_MCP_URL: http://travel-mcp:8100
-      ALLOWED_ORIGINS: http://localhost:5173
-      GATEWAY_REQUEST_TIMEOUT_SECONDS: 180
+    env_file:
+      - ./services/travel-gateway/.env
     ports:
       - "8080:8080"
     depends_on:
@@ -117,14 +108,8 @@ services:
       context: ./services
       dockerfile: travel-agent/Dockerfile
     container_name: travel-agent-agent
-    environment:
-      AGENT_RUNTIME_URL: http://agent-runtime:8000
-      DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
-      ALLOWED_ORIGINS: http://localhost:5173
-      AGENT_SERVICE_REQUEST_TIMEOUT_SECONDS: 180
-      AUTH_SECRET_KEY: travel-agent-cloud-local-dev-secret
-      MESSAGE_QUEUE_URL: amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
-      RPC_TIMEOUT_SECONDS: 5
+    env_file:
+      - ./services/travel-agent/.env
     ports:
       - "8400:8400"
     depends_on:
@@ -146,36 +131,8 @@ services:
       context: ./services
       dockerfile: travel-auth/Dockerfile
     container_name: travel-agent-auth
-    environment:
-      AGENT_RUNTIME_URL: http://agent-runtime:8000
-      DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
-      ALLOWED_ORIGINS: http://localhost:5173
-      AUTH_SERVICE_REQUEST_TIMEOUT_SECONDS: 180
-      AUTH_SECRET_KEY: travel-agent-cloud-local-dev-secret
-      AUTH_TOKEN_TTL_SECONDS: 604800
-      AUTH_COOKIE_SECURE: "false"
-      AUTH_RATE_LIMIT_MAX_ATTEMPTS: 20
-      AUTH_RATE_LIMIT_WINDOW_SECONDS: 900
-      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-mock}
-      EMAIL_FROM: ${EMAIL_FROM:-no-reply@travel-agent-cloud.local}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USERNAME: ${SMTP_USERNAME:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_USE_SSL: ${SMTP_USE_SSL:-false}
-      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
-      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:5173}
-      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
-      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
-      GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI:-http://localhost:5173/api/v1/auth/oauth/github/callback}
-      OAUTH_HTTP_TIMEOUT_SECONDS: 10
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: travel_agent
-      MINIO_SECRET_KEY: travel_agent_dev_secret
-      MINIO_BUCKET: travel-agent-exports
-      MINIO_SECURE: "false"
-      EMAIL_VERIFICATION_TOKEN_TTL_SECONDS: 86400
-      PASSWORD_RESET_TOKEN_TTL_SECONDS: 1800
+    env_file:
+      - ./services/travel-auth/.env
     ports:
       - "8300:8300"
     depends_on:
@@ -197,12 +154,8 @@ services:
       context: ./services
       dockerfile: travel-trip/Dockerfile
     container_name: travel-agent-trip
-    environment:
-      AGENT_RUNTIME_URL: http://agent-runtime:8000
-      DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
-      ALLOWED_ORIGINS: http://localhost:5173
-      TRIP_SERVICE_REQUEST_TIMEOUT_SECONDS: 180
-      AUTH_SECRET_KEY: travel-agent-cloud-local-dev-secret
+    env_file:
+      - ./services/travel-trip/.env
     ports:
       - "8200:8200"
     depends_on:
@@ -221,27 +174,10 @@ services:
     build:
       context: ./agent-runtime
     container_name: travel-agent-runtime
+    env_file:
+      - ./agent-runtime/.env
     ports:
       - "8000:8000"
-    environment:
-      APP_ENV: local
-      ALLOWED_ORIGINS: http://localhost:5173
-      DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
-      MESSAGE_QUEUE_URL: amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
-      REDIS_URL: redis://redis:6379/0
-      REDIS_KEY_PREFIX: travel-agent-cloud
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: travel_agent
-      MINIO_SECRET_KEY: travel_agent_dev_secret
-      MINIO_BUCKET: travel-agent-exports
-      MINIO_SECURE: "false"
-      RPC_TIMEOUT_SECONDS: 5
-      WORKER_RECONNECT_INITIAL_SECONDS: 2
-      WORKER_RECONNECT_MAX_SECONDS: 30
-      TRAVEL_TOOL_PROVIDER: fastmcp
-      FASTMCP_BASE_URL: http://travel-mcp:8100/mcp
-      TRAVEL_TRIP_URL: http://travel-trip:8200
-      TRAVEL_TRIP_TIMEOUT_SECONDS: 10
     depends_on:
       postgres:
         condition: service_healthy
@@ -266,13 +202,8 @@ services:
     command: ["python", "-m", "app.worker_main"]
     profiles:
       - worker
-    environment:
-      DATABASE_URL: postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud
-      MESSAGE_QUEUE_URL: amqp://travel_agent:travel_agent_dev@rabbitmq:5672/
-      RPC_TIMEOUT_SECONDS: 5
-      WORKER_RECONNECT_INITIAL_SECONDS: 2
-      WORKER_RECONNECT_MAX_SECONDS: 30
-      LOG_LEVEL: INFO
+    env_file:
+      - ./services/travel-agent/.env
     depends_on:
       postgres:
         condition: service_healthy
