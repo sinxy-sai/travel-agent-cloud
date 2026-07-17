@@ -34,6 +34,12 @@ spec:
               value: "*"
             - name: TRIP_SERVICE_REQUEST_TIMEOUT_SECONDS
               value: "180"
+            - name: AUTH_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: AUTH_SECRET_KEY
+                  optional: true
           readinessProbe:
             httpGet:
               path: /health

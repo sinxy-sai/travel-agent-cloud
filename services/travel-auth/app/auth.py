@@ -82,6 +82,14 @@ class UserStore:
                 raise UserNotFoundError(user_id)
             return _to_auth_user(record)
 
+    def get_user_by_email(self, email: str) -> AuthUser:
+        normalized_email = _normalize_email(email)
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(select(UserRecord).where(UserRecord.email == normalized_email))
+            if record is None:
+                raise UserNotFoundError(normalized_email)
+            return _to_auth_user(record)
+
     def update_user(self, user_id: str, display_name: str) -> AuthUser:
         with session_scope(self._session_factory) as session:
             record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
@@ -101,6 +109,25 @@ class UserStore:
                 raise InvalidCredentialsError()
             record.password_hash = hash_password(new_password)
             record.updated_at = _now()
+
+    def reset_password(self, user_id: str, new_password: str) -> None:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
+            if record is None:
+                raise UserNotFoundError(user_id)
+            record.password_hash = hash_password(new_password)
+            record.updated_at = _now()
+
+    def mark_email_verified(self, user_id: str) -> AuthUser:
+        with session_scope(self._session_factory) as session:
+            record = session.scalar(select(UserRecord).where(UserRecord.id == user_id))
+            if record is None:
+                raise UserNotFoundError(user_id)
+            record.email_verified = True
+            record.email_verified_at = _now()
+            record.updated_at = record.email_verified_at
+            session.flush()
+            return _to_auth_user(record)
 
     def delete_user(self, user_id: str, current_password: str) -> None:
         with session_scope(self._session_factory) as session:

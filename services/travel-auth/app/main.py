@@ -1,6 +1,7 @@
 import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from travel_common.app import add_cors, allowed_origins_from_env
@@ -16,6 +17,13 @@ from app.auth import (
     create_access_token,
     verify_access_token_claims,
 )
+from app.auth_identities import AuthIdentityNotFoundError, AuthIdentityStore
+from app.auth_tokens import (
+    TOKEN_PURPOSE_EMAIL_VERIFICATION,
+    TOKEN_PURPOSE_PASSWORD_RESET,
+    AuthTokenStore,
+    InvalidAuthTokenError,
+)
 from app.db import create_session_factory
 from app.profiles import UserProfileStore
 from app.schemas import (
@@ -25,10 +33,12 @@ from app.schemas import (
     AuthIdentityListResponse,
     AuthLoginRequest,
     AuthPasswordChangeRequest,
+    AuthPasswordResetConfirmRequest,
     AuthRegisterRequest,
     AuthSession,
     AuthSessionListResponse,
     AuthSessionRevokeAllResponse,
+    AuthTokenConfirmRequest,
     AuthUser,
     AuthUserUpdateRequest,
     UserSecurityEventListResponse,
@@ -54,11 +64,17 @@ auth_rate_limiter = FixedWindowRateLimiter(
     int(os.getenv("AUTH_RATE_LIMIT_MAX_ATTEMPTS", "20")),
     int(os.getenv("AUTH_RATE_LIMIT_WINDOW_SECONDS", str(15 * 60))),
 )
+email_verification_token_ttl_seconds = int(os.getenv("EMAIL_VERIFICATION_TOKEN_TTL_SECONDS", str(60 * 60 * 24)))
+password_reset_token_ttl_seconds = int(os.getenv("PASSWORD_RESET_TOKEN_TTL_SECONDS", str(60 * 30)))
+email_provider = os.getenv("EMAIL_PROVIDER", "mock").strip().lower()
+public_app_url = os.getenv("PUBLIC_APP_URL", "http://localhost:5173")
 session_factory = create_session_factory(DATABASE_URL) if DATABASE_URL else None
 profile_store = UserProfileStore(session_factory) if session_factory else None
 user_store = UserStore(session_factory) if session_factory else None
 auth_session_store = AuthSessionStore(session_factory) if session_factory else None
 security_event_store = UserSecurityEventStore(session_factory) if session_factory else None
+auth_token_store = AuthTokenStore(session_factory) if session_factory else None
+auth_identity_store = AuthIdentityStore(session_factory) if session_factory else None
 
 app = FastAPI(title=APP_NAME, version="0.1.0")
 add_cors(app, allowed_origins=ALLOWED_ORIGINS)
@@ -219,8 +235,33 @@ async def revoke_current_auth_session(session_id: str, request: Request, respons
 )
 async def request_email_verification(request: Request) -> AuthEmailActionResponse:
     user = _get_current_auth_user(request)
-    _record_security_event(request, user.id, "auth.email_verification_requested", {"delivery": "accepted"})
-    return AuthEmailActionResponse(sent=True, delivery="accepted")
+    if user.email_verified:
+        return AuthEmailActionResponse(sent=False, delivery="already_verified")
+    generated = auth_token_store.create(  # type: ignore[union-attr]
+        user.id,
+        TOKEN_PURPOSE_EMAIL_VERIFICATION,
+        email_verification_token_ttl_seconds,
+    )
+    response = AuthEmailActionResponse(sent=True, delivery=email_provider or "mock", expires_at=generated.expires_at)
+    if email_provider in {"", "mock"}:
+        response.dev_token = generated.token
+        response.action_url = _action_url("verify-email", generated.token)
+    _record_security_event(request, user.id, "auth.email_verification_requested", {"delivery": response.delivery})
+    return response
+
+
+@app.post("/api/v1/auth/email-verification/confirm", response_model=AuthUser)
+async def confirm_email_verification(payload: AuthTokenConfirmRequest, request: Request) -> AuthUser:
+    try:
+        user_id = auth_token_store.consume(payload.token, TOKEN_PURPOSE_EMAIL_VERIFICATION)  # type: ignore[union-attr]
+        user = user_store.mark_email_verified(user_id)  # type: ignore[union-attr]
+    except (InvalidAuthTokenError, UserNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_TOKEN", "message": "Verification link is invalid or expired"},
+        ) from exc
+    _record_security_event(request, user.id, "auth.email_verified")
+    return user
 
 
 @app.api_route(
@@ -234,7 +275,38 @@ async def proxy_email_verification(path: str, request: Request) -> Response:
 @app.post("/api/v1/auth/password-reset/request", response_model=AuthEmailActionResponse)
 async def request_password_reset(payload: AuthEmailRequest, request: Request) -> AuthEmailActionResponse:
     _check_auth_rate_limit(request, "password-reset", payload.email)
-    return AuthEmailActionResponse(sent=True, delivery="accepted")
+    try:
+        user = user_store.get_user_by_email(payload.email)  # type: ignore[union-attr]
+    except (UserNotFoundError, ValueError):
+        return AuthEmailActionResponse(sent=True, delivery="accepted")
+    generated = auth_token_store.create(  # type: ignore[union-attr]
+        user.id,
+        TOKEN_PURPOSE_PASSWORD_RESET,
+        password_reset_token_ttl_seconds,
+    )
+    response = AuthEmailActionResponse(sent=True, delivery=email_provider or "mock", expires_at=generated.expires_at)
+    if email_provider in {"", "mock"}:
+        response.dev_token = generated.token
+        response.action_url = _action_url("reset-password", generated.token)
+    _record_security_event(request, user.id, "auth.password_reset_requested", {"delivery": response.delivery})
+    return response
+
+
+@app.post("/api/v1/auth/password-reset/confirm", status_code=status.HTTP_204_NO_CONTENT)
+async def confirm_password_reset(payload: AuthPasswordResetConfirmRequest, request: Request) -> Response:
+    try:
+        user_id = auth_token_store.consume(payload.token, TOKEN_PURPOSE_PASSWORD_RESET)  # type: ignore[union-attr]
+        user_store.reset_password(user_id, payload.new_password)  # type: ignore[union-attr]
+        revoked = auth_session_store.revoke_all(user_id)  # type: ignore[union-attr]
+    except (InvalidAuthTokenError, UserNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "INVALID_TOKEN", "message": "Password reset link is invalid or expired"},
+        ) from exc
+    _record_security_event(request, user_id, "auth.password_reset_completed")
+    if revoked:
+        _record_security_event(request, user_id, "auth.sessions_revoked_all", {"revoked": revoked})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.api_route(
@@ -255,12 +327,23 @@ async def proxy_oauth(path: str, request: Request) -> Response:
 
 @app.get("/api/v1/auth/identities", response_model=AuthIdentityListResponse)
 async def list_current_auth_identities(request: Request) -> AuthIdentityListResponse:
-    _get_current_auth_user(request)
-    return AuthIdentityListResponse(data=[])
+    user = _get_current_auth_user(request)
+    return AuthIdentityListResponse(data=auth_identity_store.list_for_user(user.id))  # type: ignore[union-attr]
 
 
 @app.api_route("/api/v1/auth/identities/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_auth_identities(path: str, request: Request) -> Response:
+    if request.method == "DELETE":
+        user = _get_current_auth_user(request)
+        try:
+            auth_identity_store.delete_for_user(user.id, path)  # type: ignore[union-attr]
+        except AuthIdentityNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"code": "IDENTITY_NOT_FOUND", "message": "Auth identity not found"},
+            ) from exc
+        _record_security_event(request, user.id, "auth.identity_unlinked", {"provider": path})
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
     return await _proxy(request, f"/api/v1/auth/identities/{path}")
 
 
@@ -353,7 +436,14 @@ async def _proxy(request: Request, path: str) -> Response:
 
 
 def _local_auth_enabled() -> bool:
-    return bool(user_store and auth_session_store and profile_store and security_event_store)
+    return bool(
+        user_store
+        and auth_session_store
+        and profile_store
+        and security_event_store
+        and auth_token_store
+        and auth_identity_store
+    )
 
 
 def _create_auth_session(request: Request, user: AuthUser):
@@ -483,3 +573,7 @@ def _redact_id(value: str) -> str:
     if len(value) <= 8:
         return "***"
     return f"{value[:4]}...{value[-4:]}"
+
+
+def _action_url(action: str, token: str) -> str:
+    return f"{public_app_url.rstrip('/')}?{urlencode({'authAction': action, 'token': token})}"

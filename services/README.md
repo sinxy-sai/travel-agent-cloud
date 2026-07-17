@@ -5,8 +5,8 @@
 ## 当前服务
 
 - `travel-gateway`：前端访问后端的统一入口，负责按路径把请求转发到领域服务。
-- `travel-auth`：认证和用户领域服务。当前已直接处理注册、登录、退出登录、当前用户、密码修改、session 管理、安全事件、账号删除，以及登录用户和匿名本地用户 profile 读写；邮箱验证和密码重置请求先返回 accepted 占位；OAuth、真实邮件 token、账户数据导入导出仍在迁移中。
-- `travel-trip`：行程领域服务。当前已直接处理匿名本地用户的行程历史、详情、编辑、版本、恢复、删除和 Markdown 导出，并承接 `agent-runtime` 生成、AI 修订和单日重生成后的内部保存请求；生成和 AI 修订入口仍代理到 `agent-runtime`。
+- `travel-auth`：认证和用户领域服务。当前已直接处理注册、登录、退出登录、当前用户、密码修改、session 管理、安全事件、账号删除、邮箱验证 token、密码重置 token、身份列表，以及登录用户和匿名本地用户 profile 读写；OAuth 和账户数据导入导出仍在迁移中。
+- `travel-trip`：行程领域服务。当前已直接处理登录用户和匿名本地用户的行程历史、详情、编辑、版本、恢复、删除和 Markdown 导出，并承接 `agent-runtime` 生成、AI 修订和单日重生成后的内部保存请求；生成和 AI 修订入口仍代理到 `agent-runtime`。
 - `travel-agent`：Agent 领域门面。当前代理聊天、会话和 Agent 状态相关接口，后续迁入配额、审计、权限和 Agent 请求策略。
 - `travel-mcp`：真实旅行工具服务，封装高德数据、工具调用和 fallback 行为。
 - `common`：跨服务共享 Python 包，只放基础设施工具，不放业务逻辑。

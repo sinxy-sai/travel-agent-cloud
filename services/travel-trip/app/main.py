@@ -24,7 +24,7 @@ from app.store import (
     TripPlanVersionConflictError,
     TripPlanVersionNotFoundError,
 )
-from app.users import local_anonymous_user_id
+from app.users import current_user_id
 
 
 APP_NAME = "Travel Trip Service"
@@ -232,7 +232,7 @@ async def _check_upstream(url: str) -> dict[str, Any]:
 
 
 def _local_user_id_or_none(request: Request) -> str | None:
-    return local_anonymous_user_id(request)
+    return current_user_id(request)
 
 
 def _trip_plan_not_found() -> HTTPException:

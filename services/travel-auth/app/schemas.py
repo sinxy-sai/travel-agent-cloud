@@ -74,6 +74,22 @@ class AuthEmailActionResponse(APIModel):
     action_url: str | None = None
 
 
+class AuthTokenConfirmRequest(APIModel):
+    token: str = Field(min_length=20, max_length=300)
+
+
+class AuthPasswordResetConfirmRequest(APIModel):
+    token: str = Field(min_length=20, max_length=300)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        if value.strip() != value:
+            raise ValueError("Password cannot start or end with whitespace")
+        return value
+
+
 class AuthAccountDeleteRequest(APIModel):
     current_password: str = Field(min_length=1, max_length=128)
     confirmation: str = Field(min_length=6, max_length=32)
