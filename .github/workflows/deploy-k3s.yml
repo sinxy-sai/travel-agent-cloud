@@ -61,4 +61,5 @@ jobs:
             sudo kubectl rollout status deployment/travel-trip -n travel-agent-cloud --timeout=180s && \
             sudo kubectl rollout status deployment/travel-agent -n travel-agent-cloud --timeout=180s && \
             sudo kubectl rollout status deployment/travel-mcp -n travel-agent-cloud --timeout=180s && \
+            sudo k3s crictl rmi --prune || true && \
             sudo kubectl get pods -n travel-agent-cloud"
