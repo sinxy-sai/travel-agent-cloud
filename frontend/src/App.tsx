@@ -5426,6 +5426,13 @@ function RuntimeStatus({
   error: boolean;
 }) {
   const runtimeOnline = Boolean(health && health.status === 'ok' && !error);
+  const databaseOnline =
+    healthFlag(health?.databaseEnabled) ||
+    upstreamHealthFlag(health, 'travelAuth', 'databaseEnabled') ||
+    upstreamHealthFlag(health, 'travelTrip', 'databaseEnabled') ||
+    upstreamHealthFlag(health, 'travelAgent', 'databaseEnabled');
+  const messageQueueOnline = healthFlag(health?.messageQueueEnabled) || upstreamHealthFlag(health, 'travelAgent', 'messageQueueEnabled');
+  const objectStorageOnline = healthFlag(health?.objectStorageEnabled) || upstreamHealthFlag(health, 'travelAuth', 'objectStorageEnabled');
   const capabilities = agentStatus?.capabilities ?? health?.agentEngineCapabilities;
   const workflowNodes = capabilities?.workflowNodes ?? [];
   const completedNodes = agentStatus?.lastRunTrace?.completedNodes ?? [];
@@ -5471,11 +5478,11 @@ function RuntimeStatus({
       </div>
       <div className="grid gap-2">
         <StatusRow label="Agent Runtime" active={runtimeOnline} muted={loading} />
-        <StatusRow label="LLM" active={Boolean(health?.llmEnabled)} muted={!runtimeOnline || loading} />
-        <StatusRow label="PostgreSQL" active={Boolean(health?.databaseEnabled)} muted={!runtimeOnline || loading} />
-        <StatusRow label="RabbitMQ" active={Boolean(health?.messageQueueEnabled)} muted={!runtimeOnline || loading} />
-        <StatusRow label="Redis rate limit" active={Boolean(health?.redisRateLimitEnabled)} muted={!runtimeOnline || loading} />
-        <StatusRow label="Object storage" active={Boolean(health?.objectStorageEnabled)} muted={!runtimeOnline || loading} />
+        <StatusRow label="LLM" active={healthFlag(health?.llmEnabled)} muted={!runtimeOnline || loading} />
+        <StatusRow label="PostgreSQL" active={databaseOnline} muted={!runtimeOnline || loading} />
+        <StatusRow label="RabbitMQ" active={messageQueueOnline} muted={!runtimeOnline || loading} />
+        <StatusRow label="Redis rate limit" active={healthFlag(health?.redisRateLimitEnabled)} muted={!runtimeOnline || loading} />
+        <StatusRow label="Object storage" active={objectStorageOnline} muted={!runtimeOnline || loading} />
         <StatusRow
           label={`Agent engine: ${agentStatus?.engine ?? health?.agentEngine ?? 'basic'}`}
           active={runtimeOnline}
@@ -6028,6 +6035,24 @@ function ProfileDetail({ label, value }: { label: string; value?: string }) {
       <span className="min-w-0 truncate text-right text-slate-700">{value || '-'}</span>
     </div>
   );
+}
+
+function healthFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    return ['1', 'true', 'yes', 'on', 'ok'].includes(value.trim().toLowerCase());
+  }
+  return false;
+}
+
+function upstreamHealthFlag(health: HealthResponse | undefined, upstreamName: string, fieldName: string): boolean {
+  const upstream = health?.upstreams?.[upstreamName];
+  if (!upstream || !healthFlag(upstream.ok)) {
+    return false;
+  }
+  return healthFlag(upstream.data?.[fieldName]);
 }
 
 function StatusRow({ label, active, muted }: { label: string; active: boolean; muted: boolean }) {

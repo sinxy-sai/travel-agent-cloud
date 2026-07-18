@@ -1,0 +1,48 @@
+groups:
+  - name: travel-agent-cloud-service-health
+    rules:
+      - alert: TravelServiceTargetDown
+        expr: up{job=~"travel-.+|agent-runtime"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Travel Agent Cloud service target is down"
+          description: "Prometheus cannot scrape {{ $labels.job }} for more than 2 minutes."
+
+      - alert: TravelServiceHighErrorRate
+        expr: |
+          (
+            sum by (service) (rate(travel_http_requests_total{status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum by (service) (rate(travel_http_requests_total[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Travel Agent Cloud service 5xx error rate is high"
+          description: "{{ $labels.service }} has more than 5% 5xx responses for 5 minutes."
+
+      - alert: TravelServiceHighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (service, le) (rate(travel_http_request_duration_seconds_bucket[5m]))
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Travel Agent Cloud service P95 latency is high"
+          description: "{{ $labels.service }} P95 HTTP latency is above 2 seconds for 5 minutes."
+
+      - alert: TravelServiceNoTraffic
+        expr: |
+          sum by (service) (rate(travel_http_requests_total[10m])) == 0
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "Travel Agent Cloud service has no observed HTTP traffic"
+          description: "{{ $labels.service }} has not handled HTTP traffic for 15 minutes."

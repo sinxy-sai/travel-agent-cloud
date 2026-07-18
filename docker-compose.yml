@@ -243,6 +243,7 @@ services:
       - "9090:9090"
     volumes:
       - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
       - prometheus-data:/prometheus
     depends_on:
       travel-gateway:
@@ -272,6 +273,8 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./deploy/observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./deploy/observability/grafana-dashboard-provider.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./deploy/observability/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
 

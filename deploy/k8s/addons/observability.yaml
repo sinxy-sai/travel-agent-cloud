@@ -9,6 +9,9 @@ data:
       scrape_interval: 15s
       evaluation_interval: 15s
 
+    rule_files:
+      - /etc/prometheus/alert-rules.yml
+
     scrape_configs:
       - job_name: travel-gateway
         metrics_path: /metrics
@@ -39,6 +42,55 @@ data:
         metrics_path: /metrics
         static_configs:
           - targets: ["agent-runtime:8000"]
+  alert-rules.yml: |
+    groups:
+      - name: travel-agent-cloud-service-health
+        rules:
+          - alert: TravelServiceTargetDown
+            expr: up{job=~"travel-.+|agent-runtime"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Travel Agent Cloud service target is down"
+              description: "Prometheus cannot scrape {{ $labels.job }} for more than 2 minutes."
+
+          - alert: TravelServiceHighErrorRate
+            expr: |
+              (
+                sum by (service) (rate(travel_http_requests_total{status_code=~"5.."}[5m]))
+                /
+                clamp_min(sum by (service) (rate(travel_http_requests_total[5m])), 0.001)
+              ) > 0.05
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Travel Agent Cloud service 5xx error rate is high"
+              description: "{{ $labels.service }} has more than 5% 5xx responses for 5 minutes."
+
+          - alert: TravelServiceHighLatencyP95
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (service, le) (rate(travel_http_request_duration_seconds_bucket[5m]))
+              ) > 2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Travel Agent Cloud service P95 latency is high"
+              description: "{{ $labels.service }} P95 HTTP latency is above 2 seconds for 5 minutes."
+
+          - alert: TravelServiceNoTraffic
+            expr: |
+              sum by (service) (rate(travel_http_requests_total[10m])) == 0
+            for: 15m
+            labels:
+              severity: info
+            annotations:
+              summary: "Travel Agent Cloud service has no observed HTTP traffic"
+              description: "{{ $labels.service }} has not handled HTTP traffic for 15 minutes."
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -51,10 +103,219 @@ data:
     datasources:
       - name: Prometheus
         type: prometheus
+        uid: prometheus
         access: proxy
         url: http://prometheus:9090
         isDefault: true
         editable: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: travel-agent-cloud
+data:
+  dashboards.yml: |
+    apiVersion: 1
+    providers:
+      - name: Travel Agent Cloud
+        orgId: 1
+        folder: Travel Agent Cloud
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-travel-agent-cloud-overview
+  namespace: travel-agent-cloud
+data:
+  travel-agent-cloud-overview.json: |
+    {
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "red", "value": null},
+                  {"color": "green", "value": 1}
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "targets": [
+            {
+              "expr": "sum(up{job=~\"travel-.+|agent-runtime\"})",
+              "legendFormat": "online targets",
+              "refId": "A"
+            }
+          ],
+          "title": "Online Targets",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"drawStyle": "line", "fillOpacity": 12, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false},
+              "mappings": [],
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 18, "x": 6, "y": 0},
+          "id": 2,
+          "options": {
+            "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "expr": "sum by (service) (rate(travel_http_requests_total[5m]))",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Request Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 0.01},
+                  {"color": "red", "value": 0.05}
+                ]
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 5, "w": 6, "x": 0, "y": 5},
+          "id": 3,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(travel_http_requests_total{status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(travel_http_requests_total[5m])), 0.001)",
+              "legendFormat": "5xx error rate",
+              "refId": "A"
+            }
+          ],
+          "title": "5xx Error Rate",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"drawStyle": "line", "fillOpacity": 10, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false},
+              "mappings": [],
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 10},
+          "id": 4,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (service, le) (rate(travel_http_request_duration_seconds_bucket[5m])))",
+              "legendFormat": "{{service}} p95",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.50, sum by (service, le) (rate(travel_http_request_duration_seconds_bucket[5m])))",
+              "legendFormat": "{{service}} p50",
+              "refId": "B"
+            }
+          ],
+          "title": "HTTP Latency",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {"drawStyle": "line", "fillOpacity": 10, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false},
+              "mappings": [],
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 10},
+          "id": 5,
+          "options": {
+            "legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "targets": [
+            {
+              "expr": "sum by (service) (travel_http_requests_in_progress)",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "title": "In-Progress Requests",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 40,
+      "tags": ["travel-agent-cloud", "microservices"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Travel Agent Cloud Overview",
+      "uid": "travel-agent-cloud-overview",
+      "version": 1,
+      "weekStart": ""
+    }
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -118,6 +379,10 @@ spec:
             - name: prometheus-config
               mountPath: /etc/prometheus/prometheus.yml
               subPath: prometheus.yml
+              readOnly: true
+            - name: prometheus-config
+              mountPath: /etc/prometheus/alert-rules.yml
+              subPath: alert-rules.yml
               readOnly: true
             - name: prometheus-data
               mountPath: /prometheus
@@ -189,6 +454,14 @@ spec:
               mountPath: /etc/grafana/provisioning/datasources/datasources.yml
               subPath: datasources.yml
               readOnly: true
+            - name: grafana-dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yml
+              subPath: dashboards.yml
+              readOnly: true
+            - name: grafana-dashboard-travel-agent-cloud-overview
+              mountPath: /var/lib/grafana/dashboards/travel-agent-cloud-overview.json
+              subPath: travel-agent-cloud-overview.json
+              readOnly: true
       volumes:
         - name: grafana-data
           persistentVolumeClaim:
@@ -196,6 +469,12 @@ spec:
         - name: grafana-datasources
           configMap:
             name: grafana-datasources
+        - name: grafana-dashboards-provider
+          configMap:
+            name: grafana-dashboards-provider
+        - name: grafana-dashboard-travel-agent-cloud-overview
+          configMap:
+            name: grafana-dashboard-travel-agent-cloud-overview
 ---
 apiVersion: v1
 kind: Service

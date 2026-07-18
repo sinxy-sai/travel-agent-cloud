@@ -39,6 +39,21 @@ Grafana 本地默认账号：
 
 Prometheus 数据源会通过 `deploy/observability/grafana-datasources.yml` 自动配置。
 
+Grafana 会自动加载 `Travel Agent Cloud Overview` 面板，覆盖：
+
+- 在线 scrape target 数量。
+- 服务请求速率。
+- 全局和服务级 5xx 错误率。
+- 服务 P50/P95 HTTP 延迟。
+- 服务进行中请求数。
+
+Prometheus 会自动加载 `deploy/observability/alert-rules.yml`，当前规则包括：
+
+- `TravelServiceTargetDown`：服务指标抓取失败。
+- `TravelServiceHighErrorRate`：服务 5xx 错误率超过 5%。
+- `TravelServiceHighLatencyP95`：服务 P95 延迟超过 2 秒。
+- `TravelServiceNoTraffic`：服务长时间没有请求流量。
+
 ## K3s 启动
 
 监控清单是可选 addon，不包含在默认 `deploy/k8s/kustomization.yaml` 中。需要在 VPS 上开启时执行：
@@ -51,6 +66,8 @@ kubectl create secret generic observability-secrets \
 
 kubectl apply -f deploy/k8s/addons/observability.yaml
 ```
+
+K3s addon 会加载同样的 Prometheus 抓取配置、告警规则和 Grafana Overview 面板。
 
 本地访问 K3s 中的 Grafana：
 

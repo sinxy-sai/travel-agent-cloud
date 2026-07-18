@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Travel Agent Cloud
+    orgId: 1
+    folder: Travel Agent Cloud
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

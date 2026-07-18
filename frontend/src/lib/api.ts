@@ -280,15 +280,24 @@ export interface HealthResponse {
   status: string;
   service: string;
   env: string;
-  llmEnabled: boolean;
-  databaseEnabled: boolean;
-  messageQueueEnabled: boolean;
-  redisRateLimitEnabled: boolean;
-  objectStorageEnabled: boolean;
-  githubOAuthEnabled: boolean;
+  llmEnabled: boolean | string;
+  databaseEnabled: boolean | string;
+  messageQueueEnabled: boolean | string;
+  redisRateLimitEnabled: boolean | string;
+  objectStorageEnabled: boolean | string;
+  githubOAuthEnabled: boolean | string;
   agentEngine: string;
   agentEngineCapabilities: AgentEngineCapabilities;
   travelToolsProvider: string;
+  upstreams?: Record<string, HealthUpstream>;
+}
+
+export interface HealthUpstream {
+  ok?: boolean | string;
+  statusCode?: number;
+  status?: string;
+  service?: string;
+  data?: Record<string, unknown>;
 }
 
 export interface AgentEngineCapabilities {
