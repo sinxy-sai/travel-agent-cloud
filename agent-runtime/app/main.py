@@ -19,6 +19,7 @@ from app.schemas import (
 )
 from app.security import InternalServiceAuthMiddleware, SecurityHeadersMiddleware
 from app.settings import get_settings
+from app.tracing import add_tracing
 from app.travel_agent_service import TravelAgentService
 from app.travel_tools import create_travel_tool_provider
 from app.users import get_user_id
@@ -40,6 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 add_metrics(app, service_name="agent-runtime")
+add_tracing(app, service_name="agent-runtime")
 
 
 @app.get("/health")

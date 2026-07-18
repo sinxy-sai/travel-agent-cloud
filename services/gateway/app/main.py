@@ -8,6 +8,7 @@ from travel_common.app import add_cors, allowed_origins_from_env
 from travel_common.internal_auth import RequestContextMiddleware, internal_service_headers
 from travel_common.metrics import add_metrics
 from travel_common.proxy import check_upstream, proxy_request
+from travel_common.tracing import add_tracing
 
 
 APP_NAME = "Travel Agent Gateway"
@@ -36,6 +37,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestContextMiddleware)
 add_cors(app, allowed_origins=ALLOWED_ORIGINS)
 add_metrics(app, service_name="travel-gateway")
+add_tracing(app, service_name="travel-gateway")
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])

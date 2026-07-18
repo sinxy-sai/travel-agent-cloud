@@ -15,6 +15,7 @@ from travel_common.internal_auth import (
 )
 from travel_common.metrics import add_metrics
 from travel_common.proxy import check_upstream
+from travel_common.tracing import add_tracing
 
 from app.db import create_session_factory
 from app.exporter import saved_trip_plan_to_markdown
@@ -62,6 +63,7 @@ app.add_middleware(
 app.add_middleware(RequestContextMiddleware)
 add_cors(app, allowed_origins=ALLOWED_ORIGINS)
 add_metrics(app, service_name="travel-trip")
+add_tracing(app, service_name="travel-trip")
 
 
 @app.get("/health")

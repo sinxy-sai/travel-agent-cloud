@@ -17,6 +17,7 @@ from travel_common.internal_auth import (
 )
 from travel_common.metrics import add_metrics
 from travel_common.proxy import check_upstream, proxy_request
+from travel_common.tracing import add_tracing
 
 from app.account_data import AccountDataStore
 from app.auth import (
@@ -152,6 +153,7 @@ app.add_middleware(
 app.add_middleware(RequestContextMiddleware)
 add_cors(app, allowed_origins=ALLOWED_ORIGINS)
 add_metrics(app, service_name="travel-auth")
+add_tracing(app, service_name="travel-auth")
 
 
 @app.get("/health")

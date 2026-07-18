@@ -277,6 +277,46 @@ services:
       - ./deploy/observability/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+      - loki
+      - tempo
+
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    profiles:
+      - observability
+    command: ["-config.file=/etc/loki/loki.yml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./deploy/observability/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+
+  promtail:
+    image: grafana/promtail:3.3.2
+    container_name: promtail
+    profiles:
+      - observability
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+    volumes:
+      - ./deploy/observability/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: tempo
+    profiles:
+      - observability
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./deploy/observability/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/tmp/tempo
 
 volumes:
   postgres-data:
@@ -285,3 +325,5 @@ volumes:
   minio-data:
   prometheus-data:
   grafana-data:
+  loki-data:
+  tempo-data:

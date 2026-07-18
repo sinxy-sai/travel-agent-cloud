@@ -1,0 +1,54 @@
+services:
+  travel-gateway:
+    environment:
+      OTEL_ENABLED: "true"
+      OTEL_SERVICE_NAMESPACE: travel-agent-cloud
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+    depends_on:
+      tempo:
+        condition: service_started
+
+  travel-auth:
+    environment:
+      OTEL_ENABLED: "true"
+      OTEL_SERVICE_NAMESPACE: travel-agent-cloud
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+    depends_on:
+      tempo:
+        condition: service_started
+
+  travel-trip:
+    environment:
+      OTEL_ENABLED: "true"
+      OTEL_SERVICE_NAMESPACE: travel-agent-cloud
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+    depends_on:
+      tempo:
+        condition: service_started
+
+  travel-agent:
+    environment:
+      OTEL_ENABLED: "true"
+      OTEL_SERVICE_NAMESPACE: travel-agent-cloud
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+    depends_on:
+      tempo:
+        condition: service_started
+
+  travel-mcp:
+    environment:
+      OTEL_ENABLED: "true"
+      OTEL_SERVICE_NAMESPACE: travel-agent-cloud
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+    depends_on:
+      tempo:
+        condition: service_started
+
+  agent-runtime:
+    environment:
+      OTEL_ENABLED: "true"
+      OTEL_SERVICE_NAMESPACE: travel-agent-cloud
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+    depends_on:
+      tempo:
+        condition: service_started

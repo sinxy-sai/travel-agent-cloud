@@ -16,6 +16,8 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 [![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?logo=prometheus&logoColor=white)](docs/observability.md)
 [![Grafana](https://img.shields.io/badge/Grafana-Dashboards-F46800?logo=grafana&logoColor=white)](docs/observability.md)
+[![Loki](https://img.shields.io/badge/Loki-Logs-F46800?logo=grafana&logoColor=white)](docs/observability.md)
+[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-Tracing-000000?logo=opentelemetry&logoColor=white)](docs/observability.md)
 
 </div>
 
@@ -52,7 +54,7 @@ Travel Agent Cloud 是一个面向旅行规划场景的 AI Agent 产品。项目
 | 异步与缓存 | RabbitMQ、Redis |
 | 本地编排 | Docker Compose |
 | 生产部署 | K3s、Kubernetes、Ingress |
-| 可观测性 | Prometheus、Grafana、FastAPI Metrics |
+| 可观测性 | Prometheus、Grafana、Loki、Promtail、OpenTelemetry、Tempo、FastAPI Metrics |
 | CI/CD | GitHub Actions、Docker Hub、GHCR |
 
 ## 架构概览
