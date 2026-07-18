@@ -258,6 +258,7 @@ sudo k3s crictl images | grep travel-agent-cloud
 
 ## 安全说明
 
+- 漏洞报告流程见 [Security Policy](SECURITY.md)，请不要通过公开 issue 披露安全漏洞。
 - 不要提交 `.env`、SSH 私钥、LLM API key、高德 key、SMTP 授权码或 OAuth client secret。
 - 生产环境应使用 Kubernetes Secret 管理敏感配置。
 - 纯 HTTP 环境不要启用 Secure cookie；配置 HTTPS 后再开启。
@@ -277,6 +278,7 @@ sudo k3s crictl images | grep travel-agent-cloud
 | [微服务路线图](docs/microservices-roadmap.md) | 微服务拆分过程和后续增强方向 |
 | [原型功能对齐](docs/prototype-feature-parity.md) | 与 Hello-Agents 原型的功能映射 |
 | [K3s 部署说明](deploy/k8s/README.md) | VPS/K3s 部署、Secret 和运维命令 |
+| [Security Policy](SECURITY.md) | 漏洞报告流程、支持范围和安全注意事项 |
 
 ## 当前状态
 
