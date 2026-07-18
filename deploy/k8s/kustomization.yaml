@@ -4,6 +4,7 @@ resources:
   - addons/rabbitmq.yaml
   - addons/redis.yaml
   - addons/minio.yaml
+  - addons/observability.yaml
   - mcp.yaml
   - agent-runtime.yaml
   - addons/agent-worker.yaml

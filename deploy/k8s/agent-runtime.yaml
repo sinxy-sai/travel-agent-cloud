@@ -36,6 +36,12 @@ spec:
               value: fastmcp
             - name: FASTMCP_BASE_URL
               value: http://travel-mcp:8100/mcp
+            - name: OTEL_ENABLED
+              value: "true"
+            - name: OTEL_SERVICE_NAMESPACE
+              value: travel-agent-cloud
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://tempo:4318
             - name: INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:

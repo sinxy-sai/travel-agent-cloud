@@ -32,6 +32,12 @@ spec:
               value: https://restapi.amap.com
             - name: AMAP_TIMEOUT_SECONDS
               value: "8"
+            - name: OTEL_ENABLED
+              value: "true"
+            - name: OTEL_SERVICE_NAMESPACE
+              value: travel-agent-cloud
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://tempo:4318
           readinessProbe:
             httpGet:
               path: /health
