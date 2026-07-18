@@ -27,7 +27,7 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: agent-runtime-secrets
+                  name: travel-trip-secrets
                   key: DATABASE_URL
                   optional: true
             - name: ALLOWED_ORIGINS
@@ -43,13 +43,13 @@ spec:
             - name: AUTH_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: agent-runtime-secrets
+                  name: travel-trip-secrets
                   key: AUTH_SECRET_KEY
                   optional: true
             - name: INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: agent-runtime-secrets
+                  name: travel-trip-secrets
                   key: INTERNAL_SERVICE_TOKEN
                   optional: true
           readinessProbe:

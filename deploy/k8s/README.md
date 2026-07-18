@@ -17,6 +17,35 @@ kubectl get svc -n travel-agent-cloud
 kubectl get ingress -n travel-agent-cloud
 ```
 
+## 默认部署内容
+
+默认 Kustomize 会部署：
+
+- PostgreSQL
+- RabbitMQ
+- Redis
+- MinIO
+- Prometheus
+- Grafana
+- Loki
+- Promtail
+- Tempo
+- `travel-gateway`
+- `travel-auth`
+- `travel-trip`
+- `travel-agent`
+- `travel-agent-worker`
+- `travel-mcp`
+- `agent-runtime`
+- `frontend`
+- Ingress
+
+业务服务默认开启 OpenTelemetry，并把 trace 发送到：
+
+```text
+http://tempo:4318
+```
+
 ## 默认镜像
 
 K3s 清单默认从 Docker Hub 拉取以下镜像：
@@ -41,49 +70,31 @@ docker.io/sinxysai/travel-agent-cloud-mcp:latest
 - `mcp.yaml`
 - `frontend.yaml`
 
-## 默认部署内容
+## Secret 边界
 
-默认 Kustomize 会部署：
+当前 K3s 部署按服务拆分 Secret：
 
-- PostgreSQL
-- RabbitMQ
-- Redis
-- MinIO
-- Prometheus
-- Grafana
-- Loki
-- Promtail
-- Tempo
-- `travel-mcp`
-- `travel-auth`
-- `travel-trip`
-- `travel-agent`
-- `travel-gateway`
-- `agent-runtime`
-- `travel-agent-worker`
-- `frontend`
-- Ingress
+| Secret | 用途 |
+| --- | --- |
+| `postgres-secrets` | PostgreSQL root/user 密码 |
+| `rabbitmq-secrets` | RabbitMQ 用户名和密码 |
+| `minio-secrets` | MinIO root 用户名和密码 |
+| `travel-gateway-secrets` | Gateway 内部服务 token |
+| `travel-auth-secrets` | 用户认证、邮箱、OAuth、auth 数据库连接 |
+| `travel-trip-secrets` | 行程服务数据库连接和用户 token 校验 |
+| `travel-agent-secrets` | 会话服务数据库连接和 RabbitMQ 连接 |
+| `agent-runtime-secrets` | LLM、Agent Runtime 内部 token 和用户 token 校验 |
+| `travel-mcp-secrets` | 高德 Web Service key |
+| `observability-secrets` | Grafana 管理员密码 |
 
-业务服务默认开启 OpenTelemetry，并把 trace 发送到：
+以下值必须在相关 Secret 中保持一致：
 
-```text
-http://tempo:4318
-```
+- `AUTH_SECRET_KEY`：`travel-auth-secrets`、`travel-trip-secrets`、`travel-agent-secrets`、`agent-runtime-secrets`
+- `INTERNAL_SERVICE_TOKEN`：`travel-gateway-secrets`、`travel-auth-secrets`、`travel-trip-secrets`、`travel-agent-secrets`、`agent-runtime-secrets`
+- `DATABASE_URL`：`travel-auth-secrets`、`travel-trip-secrets`、`travel-agent-secrets`
+- `MESSAGE_QUEUE_URL`：`travel-agent-secrets`
 
-## 必要 Secret
-
-自动部署前应提前创建以下 Secret：
-
-```text
-postgres-secrets
-rabbitmq-secrets
-minio-secrets
-agent-runtime-secrets
-travel-mcp-secrets
-observability-secrets
-```
-
-`travel-mcp-secrets` 和 `observability-secrets` 缺失时服务通常仍能启动，但会分别退回到 MCP fallback 数据和 Grafana 默认密码。生产环境建议显式创建。
+不要只 apply 单个 key 到已有 Secret，否则会覆盖并删除该 Secret 的其他 key。更新 Secret 时应使用完整 key 集合。
 
 ## 创建 PostgreSQL Secret
 
@@ -115,6 +126,87 @@ kubectl create secret generic minio-secrets \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
+## 创建 Gateway Secret
+
+```bash
+kubectl create secret generic travel-gateway-secrets \
+  -n travel-agent-cloud \
+  --from-literal=INTERNAL_SERVICE_TOKEN='same-internal-service-token' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+## 创建 Auth Secret
+
+```bash
+kubectl create secret generic travel-auth-secrets \
+  -n travel-agent-cloud \
+  --from-literal=DATABASE_URL='postgresql://travel_agent:postgres-password@postgres:5432/travel_agent_cloud' \
+  --from-literal=AUTH_SECRET_KEY='same-auth-secret-key' \
+  --from-literal=INTERNAL_SERVICE_TOKEN='same-internal-service-token' \
+  --from-literal=AUTH_TOKEN_TTL_SECONDS='604800' \
+  --from-literal=AUTH_COOKIE_SECURE='false' \
+  --from-literal=AUTH_RATE_LIMIT_MAX_ATTEMPTS='20' \
+  --from-literal=AUTH_RATE_LIMIT_WINDOW_SECONDS='900' \
+  --from-literal=EMAIL_PROVIDER='mock' \
+  --from-literal=EMAIL_FROM='no-reply@travel-agent-cloud.local' \
+  --from-literal=SMTP_HOST='' \
+  --from-literal=SMTP_PORT='587' \
+  --from-literal=SMTP_USERNAME='' \
+  --from-literal=SMTP_PASSWORD='' \
+  --from-literal=SMTP_USE_SSL='false' \
+  --from-literal=SMTP_STARTTLS='true' \
+  --from-literal=PUBLIC_APP_URL='http://your-server-public-ip' \
+  --from-literal=GITHUB_OAUTH_CLIENT_ID='' \
+  --from-literal=GITHUB_OAUTH_CLIENT_SECRET='' \
+  --from-literal=GITHUB_OAUTH_REDIRECT_URI='http://your-server-public-ip/api/v1/auth/oauth/github/callback' \
+  --from-literal=OAUTH_HTTP_TIMEOUT_SECONDS='10' \
+  --from-literal=EMAIL_VERIFICATION_TOKEN_TTL_SECONDS='86400' \
+  --from-literal=PASSWORD_RESET_TOKEN_TTL_SECONDS='1800' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+`AUTH_COOKIE_SECURE='true'` 只应在 HTTPS 配好后启用。纯 HTTP 下浏览器不会发送 Secure cookie。
+
+## 创建 Trip Secret
+
+```bash
+kubectl create secret generic travel-trip-secrets \
+  -n travel-agent-cloud \
+  --from-literal=DATABASE_URL='postgresql://travel_agent:postgres-password@postgres:5432/travel_agent_cloud' \
+  --from-literal=AUTH_SECRET_KEY='same-auth-secret-key' \
+  --from-literal=INTERNAL_SERVICE_TOKEN='same-internal-service-token' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+## 创建 Agent Secret
+
+```bash
+kubectl create secret generic travel-agent-secrets \
+  -n travel-agent-cloud \
+  --from-literal=DATABASE_URL='postgresql://travel_agent:postgres-password@postgres:5432/travel_agent_cloud' \
+  --from-literal=AUTH_SECRET_KEY='same-auth-secret-key' \
+  --from-literal=INTERNAL_SERVICE_TOKEN='same-internal-service-token' \
+  --from-literal=MESSAGE_QUEUE_URL='amqp://travel_agent:change-me-to-a-strong-password@rabbitmq:5672/' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+## 创建 Agent Runtime Secret
+
+```bash
+kubectl create secret generic agent-runtime-secrets \
+  -n travel-agent-cloud \
+  --from-literal=INTERNAL_SERVICE_TOKEN='same-internal-service-token' \
+  --from-literal=AUTH_SECRET_KEY='same-auth-secret-key' \
+  --from-literal=LLM_PROVIDER='openai_compatible' \
+  --from-literal=LLM_API_KEY='your-llm-api-key' \
+  --from-literal=LLM_BASE_URL='https://api.deepseek.com' \
+  --from-literal=LLM_MODEL='deepseek-v4-flash' \
+  --from-literal=LLM_TEMPERATURE='0.4' \
+  --from-literal=LLM_MAX_TOKENS='1200' \
+  --from-literal=LLM_TIMEOUT_SECONDS='30' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
 ## 创建 travel-mcp Secret
 
 如果希望工具服务使用真实高德数据，创建：
@@ -136,41 +228,6 @@ kubectl create secret generic observability-secrets \
   --from-literal=GRAFANA_ADMIN_PASSWORD='change-me-to-a-strong-password' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
-
-## 创建 Agent Runtime Secret
-
-创建或重建 `agent-runtime-secrets` 时要包含已有数据库、LLM、认证、邮箱和 RabbitMQ 配置。不要只 apply 单个 key，否则会覆盖并删除其他 key。
-
-```bash
-kubectl create secret generic agent-runtime-secrets \
-  -n travel-agent-cloud \
-  --from-literal=DATABASE_URL='postgresql://travel_agent:postgres-password@postgres:5432/travel_agent_cloud' \
-  --from-literal=LLM_PROVIDER='openai_compatible' \
-  --from-literal=LLM_API_KEY='your-llm-api-key' \
-  --from-literal=LLM_BASE_URL='https://api.deepseek.com' \
-  --from-literal=LLM_MODEL='deepseek-v4-flash' \
-  --from-literal=LLM_TEMPERATURE='0.4' \
-  --from-literal=LLM_MAX_TOKENS='1200' \
-  --from-literal=LLM_TIMEOUT_SECONDS='30' \
-  --from-literal=MESSAGE_QUEUE_URL='amqp://travel_agent:change-me-to-a-strong-password@rabbitmq:5672/' \
-  --from-literal=REDIS_URL='redis://redis:6379/0' \
-  --from-literal=REDIS_KEY_PREFIX='travel-agent-cloud' \
-  --from-literal=AUTH_SECRET_KEY='change-me-to-a-long-random-secret' \
-  --from-literal=INTERNAL_SERVICE_TOKEN='change-me-to-a-long-random-internal-service-token' \
-  --from-literal=AUTH_TOKEN_TTL_SECONDS='604800' \
-  --from-literal=AUTH_COOKIE_SECURE='false' \
-  --from-literal=AUTH_RATE_LIMIT_MAX_ATTEMPTS='20' \
-  --from-literal=AUTH_RATE_LIMIT_WINDOW_SECONDS='900' \
-  --from-literal=EMAIL_PROVIDER='mock' \
-  --from-literal=EMAIL_FROM='no-reply@travel-agent-cloud.local' \
-  --from-literal=PUBLIC_APP_URL='http://your-server-public-ip' \
-  --from-literal=GITHUB_OAUTH_CLIENT_ID='your-github-oauth-client-id' \
-  --from-literal=GITHUB_OAUTH_CLIENT_SECRET='your-github-oauth-client-secret' \
-  --from-literal=GITHUB_OAUTH_REDIRECT_URI='http://your-server-public-ip/api/v1/auth/oauth/github/callback' \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
-
-`AUTH_COOKIE_SECURE='true'` 只应在 HTTPS 配好后启用。纯 HTTP 下浏览器不会发送 Secure cookie。
 
 ## 邮箱配置
 
@@ -236,6 +293,8 @@ Grafana 中会自动配置 Prometheus、Loki、Tempo 数据源，并自动加载
 
 ```bash
 kubectl get pods -n travel-agent-cloud
+kubectl get deploy -n travel-agent-cloud
+kubectl get svc -n travel-agent-cloud
 kubectl get pods -n travel-agent-cloud -l app=travel-gateway
 kubectl get pods -n travel-agent-cloud -l app=travel-auth
 kubectl get pods -n travel-agent-cloud -l app=travel-trip

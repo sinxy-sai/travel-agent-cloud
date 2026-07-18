@@ -45,7 +45,7 @@ spec:
             - name: INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: agent-runtime-secrets
+                  name: travel-gateway-secrets
                   key: INTERNAL_SERVICE_TOKEN
                   optional: true
           readinessProbe:
