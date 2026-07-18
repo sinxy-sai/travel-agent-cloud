@@ -307,6 +307,7 @@ services:
   tempo:
     image: grafana/tempo:2.6.1
     container_name: tempo
+    user: "0"
     profiles:
       - observability
     command: ["-config.file=/etc/tempo/tempo.yml"]
