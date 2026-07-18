@@ -4,6 +4,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, HTTPException, Path, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from app.data_sources import summarize_trip_plan_data_sources
+from app.metrics import add_metrics
 from app.observability import RequestLoggingMiddleware, configure_logging
 from app.progress import trip_plan_progress
 from app.schemas import (
@@ -38,6 +39,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+add_metrics(app, service_name="agent-runtime")
 
 
 @app.get("/health")

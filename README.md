@@ -14,6 +14,8 @@
 [![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600?logo=rabbitmq&logoColor=white)](docker-compose.yml)
 [![K3s](https://img.shields.io/badge/K3s-Kubernetes-FFC61C?logo=kubernetes&logoColor=111)](deploy/k8s/README.md)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
+[![Prometheus](https://img.shields.io/badge/Prometheus-Metrics-E6522C?logo=prometheus&logoColor=white)](docs/observability.md)
+[![Grafana](https://img.shields.io/badge/Grafana-Dashboards-F46800?logo=grafana&logoColor=white)](docs/observability.md)
 
 </div>
 
@@ -50,6 +52,7 @@ Travel Agent Cloud 是一个面向旅行规划场景的 AI Agent 产品。项目
 | 异步与缓存 | RabbitMQ、Redis |
 | 本地编排 | Docker Compose |
 | 生产部署 | K3s、Kubernetes、Ingress |
+| 可观测性 | Prometheus、Grafana、FastAPI Metrics |
 | CI/CD | GitHub Actions、Docker Hub、GHCR |
 
 ## 架构概览
@@ -276,6 +279,7 @@ sudo k3s crictl images | grep travel-agent-cloud
 | [API 规范](docs/api-guidelines.md) | REST API、字段命名、错误格式和分页规范 |
 | [服务通信方案](docs/service-communication.md) | 服务间 HTTP、internal token、RabbitMQ 和健康检查 |
 | [微服务路线图](docs/microservices-roadmap.md) | 微服务拆分过程和后续增强方向 |
+| [可观测性方案](docs/observability.md) | Prometheus、Grafana、服务 `/metrics` 和后续追踪/日志路线 |
 | [原型功能对齐](docs/prototype-feature-parity.md) | 与 Hello-Agents 原型的功能映射 |
 | [K3s 部署说明](deploy/k8s/README.md) | VPS/K3s 部署、Secret 和运维命令 |
 | [Security Policy](SECURITY.md) | 漏洞报告流程、支持范围和安全注意事项 |

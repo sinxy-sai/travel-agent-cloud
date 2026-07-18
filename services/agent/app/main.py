@@ -9,6 +9,7 @@ from travel_common.internal_auth import (
     internal_service_headers,
     internal_service_token,
 )
+from travel_common.metrics import add_metrics
 from travel_common.proxy import check_upstream, proxy_request
 
 from app.db import create_session_factory
@@ -58,6 +59,7 @@ app.add_middleware(
 )
 app.add_middleware(RequestContextMiddleware)
 add_cors(app, allowed_origins=ALLOWED_ORIGINS)
+add_metrics(app, service_name="travel-agent")
 
 
 @app.get("/health")

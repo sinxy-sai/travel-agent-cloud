@@ -1,0 +1,34 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: travel-gateway
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["travel-gateway:8080"]
+
+  - job_name: travel-auth
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["travel-auth:8300"]
+
+  - job_name: travel-trip
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["travel-trip:8200"]
+
+  - job_name: travel-agent
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["travel-agent:8400"]
+
+  - job_name: travel-mcp
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["travel-mcp:8100"]
+
+  - job_name: agent-runtime
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["agent-runtime:8000"]

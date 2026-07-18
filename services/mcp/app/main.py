@@ -4,9 +4,11 @@ from typing import Any, Callable
 import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from app.metrics import add_metrics
 
 
 app = FastAPI(title="Travel MCP Tool Server", version="0.1.0")
+add_metrics(app, service_name="travel-mcp")
 amap_client = None
 
 

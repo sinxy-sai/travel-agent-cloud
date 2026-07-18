@@ -229,8 +229,56 @@ services:
       travel-gateway:
         condition: service_healthy
 
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    profiles:
+      - observability
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      travel-gateway:
+        condition: service_healthy
+      travel-auth:
+        condition: service_healthy
+      travel-trip:
+        condition: service_healthy
+      travel-agent:
+        condition: service_healthy
+      agent-runtime:
+        condition: service_healthy
+      travel-mcp:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    profiles:
+      - observability
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    depends_on:
+      - prometheus
+
 volumes:
   postgres-data:
   rabbitmq-data:
   redis-data:
   minio-data:
+  prometheus-data:
+  grafana-data:
