@@ -1,14 +1,40 @@
 # travel-agent
 
-`travel-agent` 是面向用�?Agent 能力的服务入口，负责会话数据边界、同步摘要和 Agent API 门面�?
+`travel-agent` 是面向用户 Agent 能力的服务入口，负责会话数据边界、聊天入口、同步摘要和异步摘要任务。
+
+它不直接实现 LangGraph/LangChain 推理。需要生成聊天回复时，本服务会通过 internal API 调用 `agent-runtime`。
+
 ## 当前职责
 
-- 本地处理登录用户和匿名用户的会话列表、详情、重命名、删除�?- 本地读取和生成同步会话摘要�?- 本地创建异步摘要 job，并通过 RabbitMQ 发布 `agent.conversation.summarize.requested`�?- 删除会话前清空相关行程的 `conversation_id`，避免行程和会话之间的外键关系阻塞删除�?- `/api/v1/chat` 通过 runtime internal execution 路径调用 LangGraph/LangChain 执行核心�?- `/api/v1/agent/*` 仍作�?Agent 状态、诊断和工具门面转发�?`agent-runtime`�?- 通过 `/health` 暴露自身数据库和 runtime upstream 状态�?
-## 仍由 agent-runtime 承担的职�?
-- LangGraph/LangChain Agent 执行�?- 聊天回复生成�?- 异步摘要 worker 消费�?- 行程生成、行程修订、单日重生成等执行型请求�?
-## 迁移原则
+- 处理登录用户和匿名本地用户的会话列表、详情、重命名和删除。
+- 保存用户消息和助手回复。
+- 处理 `POST /api/v1/chat`，并把实际回复生成委托给 `agent-runtime`。
+- 生成同步会话摘要。
+- 创建异步摘要 job，并通过 RabbitMQ 发布 `agent.conversation.summarize.requested`。
+- 提供 `python -m app.worker_main` worker，消费摘要任务并更新任务状态。
+- 删除会话前清空相关行程的 `conversation_id`，避免行程和会话关系阻塞删除。
+- 转发 `/api/v1/agent/*` 到 `agent-runtime`，用于 Agent 状态、诊断和工具目录。
+- 通过 `/health` 暴露自身数据库、消息队列和 runtime upstream 状态。
 
-- `travel-agent` 逐步接管“用户请求入口、会话归属、策略、审计、配额”�?- `agent-runtime` 逐步收缩为“Agent 编排和执行核心”�?- 对外保持 `/api/v1` 兼容，迁移期间由 gateway 和服务内 fallback 保证旧流程可用�?
+## 不负责的能力
+
+- 认证、注册、邮箱验证、OAuth 和账户导入导出：属于 `services/auth`。
+- 行程持久化、版本、收藏、删除和导出：属于 `services/trip`。
+- LangGraph/LangChain、LLM 和工具编排：属于 `agent-runtime`。
+
+## 环境变量
+
+本地配置文件放在 `services/agent/.env`，模板为 `services/agent/.env.example`。
+
+常用变量：
+
+- `AGENT_RUNTIME_URL`：runtime 内部地址。
+- `DATABASE_URL`：PostgreSQL 连接串。
+- `MESSAGE_QUEUE_URL`：RabbitMQ 连接串。
+- `AUTH_SECRET_KEY`：用户 token 校验密钥，必须和 `services/auth` 保持一致。
+- `INTERNAL_SERVICE_TOKEN`：服务间 internal API token。
+- `RPC_TIMEOUT_SECONDS`：消息队列和内部调用超时。
+
 ## 本地运行
 
 ```powershell
@@ -17,8 +43,20 @@ python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
 $env:AGENT_RUNTIME_URL="http://localhost:8000"
 $env:DATABASE_URL="postgresql://travel_agent:travel_agent_dev@localhost:5432/travel_agent_cloud"
+$env:MESSAGE_QUEUE_URL="amqp://travel_agent:travel_agent_dev@localhost:5672/"
 $env:AUTH_SECRET_KEY="travel-agent-cloud-local-dev-secret"
 .\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8400
 ```
 
-`requirements.txt` 会以 editable 方式安装 `../common`，因此本地运行时需要保�?`services/common` 目录�?
+启动摘要 worker：
+
+```powershell
+cd services/agent
+.\.venv\Scripts\python -m app.worker_main
+```
+
+容器环境推荐从仓库根目录通过 Docker Compose 启动：
+
+```powershell
+docker compose --profile worker up -d --build travel-agent travel-agent-worker
+```
