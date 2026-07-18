@@ -1,6 +1,6 @@
 # travel-gateway
 
-`travel-gateway` 是前端和外部客户端访问后端的统一入口。本地使用 Docker Compose 编排，VPS/K3s 部署时由 Ingress 进入 gateway，再由 gateway 路由到后端微服务。
+`travel-gateway` 是前端和外部客户端访问后端的统一入口。本地由 Docker Compose 编排，VPS/K3s 部署时由 Ingress 或前端 Nginx 进入 gateway，再按路径转发到后端微服务。
 
 ## 当前职责
 
@@ -12,6 +12,7 @@
 - 将 `/mcp` 和 `/tools/*` 路由到 `travel-mcp`。
 - 为内部服务调用注入 `X-Travel-Internal-Token`。
 - 统一透传或生成 `X-Request-ID`，并返回基础安全响应头。
+- 可选启用 Redis 固定窗口限流。
 
 ## 健康检查
 
@@ -30,7 +31,7 @@ HEAD /health
 - `travelAgent`
 - `travelMcp`
 
-为兼容前端和 smoke test，gateway 仍保留旧顶层字段：
+为兼容前端和 smoke test，gateway 保留旧顶层字段：
 
 - `databaseEnabled`
 - `messageQueueEnabled`
@@ -41,9 +42,9 @@ HEAD /health
 - `agentEngineCapabilities`
 - `travelToolsProvider`
 
-这些字段现在来自各微服务 health 汇总，而不是由 `agent-runtime` 代表全局状态。
+其中 `redisRateLimitEnabled` 表示 gateway 已启用 Redis 限流并且能连通 Redis。
 
-`/gateway/health` 只返回 gateway 自身状态，适合作为容器健康检查。
+`/gateway/health` 和 `/metrics` 不参与限流，适合作为容器健康检查和 Prometheus 抓取入口。
 
 ## 环境变量
 
@@ -58,8 +59,11 @@ HEAD /health
 - `TRAVEL_MCP_URL`
 - `INTERNAL_SERVICE_TOKEN`
 - `GATEWAY_REQUEST_TIMEOUT_SECONDS`
-- `HEALTH_REQUEST_TIMEOUT_SECONDS`
 - `ALLOWED_ORIGINS`
+- `REDIS_RATE_LIMIT_ENABLED`
+- `REDIS_URL`
+- `GATEWAY_RATE_LIMIT_MAX_REQUESTS`
+- `GATEWAY_RATE_LIMIT_WINDOW_SECONDS`
 
 ## 本地运行
 

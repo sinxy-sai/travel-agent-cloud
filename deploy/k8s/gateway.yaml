@@ -36,6 +36,14 @@ spec:
               value: "*"
             - name: GATEWAY_REQUEST_TIMEOUT_SECONDS
               value: "180"
+            - name: REDIS_RATE_LIMIT_ENABLED
+              value: "true"
+            - name: REDIS_URL
+              value: redis://redis:6379/0
+            - name: GATEWAY_RATE_LIMIT_MAX_REQUESTS
+              value: "120"
+            - name: GATEWAY_RATE_LIMIT_WINDOW_SECONDS
+              value: "60"
             - name: OTEL_ENABLED
               value: "true"
             - name: OTEL_SERVICE_NAMESPACE
