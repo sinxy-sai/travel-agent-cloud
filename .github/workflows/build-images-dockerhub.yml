@@ -43,6 +43,8 @@ jobs:
             ${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
           build-args: |
             VITE_AGENT_API_BASE_URL=
+            VITE_AMAP_JS_KEY=${{ secrets.VITE_AMAP_JS_KEY }}
+            VITE_AMAP_SECURITY_JS_CODE=${{ secrets.VITE_AMAP_SECURITY_JS_CODE }}
 
       - name: Build and push agent runtime image
         uses: docker/build-push-action@v6
