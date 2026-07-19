@@ -10,6 +10,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](services)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](services)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Agent%20Workflow-1C3C3C)](agent-runtime)
+[![SearXNG](https://img.shields.io/badge/SearXNG-Web%20Research-3050A0)](deploy/searxng)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
 [![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3.13-FF6600?logo=rabbitmq&logoColor=white)](docker-compose.yml)
 [![K3s](https://img.shields.io/badge/K3s-Kubernetes-FFC61C?logo=kubernetes&logoColor=111)](deploy/k8s/README.md)
@@ -29,11 +30,14 @@ Travel Agent Cloud 是一个面向旅行规划场景的 AI Agent 产品。项目
 
 当前版本已经完成从早期单体后端到 Python/FastAPI 微服务架构的迁移。`agent-runtime` 只负责 Agent 编排与执行；认证、行程、会话、工具和网关能力已经拆分到独立服务。
 
+当前 Agent 主链路已经可以在本地 Docker Compose 和 VPS/K3s 环境运行，并已在 VPS 上验证可生成旅行规划。
+
 ## 项目特性
 
 - **多轮旅行规划对话**：支持围绕目的地、时间、预算、兴趣和偏好进行连续对话。
 - **多 Agent 行程生成**：使用 LangGraph/LangChain 组织景点、天气、酒店、餐食、路线、预算和规划节点。
 - **真实旅行工具接入**：通过 FastMCP 风格工具服务接入高德 Web Service，支持 POI、天气、路线和预算数据。
+- **网页研究上下文**：通过 SearXNG 为 Research Agent 提供网页搜索摘要；不可用时自动降级到内置目的地研究笔记。
 - **行程全生命周期管理**：支持保存、编辑、版本历史、版本恢复、收藏、删除和导出。
 - **异步生成进度**：行程生成支持 job polling 和 SSE 事件流，前端可展示生成进度。
 - **数据来源透明度**：行程模块可标记 live、fallback、failed 等数据来源状态。
@@ -49,7 +53,7 @@ Travel Agent Cloud 是一个面向旅行规划场景的 AI Agent 产品。项目
 | 前端 | React、Vite、TypeScript、Tailwind CSS、Ant Design、TanStack Query、zustand |
 | API 服务 | Python、FastAPI、Pydantic、SQLAlchemy、httpx |
 | Agent 执行 | LangGraph、LangChain、OpenAI-compatible LLM API |
-| 工具服务 | FastAPI、MCP 风格 HTTP JSON-RPC、高德 Web Service |
+| 工具服务 | FastAPI、MCP 风格 HTTP JSON-RPC、高德 Web Service、SearXNG |
 | 数据存储 | PostgreSQL、MinIO |
 | 异步与缓存 | RabbitMQ、Redis |
 | 本地编排 | Docker Compose |
@@ -67,6 +71,7 @@ Browser
           -> travel-trip
               -> agent-runtime
                   -> travel-mcp
+                  -> searxng
           -> travel-agent
               -> agent-runtime
 
@@ -100,6 +105,7 @@ travel-auth
 | Trip | `services/trip` | `8200` | 行程生成入口、持久化、版本、收藏、导出、异步 job、SSE 进度 |
 | Agent | `services/agent` | `8400` | 聊天入口、会话、消息、同步摘要、异步摘要 job、摘要 worker |
 | MCP | `services/mcp` | `8100` | 高德/FastMCP 旅行工具服务，提供 MCP 风格 JSON-RPC |
+| SearXNG | `deploy/searxng` | `8088` | 本地和 K3s 内部网页搜索服务，为 Research Agent 提供搜索摘要 |
 | Runtime | `agent-runtime` | `8000` | LangGraph/LangChain、LLM 调用、工具编排、Agent 执行核心 |
 | Frontend | `frontend` | `5173` | React + Vite 用户界面 |
 
@@ -117,6 +123,7 @@ travel-agent-cloud/
 │  ├─ mcp/                   # 旅行工具服务
 │  └─ common/                # Python 微服务共享工具包
 ├─ deploy/k8s/               # K3s/Kubernetes 清单
+├─ deploy/searxng/            # SearXNG 本地配置
 ├─ docs/                     # 架构、API、通信和原型对齐文档
 ├─ scripts/                  # 初始化和 smoke test 脚本
 ├─ .github/workflows/        # CI、镜像构建和 K3s 自动部署
@@ -150,6 +157,9 @@ Copy-Item services\mcp\.env.example services\mcp\.env
 - 高德 Web Service key：`services/mcp/.env`
 - 高德 JS SDK key：`frontend/.env`
 - SMTP 和 OAuth：`services/auth/.env`
+
+> [!NOTE]
+> Docker Compose 会启动 `searxng`，`agent-runtime` 默认通过 `http://searxng:8080` 使用它。本机可访问 `http://localhost:8088/search?q=成都旅行攻略&format=json` 验证 JSON 搜索是否可用。
 
 ### 启动完整环境
 
@@ -196,6 +206,7 @@ Invoke-RestMethod http://localhost:8080/gateway/health
 - `AUTH_SECRET_KEY` 必须在 `services/auth`、`services/agent`、`services/trip` 和需要解析用户 token 的服务中保持一致。
 - `INTERNAL_SERVICE_TOKEN` 必须在 gateway、runtime 和领域服务之间保持一致。
 - `.env` 文件不提交到 Git；VPS/K3s 使用 Kubernetes Secret 管理敏感配置。
+- 前端 `VITE_*` 变量会在镜像构建期写入静态资源；生产环境需要在 GitHub Actions secrets 中配置 `VITE_AMAP_JS_KEY` 和 `VITE_AMAP_SECURITY_JS_CODE`。
 
 ## Docker 镜像
 
@@ -235,6 +246,19 @@ GitHub repository secrets：
 | `VPS_HOST` | VPS 公网 IP 或域名 |
 | `VPS_USER` | SSH 用户 |
 | `VPS_SSH_KEY` | SSH 私钥 |
+| `VITE_AMAP_JS_KEY` | 前端高德 JS SDK key，构建 frontend 镜像时注入 |
+| `VITE_AMAP_SECURITY_JS_CODE` | 前端高德 JS 安全密钥，构建 frontend 镜像时注入 |
+
+GitHub OAuth 生产环境需要在 `travel-auth-secrets` 中配置：
+
+```text
+PUBLIC_APP_URL=http://your-server-public-ip
+GITHUB_OAUTH_CLIENT_ID=your-github-oauth-client-id
+GITHUB_OAUTH_CLIENT_SECRET=your-github-oauth-client-secret
+GITHUB_OAUTH_REDIRECT_URI=http://your-server-public-ip/api/v1/auth/oauth/github/callback
+```
+
+GitHub Developer Settings 中 OAuth App 的 Authorization callback URL 必须和 `GITHUB_OAUTH_REDIRECT_URI` 完全一致。
 
 VPS 部署后检查：
 
@@ -282,6 +306,7 @@ sudo k3s crictl images | grep travel-agent-cloud
 | [服务通信方案](docs/service-communication.md) | 服务间 HTTP、internal token、RabbitMQ 和健康检查 |
 | [微服务路线图](docs/microservices-roadmap.md) | 微服务拆分过程和后续增强方向 |
 | [可观测性方案](docs/observability.md) | Prometheus、Grafana、服务 `/metrics` 和后续追踪/日志路线 |
+| [Agent 与 AI 应用架构](docs/agent-ai-architecture.md) | Agent、Skills、Tools、Context、RAG 和 Loop 设计基准 |
 | [原型功能对齐](docs/prototype-feature-parity.md) | 与 Hello-Agents 原型的功能映射 |
 | [K3s 部署说明](deploy/k8s/README.md) | VPS/K3s 部署、Secret 和运维命令 |
 | [Security Policy](SECURITY.md) | 漏洞报告流程、支持范围和安全注意事项 |
@@ -289,9 +314,12 @@ sudo k3s crictl images | grep travel-agent-cloud
 ## 当前状态
 
 - 微服务拆分已经完成主体迁移。
+- Agent 主链路已经完成第一阶段落地：Context、轻量知识库、Research Agent、Planner Agent、路线预算和最多一次质量修复。
+- Research Agent 已接入 FastMCP/高德工具、SearXNG 网页研究和内置目的地研究笔记。
 - 新镜像命名已经统一为 `travel-agent-cloud-*`。
-- VPS/K3s 已验证 `travel-gateway`、`travel-auth`、`travel-trip`、`travel-agent`、`travel-agent-worker`、`travel-mcp`、`agent-runtime` 和 `frontend` 正常运行。
-- 下一阶段重点是生产质量增强：持久化异步 job 状态、完善观测链路、强化服务级鉴权、补充端到端测试和优化运维脚本。
+- VPS/K3s 已验证 `travel-gateway`、`travel-auth`、`travel-trip`、`travel-agent`、`travel-agent-worker`、`travel-mcp`、`searxng`、`agent-runtime` 和 `frontend` 正常运行。
+- VPS 已验证可生成旅行规划。
+- 下一阶段重点是少量生产质量增强：HTTPS、域名、服务级鉴权细化、端到端测试和运维脚本优化。
 
 ## License
 
