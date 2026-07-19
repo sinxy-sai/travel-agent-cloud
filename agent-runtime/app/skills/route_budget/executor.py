@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.agent_engines.langchain_nodes import LangChainTravelAgentNodeRunner
+from app.planning_context import TravelPlanningContext
 from app.schemas import Attraction, Hotel, TripPlanRequest
 from app.skills.schemas import RouteBudgetBundle, SkillIssue, SkillSource, SkillTrace
 from app.travel_tools import TravelToolProvider
@@ -12,6 +13,7 @@ def run_route_budget(
     hotels_by_day: dict[int, Hotel],
     travel_tools: TravelToolProvider,
     langchain_runner: LangChainTravelAgentNodeRunner,
+    planning_context: TravelPlanningContext | None = None,
 ) -> RouteBudgetBundle:
     """Plan route legs and estimate budget from researched candidates."""
     issues: list[SkillIssue] = []
@@ -49,6 +51,9 @@ def run_route_budget(
     if budget is None:
         issues.append(SkillIssue(code="budget_missing", message="Budget estimate was not returned."))
 
+    if budget and budget.total <= 0:
+        issues.append(SkillIssue(code="budget_total_invalid", message="Budget total must be greater than zero.", severity="error"))
+
     status = "success" if not issues else "partial"
     return RouteBudgetBundle(
         routes_by_day=routes_by_day,
@@ -68,4 +73,3 @@ def _source(name: str, used_langchain_agent: bool, langchain_enabled: bool) -> S
     if langchain_enabled:
         return SkillSource(provider=f"travel_tools:{name}", status="fallback", detail="agent_call_failed")
     return SkillSource(provider=f"travel_tools:{name}", status="success", detail="direct_tool_call")
-

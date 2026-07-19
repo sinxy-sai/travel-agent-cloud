@@ -76,6 +76,72 @@ class TravelPlanningContext:
         )
 
 
+@dataclass(frozen=True)
+class ResearchContextView:
+    destination: str
+    days: int
+    date_window: str
+    budget: str
+    interests: tuple[str, ...]
+    preferences: tuple[str, ...]
+    constraints_present: bool
+    knowledge_lines: tuple[str, ...]
+    missing_fact_types: tuple[str, ...]
+
+    def to_prompt_lines(self) -> list[str]:
+        return [
+            f"Research destination: {self.destination}",
+            f"Trip length: {self.days} day(s)",
+            f"Date window: {self.date_window}",
+            f"Budget tier: {self.budget}",
+            f"Interests: {', '.join(self.interests) if self.interests else 'local culture'}",
+            f"Preferences: {', '.join(self.preferences) if self.preferences else 'not specified'}",
+            f"Constraints present: {'yes' if self.constraints_present else 'no'}",
+            f"Missing fact types: {', '.join(self.missing_fact_types) if self.missing_fact_types else 'none'}",
+            *[f"Knowledge: {line}" for line in self.knowledge_lines],
+        ]
+
+    def to_trace_detail(self) -> str:
+        return (
+            f"research_view;days={self.days};interests={len(self.interests)};"
+            f"knowledge={len(self.knowledge_lines)};missing={','.join(self.missing_fact_types) or 'none'}"
+        )
+
+
+@dataclass(frozen=True)
+class PlannerContextView:
+    destination: str
+    days: int
+    budget: str
+    transportation: str
+    accommodation: str
+    interests: tuple[str, ...]
+    preferences: tuple[str, ...]
+    style_tags: tuple[str, ...]
+    knowledge_lines: tuple[str, ...]
+    quality_focus: tuple[str, ...]
+
+    def to_prompt_lines(self) -> list[str]:
+        return [
+            f"Planner destination: {self.destination}",
+            f"Trip length: {self.days} day(s)",
+            f"Budget tier: {self.budget}",
+            f"Transportation: {self.transportation}",
+            f"Accommodation: {self.accommodation}",
+            f"Interests: {', '.join(self.interests) if self.interests else 'local culture'}",
+            f"Preferences: {', '.join(self.preferences) if self.preferences else 'not specified'}",
+            f"Style tags: {', '.join(self.style_tags) if self.style_tags else 'general'}",
+            f"Quality focus: {', '.join(self.quality_focus) if self.quality_focus else 'schema, pacing, sources'}",
+            *[f"Knowledge: {line}" for line in self.knowledge_lines],
+        ]
+
+    def to_trace_detail(self) -> str:
+        return (
+            f"planner_view;days={self.days};style={','.join(self.style_tags[:3]) or 'general'};"
+            f"knowledge={len(self.knowledge_lines)};quality={','.join(self.quality_focus[:3]) or 'standard'}"
+        )
+
+
 def build_travel_planning_context(request: TripPlanRequest) -> TravelPlanningContext:
     interest_terms = _normalize_terms(_split_terms(request.interests))
     preference_terms = _normalize_terms(request.preferences)
@@ -95,6 +161,42 @@ def build_travel_planning_context(request: TripPlanRequest) -> TravelPlanningCon
         style_tags=style_tags,
         constraints_present=bool(constraint_text),
     )
+
+
+def build_research_context_view(context: TravelPlanningContext) -> ResearchContextView:
+    return ResearchContextView(
+        destination=context.destination,
+        days=context.days,
+        date_window=context.date_window,
+        budget=context.budget,
+        interests=context.interest_terms,
+        preferences=context.preference_terms,
+        constraints_present=context.constraints_present,
+        knowledge_lines=_knowledge_prompt_lines(context),
+        missing_fact_types=("attractions", "weather", "hotels", "meals"),
+    )
+
+
+def build_planner_context_view(
+    context: TravelPlanningContext,
+    quality_focus: tuple[str, ...] = (),
+) -> PlannerContextView:
+    return PlannerContextView(
+        destination=context.destination,
+        days=context.days,
+        budget=context.budget,
+        transportation=context.transportation,
+        accommodation=context.accommodation,
+        interests=context.interest_terms,
+        preferences=context.preference_terms,
+        style_tags=context.style_tags,
+        knowledge_lines=_knowledge_prompt_lines(context),
+        quality_focus=quality_focus or ("schema", "pacing", "sources", "budget"),
+    )
+
+
+def _knowledge_prompt_lines(context: TravelPlanningContext) -> tuple[str, ...]:
+    return tuple(hit.to_prompt_line()[:500] for hit in context.retrieved_knowledge[:5])
 
 
 def _split_terms(value: str) -> tuple[str, ...]:

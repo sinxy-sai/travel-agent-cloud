@@ -1,19 +1,51 @@
-# Agent 与 AI 应用架构
+# Agent 与 AI 应用架构设计
 
-本文定义 Travel Agent Cloud 的 AI 应用层设计。目标不是堆叠 Agent 概念，而是在现有微服务架构上落地一个可运行、可验证、可演进的旅行规划 Agent 系统。
+本文档是 Travel Agent Cloud 的 Agent/AI 应用层设计基准。后续开发以本文档为准，除非产品方向或技术路线发生明确变化，不再频繁重写。
 
-## 设计结论
+## 1. 目标
 
-当前采用“少量 Agent + 明确 Skill + 原子 Tool + 有界工作流”的路线。
+本项目的 AI 应用目标是：在现有云原生全栈与微服务基础上，快速做出一个可用、可部署、可持续增强的旅行规划 Agent。
 
-- 顶层只保留两个 Agent：`research_agent` 和 `planner_agent`。
-- 运行时保留四个项目 Skill：`travel_research`、`route_budget`、`itinerary_composition`、`plan_quality`。
-- 外部事实数据通过 `travel-mcp` 和 FastMCP 工具服务获取，`agent-runtime` 不直接绑定高德等供应商字段。
-- Context Engineering 使用统一 `PlanningContext`，再按节点生成只读上下文视图。
-- RAG 先使用 PostgreSQL 结构化知识表，后续再根据收益决定是否接入 `pgvector`。
-- Harness Engineering 先覆盖固定 eval cases、trace、schema、来源和质量规则，不引入重型 benchmark 平台。
+第一阶段优先级：
 
-## 服务边界
+1. 用户能提交目的地、天数、预算、兴趣、日期、交通、住宿和偏好。
+2. Agent 能完成资料研究、路线预算、行程生成和质量检查。
+3. 结果必须是结构化行程，能保存、修订、导出、单日重生成。
+4. 高德/FastMCP、网页或内置研究、知识库上下文都能进入规划。
+5. Agent 内部只保留基础 trace 方便排错，不继续建设复杂观测指标平台。
+
+暂不追求：
+
+- 通用 Agent benchmark 平台。
+- 复杂 Agent 指标、Grafana 细粒度业务看板。
+- 知识库运营后台。
+- 无限制 ReAct 循环。
+
+## 2. 总体路线
+
+当前采用 **Plan-and-Execute + Bounded Reflection**。
+
+```text
+用户请求
+  -> Context Engineering
+  -> 轻量知识库/RAG 检索
+  -> Research Agent
+       -> travel_research Skill
+       -> FastMCP/高德工具
+       -> Web/SearXNG 或内置目的地研究笔记
+  -> Planner Agent
+       -> route_budget Skill
+       -> itinerary_composition Skill
+       -> LLM 规划器可选增强
+  -> Quality Gate
+       -> plan_quality Skill
+       -> 不合格时最多自动修复 1 次
+  -> TripPlanResponse
+```
+
+这不是完整 ReAct。当前不让模型在 Thought/Action/Observation 中无限自主探索，因为这会增加不确定性和成本。第一阶段只做明确工作流：先研究，再规划，再检查，最多修一次。
+
+## 3. 服务边界
 
 ```text
 frontend
@@ -21,81 +53,103 @@ frontend
       -> travel-auth        用户、认证、OAuth、账户数据
       -> travel-agent       会话、聊天、摘要、Agent 状态门面
       -> travel-trip        行程持久化、版本、导出、异步生成
-      -> agent-runtime      LangGraph/LangChain 编排与 AI 执行核心
-      -> travel-mcp         旅行工具与供应商 API 封装
+      -> agent-runtime      Agent 编排、LLM、Skills、Context、轻量知识库
+      -> travel-mcp         高德/FastMCP 工具服务
 ```
 
-`agent-runtime` 只负责 AI 编排和执行，不再拥有用户、会话、行程持久化边界。
+`agent-runtime` 是 Agent 执行核心，但不拥有用户、会话、行程持久化边界。
 
-## LangGraph 工作流
+## 4. Agent 结构
 
-主旅行规划流程：
+第一阶段只保留两个有效 Agent。
+
+### 4.1 Research Agent
+
+职责：准备规划所需事实和背景。
+
+输入：
+
+- `PlanningContext`
+- 知识库命中
+- 用户请求
+
+调用：
+
+- `travel_research` Skill
+- FastMCP/高德工具：景点、天气、酒店、餐食
+- 可选 Web/SearXNG 搜索
+- 无搜索服务时使用内置目的地研究笔记
+
+输出：
+
+- 每日景点候选
+- 天气
+- 酒店
+- 餐食
+- 研究笔记
+- 来源与问题
+
+Research Agent 不生成最终行程，不写业务库。
+
+### 4.2 Planner Agent
+
+职责：把研究结果变成可用行程。
+
+输入：
+
+- `PlanningContext`
+- 知识库命中
+- Research Agent 输出
+- route/budget 输出
+- 可选 LLM 草稿
+
+调用：
+
+- `route_budget` Skill
+- `itinerary_composition` Skill
+- 可选 LLM 规划器，用研究结果生成更自然的每日安排
+- `plan_quality` Skill
+
+输出：
+
+- `TripPlanResponse`
+- 每日主题、早中晚安排、景点、餐食、酒店、路线、预算、天气、建议
+
+Planner Agent 不直接搜索网页，不直接持久化数据。
+
+## 5. Skills
+
+这里的 Skill 是项目运行时能力，不是 Codex Skill，也不是可共享插件。目录固定在：
 
 ```text
-trip_context
-  -> retrieve_knowledge
-  -> trip_draft
-  -> research_agent
-  -> route_budget
-  -> planner_agent
-  -> trip_validation
+agent-runtime/app/skills/
 ```
 
-各节点职责：
+第一阶段保留四个 Skill。
 
-- `trip_context`：把请求解析为统一 `PlanningContext`。
-- `retrieve_knowledge`：从 RAG 检索目的地知识、历史优质案例和规划注意事项。
-- `trip_draft`：在 LLM 可用时生成初稿；不可用时允许后续 Skill 继续构造结果。
-- `research_agent`：调用 `travel_research` Skill 获取 POI、天气、酒店、餐食等事实。
-- `route_budget`：调用 `route_budget` Skill 生成路线和预算。
-- `planner_agent`：调用 `itinerary_composition` Skill 组装 `TripPlanResponse`。
-- `trip_validation`：调用 `plan_quality` Skill 做 schema、预算、来源和节奏检查，并最多自动修复 2 次。
-
-## Agent
-
-### Research Agent
-
-目标是为规划准备最小可信事实集。它可以选择旅行工具，但不生成最终行程，不写业务数据库。
-
-输出包含：
-
-- 每日候选景点
-- 天气信息
-- 酒店和餐食候选
-- 数据来源与状态
-- 缺口和降级原因
-
-### Planner Agent
-
-目标是把用户约束、RAG 结果、研究事实、路线和预算组装为结构化行程。它负责生成、修订和单日重生成的共同规划能力。
-
-Planner Agent 不直接抓网页，不直接持久化数据，也不能把 fallback 或 LLM inferred 内容伪装成实时事实。
-
-## Skills
-
-项目 Skill 位于 `agent-runtime/app/skills/`，它们是项目后端运行时能力，不是 Codex 个人技能，也不是可共享 marketplace skill。
-
-| Skill | 职责 |
+| Skill | 作用 |
 | --- | --- |
-| `travel_research` | 搜集并整理景点、天气、酒店、餐食事实 |
-| `route_budget` | 生成每日路线并估算交通、酒店、餐食、门票预算 |
-| `itinerary_composition` | 组装结构化行程，保持输出符合 `TripPlanResponse` |
-| `plan_quality` | 执行确定性质量检查并驱动有界修复 |
+| `travel_research` | 整合高德/FastMCP、网页或内置研究、基础事实 |
+| `route_budget` | 生成路线和预算 |
+| `itinerary_composition` | 组装最终结构化行程 |
+| `plan_quality` | 质量检查与一次自动修复 |
 
-每个 Skill 需要保持统一契约：
+统一输出最小契约：
 
 ```text
-input_schema
-output_schema
 status: success | partial | fallback | failed
 sources[]
 issues[]
-trace
+structured_result
 ```
 
-## Tools 与 MCP
+第一阶段不引入复杂 Skill 沙箱。当前 Skill 只调用项目内受控工具和 HTTP 客户端，不执行用户代码。
 
-Tool 是原子能力，不承担跨步骤决策。当前旅行工具通过 `travel-mcp` 暴露：
+## 6. Tools 与 MCP
+
+工具层由 `travel-mcp` 封装，`agent-runtime` 不直接依赖高德字段。
+
+核心工具：
 
 - 景点搜索
 - 天气查询
@@ -104,86 +158,117 @@ Tool 是原子能力，不承担跨步骤决策。当前旅行工具通过 `trav
 - 路线规划
 - 预算估算
 
-所有工具结果都需要保留来源状态。工具失败时允许 fallback，但必须在 trace 和 dataSources 中可见。
+网页研究工具：
 
-## Context Engineering
+- 优先使用 `SEARXNG_BASE_URL` 的 JSON 搜索。
+- 未配置 SearXNG 时使用内置目的地研究笔记。
+- 第一阶段不引入 Playwright 浏览器池。
+- ScrapeGraphAI、DeepAgents 暂不作为核心依赖；只有当它们明显减少实现复杂度时再接入。
 
-第一版只维护一个 `PlanningContext`：
+## 7. Context Engineering
 
-- 用户请求
-- 预算、日期、交通、住宿等约束
-- 兴趣和偏好
-- 目的地与行程天数
-- RAG 检索结果
-- 工具事实摘要
-- 当前质量报告
+第一阶段实现基础 Context Engineering，不建设复杂上下文平台。
 
-注入规则：
+核心对象：
 
-- 最多注入 5 条 RAG 命中。
-- 长文本必须先摘要再注入。
-- 实时天气、路线、营业状态不进 RAG，每次通过工具获取。
-- 用户私有记忆必须和公共目的地知识区分。
+- `PlanningContext`
+- `ResearchContextView`
+- `PlannerContextView`
 
-## RAG 与知识库
+`PlanningContext` 包含：
 
-RAG 当前最小实现位于 `agent-runtime/app/knowledge.py`。
+- 目的地
+- 天数
+- 预算
+- 日期窗口
+- 交通
+- 住宿
+- 兴趣
+- 偏好
+- 风格标签
+- 额外约束
+- 知识库命中
 
-后端模式：
+规则：
 
-- `static`：无数据库或依赖不可用时的只读 fallback。
-- `postgres`：使用 `agent_knowledge_records` 表进行关键词检索、写入、过期过滤和删除。
+- 各节点不重复解析用户原始请求。
+- Research Agent 使用 `ResearchContextView`。
+- Planner Agent 使用 `PlannerContextView`。
+- 长文本和网页内容必须摘要后进入上下文。
+- 知识库命中最多注入 5 条。
+- 规划器必须优先消费结构化工具结果，再用研究笔记补充背景。
 
-运行时接口：
+## 8. RAG 与知识库
 
-- `GET /api/v1/agent/knowledge`
-- `POST /api/v1/agent/knowledge`
-- `POST /api/v1/agent/knowledge/seed`
-- `DELETE /api/v1/agent/knowledge/{record_id}`
+知识库需要保留，但第一阶段保持轻量。
 
-成功生成行程后，runtime 会写入 `itinerary_summary`，有效期 90 天。该写入失败不会让行程生成失败。
+用途：
 
-## Loop Engineering
+- 目的地规划注意事项。
+- 历史优质行程摘要。
+- 可复用用户偏好，后续再细化权限。
 
-质量闭环必须有界：
+后端：
 
-- 自动修复最多 2 次。
-- 补充研究最多 1 次，后续再接入。
-- 工具短暂失败最多重试 1 次，后续再细化。
-- 达到上限后返回最佳可用结果和明确警告。
+- 默认静态知识 fallback。
+- 配置 `DATABASE_URL` 且 `RAG_ENABLED=true` 时使用 PostgreSQL。
+- 后续需要语义检索时再加 `pgvector`。
 
-优先使用确定性规则检查 schema、天数、每日负载、预算、路线完整性和来源覆盖。LLM Judge 只作为可选增强，不进入默认 CI 门禁。
+不做：
 
-## Harness Engineering
+- 不做复杂知识库后台。
+- 不做知识图谱。
+- 不缓存实时天气、实时路线和营业状态。
 
-当前最小 Harness：
+## 9. Loop Engineering
 
-- `scripts/smoke-test.ps1` 和 `scripts/smoke-test.sh` 验证服务链路、Agent trace、数据来源、RAG 接口。
-- `scripts/ai-eval.py` 离线运行固定用例，默认强制 mock LLM，保证稳定。
-- `scripts/ai-eval.py --base-url http://localhost:5173` 可对运行中的 Docker/Gateway 做 HTTP 端到端 eval。
-- `scripts/seed-knowledge.py` 可为目的地预置 RAG 知识。
+当前 loop：
 
-当前不引入 GAIA、AgentBench、WebArena、OSWorld 等通用 Agent benchmark。它们和旅游规划业务目标不完全一致，投入产出比暂时不高。
+```text
+plan
+  -> quality_check
+  -> 如果通过：返回
+  -> 如果可修复：自动修复 1 次
+  -> 再次检查
+  -> 返回最佳结果
+```
 
-## 最小技术栈
+约束：
 
-| 领域 | 当前采用 |
-| --- | --- |
-| 编排 | LangGraph |
-| Agent/工具调用 | LangChain tool-calling |
-| Schema | Pydantic |
-| 旅行工具 | FastMCP、travel-mcp、高德 Web Service |
-| RAG | PostgreSQL，后续可选 pgvector |
-| 异步与状态 | PostgreSQL、RabbitMQ、Redis |
-| 可观测性 | OpenTelemetry、Prometheus、Grafana、Loki、Tempo |
+- 自动修复最多 1 次。
+- 不做无限 reflection。
+- 不做多轮 ReAct。
+- 不合格但可用时返回结果，并通过基础 trace 标记问题。
 
-## 完成标准
+## 10. Harness Engineering
 
-AI 应用层阶段性完成需要满足：
+第一阶段只保留最小 Harness：
 
-- 主流程按 LangGraph 节点运行。
-- 两个 Agent 和四个 Skill 的职责清晰。
-- 工具来源、fallback 和失败状态可见。
-- RAG 支持读取、写入、检索、删除和过期。
-- 质量门禁可触发有限自动修复。
-- smoke test 和 AI eval 能覆盖端到端结果、trace、质量分和 RAG 状态。
+- `scripts/smoke-test.ps1`：验证服务链路和关键 API。
+- `scripts/smoke-test.sh`：Linux/K3s 环境验证。
+- `scripts/ai-eval.py`：固定用例，验证行程是否结构完整。
+
+不引入 GAIA、AgentBench、WebArena、OSWorld。它们和当前旅行规划产品目标不完全一致，会拖慢落地速度。
+
+## 11. 最小可用完成标准
+
+本阶段完成标准：
+
+- LangGraph 主链路可运行。
+- Research Agent 能同时使用旅行工具和研究笔记。
+- Planner Agent 能消费研究、路线、预算、知识上下文，生成结构化可保存行程。
+- Quality Gate 能检查并最多修复一次。
+- 知识库能作为上下文进入规划，但不是主流程阻塞项。
+- smoke test 通过。
+- 本地 Docker 和 VPS/K3s 均可部署。
+
+## 12. 后续增强
+
+在第一阶段可用后，再考虑：
+
+- 接入 SearXNG 服务。
+- 增加网页 fetch/clean/extract。
+- 引入 pgvector。
+- 引入更强的 tool-calling agent。
+- 尝试 DeepAgents、ScrapeGraphAI 或 Playwright。
+- 对特定城市沉淀高质量知识库。

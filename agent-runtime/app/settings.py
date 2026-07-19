@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     fastmcp_routes_tool: str = "travel.plan_routes"
     fastmcp_weather_tool: str = "travel.get_weather"
     fastmcp_budget_tool: str = "travel.estimate_budget"
+    web_research_enabled: bool = True
+    searxng_base_url: str = ""
+    web_research_timeout_seconds: float = 6.0
+    web_research_max_results: int = 4
+    web_research_language: str = "auto"
     internal_service_token: str = ""
     log_level: str = "INFO"
 

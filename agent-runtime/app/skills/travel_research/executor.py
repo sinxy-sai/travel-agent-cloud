@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from app.agent_engines.langchain_nodes import LangChainTravelAgentNodeRunner
+from app.planning_context import TravelPlanningContext
 from app.schemas import Hotel, TripPlanRequest
+from app.settings import Settings
 from app.skills.schemas import ResearchBundle, SkillIssue, SkillSource, SkillTrace
 from app.travel_tools import TravelToolProvider
+from app.web_research import collect_web_research
 
 
 def run_travel_research(
     request: TripPlanRequest,
     travel_tools: TravelToolProvider,
     langchain_runner: LangChainTravelAgentNodeRunner,
+    settings: Settings,
+    planning_context: TravelPlanningContext | None = None,
 ) -> ResearchBundle:
     """Collect the factual travel data needed before itinerary composition."""
     issues: list[SkillIssue] = []
@@ -49,16 +54,26 @@ def run_travel_research(
     if not weather_info:
         issues.append(SkillIssue(code="weather_missing", message="Weather data was not returned."))
 
+    web_research = collect_web_research(request, planning_context, settings)
+    web_source = SkillSource(
+        provider="web_research",
+        status=web_research.source_status,
+        detail=f"notes={len(web_research.notes)}",
+    )
+    if not web_research.notes:
+        issues.append(SkillIssue(code="research_notes_missing", message="No web or built-in research notes were available."))
+
     status = "success" if not issues else "partial"
     return ResearchBundle(
         attractions_by_day=attractions_by_day,
         weather_info=weather_info,
         hotels_by_day=hotels_by_day,
         meals_by_day=meals_by_day,
+        research_notes=web_research.notes,
         trace=SkillTrace(
             name="travel_research",
             status=status,
-            sources=(attraction_source, weather_source, hotel_source, meal_source),
+            sources=(attraction_source, weather_source, hotel_source, meal_source, web_source),
             issues=tuple(issues),
         ),
     )
@@ -86,4 +101,3 @@ def _add_missing_day_issues(
                 message=f"{name} missing for day(s): {', '.join(missing_days)}.",
             )
         )
-

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 from app.schemas import Attraction, Budget, Hotel, Meal, RouteLeg, WeatherInfo
 
 
-SkillStatus = str
+SkillStatus = Literal["success", "partial", "fallback", "failed"]
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,13 @@ class SkillSource:
     provider: str
     status: SkillStatus
     detail: str = ""
+
+
+@dataclass(frozen=True)
+class ResearchNote:
+    title: str
+    summary: str
+    source: str = "research"
 
 
 @dataclass(frozen=True)
@@ -41,6 +49,7 @@ class ResearchBundle:
     weather_info: list[WeatherInfo] = field(default_factory=list)
     hotels_by_day: dict[int, Hotel] = field(default_factory=dict)
     meals_by_day: dict[int, list[Meal]] = field(default_factory=dict)
+    research_notes: tuple[ResearchNote, ...] = ()
     trace: SkillTrace = field(
         default_factory=lambda: SkillTrace(name="travel_research", status="failed"),
     )
@@ -53,4 +62,3 @@ class RouteBudgetBundle:
     trace: SkillTrace = field(
         default_factory=lambda: SkillTrace(name="route_budget", status="failed"),
     )
-

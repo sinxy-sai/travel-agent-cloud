@@ -51,7 +51,7 @@ from app.settings import Settings
 from app.skills.itinerary_composition.executor import compose_trip_plan
 from app.skills.plan_quality.executor import run_plan_quality
 from app.skills.route_budget.executor import run_route_budget
-from app.skills.schemas import SkillTrace
+from app.skills.schemas import ResearchNote, SkillTrace
 from app.skills.travel_research.executor import run_travel_research
 from app.travel_tools import TravelToolProvider
 
@@ -81,6 +81,7 @@ class TripPlanningWorkflowState:
     weather_info: list[WeatherInfo] = field(default_factory=list)
     hotels_by_day: dict[int, Hotel] = field(default_factory=dict)
     meals_by_day: dict[int, list[Meal]] = field(default_factory=dict)
+    research_notes: tuple[ResearchNote, ...] = ()
     routes_by_day: dict[int, list[RouteLeg]] = field(default_factory=dict)
     budget: Budget | None = None
     knowledge_result: KnowledgeRetrievalResult | None = None
@@ -131,6 +132,7 @@ class LangGraphTravelAgentEngine:
     name = "langgraph:workflow-runner"
 
     def __init__(self, settings: Settings, travel_tools: TravelToolProvider) -> None:
+        self._settings = settings
         self._llm_client = LLMClient(settings)
         self._langchain_node_runner = LangChainTravelAgentNodeRunner(settings)
         self._knowledge_retriever = create_knowledge_retriever(settings)
@@ -440,6 +442,7 @@ class LangGraphTravelAgentEngine:
             weather_info=state.weather_info,
             hotels_by_day=state.hotels_by_day,
             meals_by_day=state.meals_by_day,
+            research_notes=state.research_notes,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
             knowledge_result=state.knowledge_result,
@@ -472,6 +475,7 @@ class LangGraphTravelAgentEngine:
             weather_info=state.weather_info,
             hotels_by_day=state.hotels_by_day,
             meals_by_day=state.meals_by_day,
+            research_notes=state.research_notes,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
             knowledge_result=state.knowledge_result,
@@ -490,13 +494,20 @@ class LangGraphTravelAgentEngine:
         notify_trip_plan_progress("finding_attractions")
         notify_trip_plan_progress("checking_weather")
         notify_trip_plan_progress("selecting_stays_meals")
-        research = run_travel_research(state.request, travel_tools, self._langchain_node_runner)
+        research = run_travel_research(
+            state.request,
+            travel_tools,
+            self._langchain_node_runner,
+            self._settings,
+            state.planning_context,
+        )
         return _copy_trip_state(
             state,
             attractions_by_day=research.attractions_by_day,
             weather_info=research.weather_info,
             hotels_by_day=research.hotels_by_day,
             meals_by_day=research.meals_by_day,
+            research_notes=research.research_notes,
             research_trace=research.trace,
         )
 
@@ -512,6 +523,7 @@ class LangGraphTravelAgentEngine:
             state.hotels_by_day,
             travel_tools,
             self._langchain_node_runner,
+            state.planning_context,
         )
         return _copy_trip_state(
             state,
@@ -521,7 +533,7 @@ class LangGraphTravelAgentEngine:
         )
 
     def _planner_agent_node(self, state: TripPlanningWorkflowState) -> TripPlanningWorkflowState:
-        final_plan = compose_trip_plan(
+        composed_plan = compose_trip_plan(
             request=state.request,
             planning_context=state.planning_context,
             draft_plan=state.draft_plan,
@@ -529,9 +541,21 @@ class LangGraphTravelAgentEngine:
             weather_info=state.weather_info,
             hotels_by_day=state.hotels_by_day,
             meals_by_day=state.meals_by_day,
+            research_notes=state.research_notes,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
         )
+        llm_plan = (
+            self._llm_client.generate_trip_plan_from_research(
+                state.request,
+                state.planning_context,
+                composed_plan,
+                state.research_notes,
+            )
+            if state.planning_context is not None
+            else None
+        )
+        final_plan = llm_plan or composed_plan
         return TripPlanningWorkflowState(
             request=state.request,
             planning_context=state.planning_context,
@@ -540,6 +564,7 @@ class LangGraphTravelAgentEngine:
             weather_info=state.weather_info,
             hotels_by_day=state.hotels_by_day,
             meals_by_day=state.meals_by_day,
+            research_notes=state.research_notes,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
             knowledge_result=state.knowledge_result,
@@ -578,6 +603,7 @@ class LangGraphTravelAgentEngine:
             weather_info=state.weather_info,
             hotels_by_day=state.hotels_by_day,
             meals_by_day=state.meals_by_day,
+            research_notes=state.research_notes,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
             knowledge_result=state.knowledge_result,
@@ -679,6 +705,7 @@ def _copy_trip_state(state: TripPlanningWorkflowState, **updates: object) -> Tri
         "weather_info": state.weather_info,
         "hotels_by_day": state.hotels_by_day,
         "meals_by_day": state.meals_by_day,
+        "research_notes": state.research_notes,
         "routes_by_day": state.routes_by_day,
         "budget": state.budget,
         "knowledge_result": state.knowledge_result,
@@ -703,14 +730,11 @@ def _run_bounded_quality_loop(
     revision_count = 0
     final_report: TripPlanQualityReport | None = None
 
-    for attempt in range(3):
-        current_plan, report = run_plan_quality(current_plan, request, travel_tools, planning_context)
-        final_report = report
-        if report.passed or not report.repaired:
-            break
-        if revision_count >= 2 or attempt == 2:
-            break
-        revision_count += 1
+    current_plan, first_report = run_plan_quality(current_plan, request, travel_tools, planning_context)
+    final_report = first_report
+    if not first_report.passed and first_report.repaired:
+        revision_count = 1
+        current_plan, final_report = run_plan_quality(current_plan, request, travel_tools, planning_context)
 
     if final_report is None:
         current_plan, final_report = run_plan_quality(current_plan, request, travel_tools, planning_context)

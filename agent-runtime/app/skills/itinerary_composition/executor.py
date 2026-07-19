@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from app.planning_context import TravelPlanningContext, build_travel_planning_context
+from app.planning_context import TravelPlanningContext, build_planner_context_view, build_travel_planning_context
 from app.schemas import Attraction, Budget, Hotel, Meal, RouteLeg, TripDay, TripPlanRequest, TripPlanResponse, WeatherInfo
+from app.skills.schemas import ResearchNote
 
 
 def compose_trip_plan(
@@ -15,10 +16,12 @@ def compose_trip_plan(
     weather_info: list[WeatherInfo],
     hotels_by_day: dict[int, Hotel],
     meals_by_day: dict[int, list[Meal]],
+    research_notes: tuple[ResearchNote, ...],
     routes_by_day: dict[int, list[RouteLeg]],
     budget: Budget | None,
 ) -> TripPlanResponse:
     context = planning_context or build_travel_planning_context(request)
+    planner_view = build_planner_context_view(context)
     draft_days = {day.day: day for day in draft_plan.days} if draft_plan else {}
     days: list[TripDay] = []
 
@@ -35,7 +38,7 @@ def compose_trip_plan(
                 theme=(draft_day.theme if draft_day else "") or _theme_for_day(day_number, context),
                 description=(
                     (draft_day.description if draft_day else "")
-                    or f"Day {day_number} balances {context.interest_summary} with practical pacing."
+                    or _day_description(day_number, context, research_notes)
                 ),
                 transportation=(draft_day.transportation if draft_day else "") or context.transportation,
                 accommodation=(draft_day.accommodation if draft_day else "") or context.accommodation,
@@ -68,10 +71,7 @@ def compose_trip_plan(
         preferences=(draft_plan.preferences if draft_plan else []) or list(context.preference_terms),
         free_text_input=(draft_plan.free_text_input if draft_plan else "") or request.free_text_input,
         weather_info=weather_info or (draft_plan.weather_info if draft_plan else []),
-        overall_suggestions=(
-            (draft_plan.overall_suggestions if draft_plan else "")
-            or "This itinerary was assembled from research, route-budget, and planner skill outputs."
-        ),
+        overall_suggestions=_overall_suggestions(draft_plan, planner_view, research_notes),
         budget=budget or (draft_plan.budget if draft_plan else None),
     )
 
@@ -108,3 +108,34 @@ def _default_day_part(part: str, request: TripPlanRequest, planning_context: Tra
         return "Continue with nearby stops and keep enough buffer for transit."
     return "Use the evening for a moderate dinner area and a review of the next day's route."
 
+
+def _day_description(day: int, planning_context: TravelPlanningContext, research_notes: tuple[ResearchNote, ...]) -> str:
+    note = research_notes[(day - 1) % len(research_notes)] if research_notes else None
+    if note:
+        return f"Day {day} balances {planning_context.interest_summary} with practical pacing. Research note: {note.summary[:220]}"
+    return f"Day {day} balances {planning_context.interest_summary} with practical pacing."
+
+
+def _overall_suggestions(
+    draft_plan: TripPlanResponse | None,
+    planner_view,
+    research_notes: tuple[ResearchNote, ...],
+) -> str:
+    if draft_plan and draft_plan.overall_suggestions:
+        return draft_plan.overall_suggestions
+    knowledge_note = (
+        f" Applied {len(planner_view.knowledge_lines)} retrieved planning note(s)."
+        if planner_view.knowledge_lines
+        else ""
+    )
+    research_note = (
+        " Research highlights: "
+        + " ".join(f"{note.title}: {note.summary[:140]}" for note in research_notes[:2])
+        if research_notes
+        else ""
+    )
+    quality_note = ", ".join(planner_view.quality_focus[:3])
+    return (
+        "This itinerary was assembled from research, route-budget, and planner skill outputs. "
+        f"Quality focus: {quality_note}.{knowledge_note}{research_note}"
+    )

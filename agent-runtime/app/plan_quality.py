@@ -17,9 +17,26 @@ ISSUE_WEIGHTS = {
     "missing_weather": 8,
     "missing_budget": 10,
     "missing_routes": 4,
+    "missing_attractions": 12,
+    "missing_meals": 8,
+    "missing_hotel": 6,
+    "day_overloaded": 6,
+    "internal_placeholder_text": 20,
     "missing_overall_suggestions": 4,
     "missing_tips": 3,
 }
+
+INTERNAL_PLACEHOLDER_TERMS = (
+    "Amap POI",
+    "Stub",
+    "Replace with Amap",
+    "scenic district",
+    "featured stop",
+    "mock POI",
+    "Mock ",
+    "MCP stay",
+    "MCP option",
+)
 
 
 @dataclass(frozen=True)
@@ -100,6 +117,13 @@ def assure_trip_plan_quality(
     if "missing_routes" in issues:
         update["days"] = _repair_day_routes(repaired_plan, request, travel_tools)
         repaired_fields.append("routes")
+    if "missing_attractions" in issues or "missing_meals" in issues or "missing_hotel" in issues:
+        update["days"] = _repair_day_content(
+            update.get("days") if isinstance(update.get("days"), list) else repaired_plan.days,
+            request,
+            travel_tools,
+        )
+        repaired_fields.append("day_content")
     if "missing_overall_suggestions" in issues:
         update["overall_suggestions"] = "Review weather, transit buffers, and reservation windows before departure."
         repaired_fields.append("overall_suggestions")
@@ -143,12 +167,43 @@ def _quality_issues(
         issues.append("missing_budget")
     if any(not day.routes for day in plan.days):
         issues.append("missing_routes")
+    if any(not day.attractions for day in plan.days):
+        issues.append("missing_attractions")
+    if any(not day.meals for day in plan.days):
+        issues.append("missing_meals")
+    if any(day.hotel is None for day in plan.days):
+        issues.append("missing_hotel")
+    if any(len(day.attractions or []) > 5 for day in plan.days):
+        issues.append("day_overloaded")
+    if _contains_internal_placeholder_text(plan):
+        issues.append("internal_placeholder_text")
     if not plan.overall_suggestions.strip():
         issues.append("missing_overall_suggestions")
     if not plan.tips:
         issues.append("missing_tips")
 
     return issues
+
+
+def _contains_internal_placeholder_text(plan: TripPlanResponse) -> bool:
+    text_parts = [
+        plan.title,
+        plan.summary,
+        plan.overall_suggestions,
+        *plan.tips,
+    ]
+    for day in plan.days:
+        text_parts.extend((day.theme, day.morning, day.afternoon, day.evening, day.description))
+        if day.hotel:
+            text_parts.extend((day.hotel.name, day.hotel.address, day.hotel.type))
+        for attraction in day.attractions or []:
+            text_parts.extend((attraction.name, attraction.address, attraction.description, attraction.category))
+        for meal in day.meals or []:
+            text_parts.extend((meal.type, meal.name, meal.address, meal.description))
+        for route in day.routes or []:
+            text_parts.extend((route.from_name, route.to_name, route.mode, route.instruction))
+    serialized = "\n".join(part for part in text_parts if part)
+    return any(term in serialized for term in INTERNAL_PLACEHOLDER_TERMS)
 
 
 def _repair_day_routes(
@@ -169,6 +224,28 @@ def _repair_day_routes(
                     "hotel": hotel,
                     "attractions": attractions,
                     "routes": travel_tools.routes_for_day(request, day.day, attractions, hotel),
+                }
+            )
+        )
+    return repaired_days
+
+
+def _repair_day_content(
+    days: list[TripDay],
+    request: TripPlanRequest,
+    travel_tools: TravelToolProvider,
+) -> list[TripDay]:
+    repaired_days: list[TripDay] = []
+    for day in days:
+        hotel = day.hotel or travel_tools.hotel_for_day(request, day.day)
+        attractions = day.attractions or travel_tools.attractions_for_day(request, day.day)
+        meals = day.meals or travel_tools.meals_for_day(request, day.day)
+        repaired_days.append(
+            day.model_copy(
+                update={
+                    "hotel": hotel,
+                    "attractions": attractions,
+                    "meals": meals,
                 }
             )
         )

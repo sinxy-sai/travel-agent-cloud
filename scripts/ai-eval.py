@@ -101,6 +101,8 @@ def _run_case(engine: LangGraphTravelAgentEngine, case: EvalCase) -> dict[str, A
         issues.append("missing_weather")
     if plan.budget is None or plan.budget.total <= 0:
         issues.append("missing_budget")
+    if "Research" not in (plan.overall_suggestions or ""):
+        issues.append("missing_research_notes_in_plan")
     if trace is None:
         issues.append("missing_trace")
     else:
@@ -158,6 +160,8 @@ def _run_http_case(base_url: str, user_id: str, case: EvalCase) -> dict[str, Any
     budget = plan.get("budget") or {}
     if int(budget.get("total") or 0) <= 0:
         issues.append("missing_budget")
+    if "Research" not in str(plan.get("overallSuggestions") or ""):
+        issues.append("missing_research_notes_in_plan")
     if trace is None:
         issues.append("missing_trace")
     else:

@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from app.planning_context import TravelPlanningContext, build_travel_planning_context
 from app.schemas import AgentMode, ChatMessage, MessageRole, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
+from app.skills.schemas import ResearchNote
 
 
 class LLMClient:
@@ -180,6 +181,62 @@ class LLMClient:
             return TripPlanResponse.model_validate(payload)
         except (json.JSONDecodeError, ValidationError, TypeError):
             return None
+
+    def generate_trip_plan_from_research(
+        self,
+        request: TripPlanRequest,
+        planning_context: TravelPlanningContext,
+        composed_plan: TripPlanResponse,
+        research_notes: tuple[ResearchNote, ...],
+    ) -> TripPlanResponse | None:
+        """Use the LLM as the Planner Agent after tools have produced structured facts."""
+        if not self.enabled:
+            return None
+
+        tool_plan = composed_plan.model_dump(mode="json", by_alias=True)
+        context_lines = "\n".join(planning_context.to_prompt_lines())
+        notes = [
+            {"title": note.title, "summary": note.summary, "source": note.source}
+            for note in research_notes[:5]
+        ]
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are the Planner Agent for a travel planning system. "
+                    "Return only valid JSON matching the given TripPlanResponse object. "
+                    "Preserve structured tool facts: attraction names, hotel names, meal names, coordinates, routes, weather, and budget. "
+                    "You may improve title, summary, themes, day descriptions, morning/afternoon/evening text, tips, and overallSuggestions. "
+                    "Do not invent booking confirmations. Do not output markdown fences."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Create the final itinerary from this normalized context, research notes, and tool-composed plan.\n\n"
+                    f"Context:\n{context_lines}\n\n"
+                    f"Research notes:\n{json.dumps(notes, ensure_ascii=False)}\n\n"
+                    f"Tool-composed plan JSON:\n{json.dumps(tool_plan, ensure_ascii=False)}"
+                ),
+            },
+        ]
+
+        content = self._chat_completion(messages, response_format={"type": "json_object"}) or self._chat_completion(
+            messages,
+            response_format=None,
+        )
+        if not content:
+            return None
+
+        try:
+            payload = json.loads(_extract_json(content))
+            candidate = TripPlanResponse.model_validate(payload)
+        except (json.JSONDecodeError, ValidationError, TypeError):
+            return None
+
+        if len(candidate.days) != request.days:
+            return None
+        return candidate
 
     def regenerate_trip_day(self, saved_trip_plan: SavedTripPlan, day: int, instruction: str) -> TripDay | None:
         if not self.enabled:
