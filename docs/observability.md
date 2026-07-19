@@ -123,7 +123,7 @@ kubectl set env deployment/travel-gateway -n travel-agent-cloud \
 
 其他服务同理：`travel-auth`、`travel-trip`、`travel-agent`、`travel-mcp`、`agent-runtime`。
 
-后续可以继续补充业务 span，例如 `trip_context`、`attraction_agent`、`weather_agent`、`hotel_agent`、`planner_agent` 等 LangGraph 节点级 span。
+后续可以继续补充业务 span，例如 `trip_context`、`research_agent`、`route_budget`、`planner_agent`、`trip_validation` 等 LangGraph 节点级 span。
 
 ## K3s 启动
 
@@ -161,7 +161,7 @@ Prometheus、Grafana、Loki 和 Tempo 在 K3s 中均设置了较低的资源 req
 建议按以下顺序继续：
 
 1. 增加服务级 SLO 面板，例如 gateway 成功率、Agent 生成耗时、异步 job 失败率。
-2. 为 LangGraph 节点增加业务 span，把 Agent 内部执行步骤展示到 Tempo。
+2. 为 LangGraph 节点增加业务 span，把 `trip_context`、`research_agent`、`route_budget`、`planner_agent`、`trip_validation` 等执行步骤展示到 Tempo。
 3. 把 request id、trace id、user id 摘要写入结构化 JSON 日志，提升 Loki 查询体验。
 4. 为 Prometheus 告警接入 Alertmanager、邮件或 Webhook。
 5. 如果后续服务数量明显增加，再评估服务发现、服务网格、gRPC 或专用 API Gateway。当前 K3s DNS 已足够，不需要 Consul。

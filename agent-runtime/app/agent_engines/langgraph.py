@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Callable, Generic, TypedDict, TypeVar, cast
 from uuid import uuid4
@@ -20,7 +20,7 @@ from app.agent_engines.types import (
     TravelAgentToolCall,
 )
 from app.llm import LLMClient
-from app.plan_quality import TripPlanQualityReport, assure_trip_plan_quality
+from app.plan_quality import TripPlanQualityReport
 from app.planning_context import TravelPlanningContext, build_travel_planning_context
 from app.planner import (
     build_mock_regenerated_trip_day,
@@ -46,6 +46,11 @@ from app.schemas import (
     WeatherInfo,
 )
 from app.settings import Settings
+from app.skills.itinerary_composition.executor import compose_trip_plan
+from app.skills.plan_quality.executor import run_plan_quality
+from app.skills.route_budget.executor import run_route_budget
+from app.skills.schemas import SkillTrace
+from app.skills.travel_research.executor import run_travel_research
 from app.travel_tools import TravelToolProvider
 
 MAX_TRACE_HISTORY = 10
@@ -76,6 +81,8 @@ class TripPlanningWorkflowState:
     meals_by_day: dict[int, list[Meal]] = field(default_factory=dict)
     routes_by_day: dict[int, list[RouteLeg]] = field(default_factory=dict)
     budget: Budget | None = None
+    research_trace: SkillTrace | None = None
+    route_budget_trace: SkillTrace | None = None
     final_plan: TripPlanResponse | None = None
     quality_report: TripPlanQualityReport | None = None
     fallback_used: bool = False
@@ -143,12 +150,8 @@ class LangGraphTravelAgentEngine:
                 "chat_fallback",
                 "trip_context",
                 "trip_draft",
-                "attraction_agent",
-                "weather_agent",
-                "hotel_agent",
-                "meal_agent",
-                "route_agent",
-                "budget_agent",
+                "research_agent",
+                "route_budget",
                 "planner_agent",
                 "trip_revision",
                 "trip_validation",
@@ -196,12 +199,8 @@ class LangGraphTravelAgentEngine:
         workflow = self._run_workflow(state, (
             ("trip_context", self._trip_context_node),
             ("trip_draft", self._trip_draft_node),
-            ("attraction_agent", lambda current: self._attraction_agent_node(current, traced_tools)),
-            ("weather_agent", lambda current: self._weather_agent_node(current, traced_tools)),
-            ("hotel_agent", lambda current: self._hotel_agent_node(current, traced_tools)),
-            ("meal_agent", lambda current: self._meal_agent_node(current, traced_tools)),
-            ("route_agent", lambda current: self._route_agent_node(current, traced_tools)),
-            ("budget_agent", lambda current: self._budget_agent_node(current, traced_tools)),
+            ("research_agent", lambda current: self._research_agent_node(current, traced_tools)),
+            ("route_budget", lambda current: self._route_budget_node(current, traced_tools)),
             ("planner_agent", self._planner_agent_node),
             ("trip_validation", lambda current: self._trip_validation_node(current, traced_tools)),
         ))
@@ -373,7 +372,7 @@ class LangGraphTravelAgentEngine:
         if state.request is None or state.planning_context is None:
             return state
         candidate_plan = state.final_plan or build_mock_revised_trip_plan(state.saved_trip_plan, state.instruction)
-        final_plan, quality_report = assure_trip_plan_quality(
+        final_plan, quality_report = run_plan_quality(
             candidate_plan,
             state.request,
             travel_tools,
@@ -416,6 +415,8 @@ class LangGraphTravelAgentEngine:
             meals_by_day=state.meals_by_day,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
+            research_trace=state.research_trace,
+            route_budget_trace=state.route_budget_trace,
             final_plan=state.final_plan,
             quality_report=state.quality_report,
             fallback_used=state.fallback_used,
@@ -434,98 +435,62 @@ class LangGraphTravelAgentEngine:
             meals_by_day=state.meals_by_day,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
+            research_trace=state.research_trace,
+            route_budget_trace=state.route_budget_trace,
             quality_report=state.quality_report,
             fallback_used=state.fallback_used or draft_plan is None,
         )
 
-    def _attraction_agent_node(
+    def _research_agent_node(
         self,
         state: TripPlanningWorkflowState,
         travel_tools: TravelToolProvider,
     ) -> TripPlanningWorkflowState:
         notify_trip_plan_progress("finding_attractions")
-        attractions_by_day = self._langchain_node_runner.run_attraction_agent_for_trip(state.request, travel_tools)
-        if not attractions_by_day:
-            attractions_by_day = {
-                day: travel_tools.attractions_for_day(state.request, day)
-                for day in range(1, state.request.days + 1)
-            }
-        return _copy_trip_state(state, attractions_by_day=attractions_by_day)
-
-    def _weather_agent_node(
-        self,
-        state: TripPlanningWorkflowState,
-        travel_tools: TravelToolProvider,
-    ) -> TripPlanningWorkflowState:
         notify_trip_plan_progress("checking_weather")
-        weather_info = (
-            self._langchain_node_runner.run_weather_agent(state.request, travel_tools)
-            or travel_tools.weather_for_trip(state.request)
+        notify_trip_plan_progress("selecting_stays_meals")
+        research = run_travel_research(state.request, travel_tools, self._langchain_node_runner)
+        return _copy_trip_state(
+            state,
+            attractions_by_day=research.attractions_by_day,
+            weather_info=research.weather_info,
+            hotels_by_day=research.hotels_by_day,
+            meals_by_day=research.meals_by_day,
+            research_trace=research.trace,
         )
-        return _copy_trip_state(state, weather_info=weather_info)
 
-    def _hotel_agent_node(
-        self,
-        state: TripPlanningWorkflowState,
-        travel_tools: TravelToolProvider,
-    ) -> TripPlanningWorkflowState:
-        notify_trip_plan_progress("selecting_stays_meals")
-        hotels_by_day = self._langchain_node_runner.run_hotel_agent_for_trip(state.request, travel_tools)
-        if not hotels_by_day:
-            hotels_by_day = {
-                day: travel_tools.hotel_for_day(state.request, day)
-                for day in range(1, state.request.days + 1)
-            }
-        return _copy_trip_state(state, hotels_by_day=hotels_by_day)
-
-    def _meal_agent_node(
-        self,
-        state: TripPlanningWorkflowState,
-        travel_tools: TravelToolProvider,
-    ) -> TripPlanningWorkflowState:
-        notify_trip_plan_progress("selecting_stays_meals")
-        meals_by_day = self._langchain_node_runner.run_meal_agent_for_trip(state.request, travel_tools)
-        if not meals_by_day:
-            meals_by_day = {
-                day: travel_tools.meals_for_day(state.request, day)
-                for day in range(1, state.request.days + 1)
-            }
-        return _copy_trip_state(state, meals_by_day=meals_by_day)
-
-    def _route_agent_node(
+    def _route_budget_node(
         self,
         state: TripPlanningWorkflowState,
         travel_tools: TravelToolProvider,
     ) -> TripPlanningWorkflowState:
         notify_trip_plan_progress("building_routes_budget")
-        routes_by_day = self._langchain_node_runner.run_route_agent_for_trip(
+        route_budget = run_route_budget(
             state.request,
             state.attractions_by_day,
             state.hotels_by_day,
             travel_tools,
+            self._langchain_node_runner,
         )
-        if not routes_by_day:
-            routes_by_day = {}
-            for day in range(1, state.request.days + 1):
-                attractions = state.attractions_by_day.get(day, [])
-                hotel = state.hotels_by_day.get(day)
-                routes_by_day[day] = travel_tools.routes_for_day(state.request, day, attractions, hotel)
-        return _copy_trip_state(state, routes_by_day=routes_by_day)
-
-    def _budget_agent_node(
-        self,
-        state: TripPlanningWorkflowState,
-        travel_tools: TravelToolProvider,
-    ) -> TripPlanningWorkflowState:
-        notify_trip_plan_progress("building_routes_budget")
-        budget = (
-            self._langchain_node_runner.run_budget_agent(state.request, travel_tools)
-            or travel_tools.estimate_budget(state.request)
+        return _copy_trip_state(
+            state,
+            routes_by_day=route_budget.routes_by_day,
+            budget=route_budget.budget,
+            route_budget_trace=route_budget.trace,
         )
-        return _copy_trip_state(state, budget=budget)
 
     def _planner_agent_node(self, state: TripPlanningWorkflowState) -> TripPlanningWorkflowState:
-        final_plan = _compose_trip_plan_from_agent_outputs(state)
+        final_plan = compose_trip_plan(
+            request=state.request,
+            planning_context=state.planning_context,
+            draft_plan=state.draft_plan,
+            attractions_by_day=state.attractions_by_day,
+            weather_info=state.weather_info,
+            hotels_by_day=state.hotels_by_day,
+            meals_by_day=state.meals_by_day,
+            routes_by_day=state.routes_by_day,
+            budget=state.budget,
+        )
         return TripPlanningWorkflowState(
             request=state.request,
             planning_context=state.planning_context,
@@ -536,6 +501,8 @@ class LangGraphTravelAgentEngine:
             meals_by_day=state.meals_by_day,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
+            research_trace=state.research_trace,
+            route_budget_trace=state.route_budget_trace,
             final_plan=final_plan,
             quality_report=state.quality_report,
             fallback_used=state.fallback_used,
@@ -553,7 +520,7 @@ class LangGraphTravelAgentEngine:
             candidate_plan = build_mock_trip_plan(state.request, travel_tools, state.planning_context)
             fallback_used = True
 
-        final_plan, quality_report = assure_trip_plan_quality(
+        final_plan, quality_report = run_plan_quality(
             candidate_plan,
             state.request,
             travel_tools,
@@ -570,6 +537,8 @@ class LangGraphTravelAgentEngine:
             meals_by_day=state.meals_by_day,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
+            research_trace=state.research_trace,
+            route_budget_trace=state.route_budget_trace,
             final_plan=final_plan,
             quality_report=quality_report,
             fallback_used=fallback_used or quality_report.repaired,
@@ -667,106 +636,14 @@ def _copy_trip_state(state: TripPlanningWorkflowState, **updates: object) -> Tri
         "meals_by_day": state.meals_by_day,
         "routes_by_day": state.routes_by_day,
         "budget": state.budget,
+        "research_trace": state.research_trace,
+        "route_budget_trace": state.route_budget_trace,
         "final_plan": state.final_plan,
         "quality_report": state.quality_report,
         "fallback_used": state.fallback_used,
     }
     payload.update(updates)
     return TripPlanningWorkflowState(**payload)
-
-
-def _compose_trip_plan_from_agent_outputs(state: TripPlanningWorkflowState) -> TripPlanResponse:
-    request = state.request
-    planning_context = state.planning_context or build_travel_planning_context(request)
-    draft_plan = state.draft_plan
-    draft_days = {day.day: day for day in draft_plan.days} if draft_plan else {}
-    days: list[TripDay] = []
-
-    for day_number in range(1, request.days + 1):
-        draft_day = draft_days.get(day_number)
-        hotel = state.hotels_by_day.get(day_number) or (draft_day.hotel if draft_day else None)
-        attractions = state.attractions_by_day.get(day_number) or (draft_day.attractions if draft_day else [])
-        meals = state.meals_by_day.get(day_number) or (draft_day.meals if draft_day else [])
-        routes = state.routes_by_day.get(day_number) or (draft_day.routes if draft_day else [])
-        days.append(
-            TripDay(
-                day=day_number,
-                date=(draft_day.date if draft_day else None) or _date_for_day(request, day_number),
-                theme=(draft_day.theme if draft_day else "") or _theme_for_agent_day(day_number, planning_context),
-                description=(
-                    (draft_day.description if draft_day else "")
-                    or f"Day {day_number} balances {planning_context.interest_summary} with practical pacing."
-                ),
-                transportation=(draft_day.transportation if draft_day else "") or planning_context.transportation,
-                accommodation=(draft_day.accommodation if draft_day else "") or planning_context.accommodation,
-                morning=(draft_day.morning if draft_day else "") or _default_day_part("Morning", request, planning_context),
-                afternoon=(draft_day.afternoon if draft_day else "") or _default_day_part("Afternoon", request, planning_context),
-                evening=(draft_day.evening if draft_day else "") or _default_day_part("Evening", request, planning_context),
-                hotel=hotel,
-                attractions=attractions,
-                meals=meals,
-                routes=routes,
-            )
-        )
-
-    return TripPlanResponse(
-        title=(draft_plan.title if draft_plan else "") or f"{request.days}-day {request.destination} itinerary",
-        summary=(
-            (draft_plan.summary if draft_plan else "")
-            or f"A {planning_context.date_window} itinerary for {planning_context.destination}, planned from agent-collected travel data."
-        ),
-        days=days,
-        tips=(draft_plan.tips if draft_plan and draft_plan.tips else [
-            "Confirm attraction opening hours before departure.",
-            "Keep transit buffer time between high-priority stops.",
-            "Review weather and reservation needs before each travel day.",
-        ]),
-        start_date=(draft_plan.start_date if draft_plan else None) or request.start_date,
-        end_date=(draft_plan.end_date if draft_plan else None) or request.end_date,
-        transportation=(draft_plan.transportation if draft_plan else "") or planning_context.transportation,
-        accommodation=(draft_plan.accommodation if draft_plan else "") or planning_context.accommodation,
-        preferences=(draft_plan.preferences if draft_plan else []) or list(planning_context.preference_terms),
-        free_text_input=(draft_plan.free_text_input if draft_plan else "") or request.free_text_input,
-        weather_info=state.weather_info or (draft_plan.weather_info if draft_plan else []),
-        overall_suggestions=(
-            (draft_plan.overall_suggestions if draft_plan else "")
-            or "This itinerary was assembled from attraction, weather, lodging, meal, route, and budget agent nodes."
-        ),
-        budget=state.budget or (draft_plan.budget if draft_plan else None),
-    )
-
-
-def _date_for_day(request: TripPlanRequest, day: int) -> str | None:
-    if not request.start_date:
-        return None
-    try:
-        start_date = datetime.fromisoformat(request.start_date)
-    except ValueError:
-        return None
-    return (start_date + timedelta(days=day - 1)).replace(hour=0, minute=0, second=0, microsecond=0).date().isoformat()
-
-
-def _theme_for_agent_day(day: int, planning_context: TravelPlanningContext) -> str:
-    themes = [
-        "Arrival and orientation",
-        "Food-first route",
-        "Culture and local neighborhoods",
-        "Nature and slow travel",
-        "Flexible discovery",
-    ]
-    if "culture" in planning_context.style_tags:
-        themes[1] = "Culture and heritage"
-    if "nature" in planning_context.style_tags:
-        themes[2] = "Parks and outdoor time"
-    return themes[(day - 1) % len(themes)]
-
-
-def _default_day_part(part: str, request: TripPlanRequest, planning_context: TravelPlanningContext) -> str:
-    if part == "Morning":
-        return f"Start with a focused route in {request.destination} around {planning_context.interest_summary}."
-    if part == "Afternoon":
-        return "Continue with nearby stops and keep enough buffer for transit."
-    return "Use the evening for a moderate dinner area and a review of the next day's route."
 
 
 def _wrap_workflow_node(
@@ -816,16 +693,24 @@ def _trip_node_events(state: TripPlanningWorkflowState) -> tuple[TravelAgentNode
         if state.draft_plan is None
         else _node_event("trip_draft", "SUCCEEDED", "draft_plan_generated")
     )
-    attraction_event = _agent_node_event(
-        "attraction_agent",
-        bool(state.attractions_by_day),
-        f"days={len(state.attractions_by_day)}",
+    research_event = (
+        _node_event("research_agent", "SUCCEEDED", state.research_trace.to_detail())
+        if state.research_trace is not None and state.research_trace.status == "success"
+        else _node_event(
+            "research_agent",
+            "FALLBACK" if state.research_trace is not None else "FAILED",
+            state.research_trace.to_detail() if state.research_trace is not None else "research_bundle_missing",
+        )
     )
-    weather_event = _agent_node_event("weather_agent", bool(state.weather_info), f"items={len(state.weather_info)}")
-    hotel_event = _agent_node_event("hotel_agent", bool(state.hotels_by_day), f"days={len(state.hotels_by_day)}")
-    meal_event = _agent_node_event("meal_agent", bool(state.meals_by_day), f"days={len(state.meals_by_day)}")
-    route_event = _agent_node_event("route_agent", bool(state.routes_by_day), f"days={len(state.routes_by_day)}")
-    budget_event = _agent_node_event("budget_agent", state.budget is not None, "budget_ready" if state.budget else "budget_missing")
+    route_budget_event = (
+        _node_event("route_budget", "SUCCEEDED", state.route_budget_trace.to_detail())
+        if state.route_budget_trace is not None and state.route_budget_trace.status == "success"
+        else _node_event(
+            "route_budget",
+            "FALLBACK" if state.route_budget_trace is not None else "FAILED",
+            state.route_budget_trace.to_detail() if state.route_budget_trace is not None else "route_budget_missing",
+        )
+    )
     planner_event = (
         _node_event("planner_agent", "SUCCEEDED", "itinerary_assembled_from_agent_outputs")
         if state.final_plan is not None
@@ -843,12 +728,8 @@ def _trip_node_events(state: TripPlanningWorkflowState) -> tuple[TravelAgentNode
     return (
         context_event,
         draft_event,
-        attraction_event,
-        weather_event,
-        hotel_event,
-        meal_event,
-        route_event,
-        budget_event,
+        research_event,
+        route_budget_event,
         planner_event,
         validation_event,
     )
