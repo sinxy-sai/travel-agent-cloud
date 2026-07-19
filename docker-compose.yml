@@ -77,6 +77,22 @@ services:
     ports:
       - "8100:8100"
 
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "8088:8080"
+    environment:
+      SEARXNG_BASE_URL: http://localhost:8088/
+    volumes:
+      - ./deploy/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
   travel-gateway:
     image: travel-agent-cloud-gateway
     build:
@@ -185,6 +201,8 @@ services:
     environment:
       DATABASE_URL: ${AGENT_RUNTIME_DATABASE_URL:-postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud}
       RAG_ENABLED: ${AGENT_RUNTIME_RAG_ENABLED:-true}
+      WEB_RESEARCH_ENABLED: ${AGENT_RUNTIME_WEB_RESEARCH_ENABLED:-true}
+      SEARXNG_BASE_URL: ${AGENT_RUNTIME_SEARXNG_BASE_URL:-http://searxng:8080}
     ports:
       - "8000:8000"
     depends_on:
@@ -196,6 +214,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      searxng:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()\""]
       interval: 10s

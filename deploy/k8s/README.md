@@ -25,6 +25,7 @@ kubectl get ingress -n travel-agent-cloud
 - RabbitMQ
 - Redis
 - MinIO
+- SearXNG
 - Prometheus
 - Grafana
 - Loki
@@ -36,6 +37,7 @@ kubectl get ingress -n travel-agent-cloud
 - `travel-agent`
 - `travel-agent-worker`
 - `travel-mcp`
+- `searxng`
 - `agent-runtime`
 - `frontend`
 - Ingress
@@ -58,6 +60,7 @@ docker.io/sinxysai/travel-agent-cloud-auth:latest
 docker.io/sinxysai/travel-agent-cloud-trip:latest
 docker.io/sinxysai/travel-agent-cloud-agent:latest
 docker.io/sinxysai/travel-agent-cloud-mcp:latest
+searxng/searxng:latest
 ```
 
 如果 Docker Hub 命名空间不是 `sinxysai`，需要修改：
@@ -68,6 +71,7 @@ docker.io/sinxysai/travel-agent-cloud-mcp:latest
 - `trip.yaml`
 - `agent.yaml`
 - `mcp.yaml`
+- `addons/searxng.yaml`
 - `frontend.yaml`
 
 ## Secret 边界

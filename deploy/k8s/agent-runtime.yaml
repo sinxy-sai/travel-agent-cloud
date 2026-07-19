@@ -38,6 +38,16 @@ spec:
               value: fastmcp
             - name: FASTMCP_BASE_URL
               value: http://travel-mcp:8100/mcp
+            - name: WEB_RESEARCH_ENABLED
+              value: "true"
+            - name: SEARXNG_BASE_URL
+              value: http://searxng:8080
+            - name: WEB_RESEARCH_TIMEOUT_SECONDS
+              value: "6"
+            - name: WEB_RESEARCH_MAX_RESULTS
+              value: "4"
+            - name: WEB_RESEARCH_LANGUAGE
+              value: auto
             - name: OTEL_ENABLED
               value: "true"
             - name: OTEL_SERVICE_NAMESPACE
