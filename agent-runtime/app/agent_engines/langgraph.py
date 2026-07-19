@@ -20,6 +20,7 @@ from app.agent_engines.types import (
     TravelAgentToolCall,
 )
 from app.llm import LLMClient
+from app.knowledge import KnowledgeRetrievalResult, KnowledgeRetriever
 from app.plan_quality import TripPlanQualityReport
 from app.planning_context import TravelPlanningContext, build_travel_planning_context
 from app.planner import (
@@ -81,10 +82,12 @@ class TripPlanningWorkflowState:
     meals_by_day: dict[int, list[Meal]] = field(default_factory=dict)
     routes_by_day: dict[int, list[RouteLeg]] = field(default_factory=dict)
     budget: Budget | None = None
+    knowledge_result: KnowledgeRetrievalResult | None = None
     research_trace: SkillTrace | None = None
     route_budget_trace: SkillTrace | None = None
     final_plan: TripPlanResponse | None = None
     quality_report: TripPlanQualityReport | None = None
+    quality_revision_count: int = 0
     fallback_used: bool = False
 
 
@@ -129,6 +132,7 @@ class LangGraphTravelAgentEngine:
     def __init__(self, settings: Settings, travel_tools: TravelToolProvider) -> None:
         self._llm_client = LLMClient(settings)
         self._langchain_node_runner = LangChainTravelAgentNodeRunner(settings)
+        self._knowledge_retriever = KnowledgeRetriever()
         self._travel_tools = travel_tools
         self._langgraph_available = StateGraph is not None
         self._last_run_trace: TravelAgentRunTrace | None = None
@@ -149,6 +153,7 @@ class LangGraphTravelAgentEngine:
                 "chat_llm",
                 "chat_fallback",
                 "trip_context",
+                "retrieve_knowledge",
                 "trip_draft",
                 "research_agent",
                 "route_budget",
@@ -198,6 +203,7 @@ class LangGraphTravelAgentEngine:
         state = TripPlanningWorkflowState(request=request)
         workflow = self._run_workflow(state, (
             ("trip_context", self._trip_context_node),
+            ("retrieve_knowledge", self._retrieve_knowledge_node),
             ("trip_draft", self._trip_draft_node),
             ("research_agent", lambda current: self._research_agent_node(current, traced_tools)),
             ("route_budget", lambda current: self._route_budget_node(current, traced_tools)),
@@ -415,11 +421,23 @@ class LangGraphTravelAgentEngine:
             meals_by_day=state.meals_by_day,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
+            knowledge_result=state.knowledge_result,
             research_trace=state.research_trace,
             route_budget_trace=state.route_budget_trace,
             final_plan=state.final_plan,
             quality_report=state.quality_report,
+            quality_revision_count=state.quality_revision_count,
             fallback_used=state.fallback_used,
+        )
+
+    def _retrieve_knowledge_node(self, state: TripPlanningWorkflowState) -> TripPlanningWorkflowState:
+        if state.planning_context is None:
+            return state
+        knowledge_result = self._knowledge_retriever.retrieve(state.request, state.planning_context)
+        return _copy_trip_state(
+            state,
+            planning_context=state.planning_context.with_retrieved_knowledge(knowledge_result.hits),
+            knowledge_result=knowledge_result,
         )
 
     def _trip_draft_node(self, state: TripPlanningWorkflowState) -> TripPlanningWorkflowState:
@@ -435,9 +453,11 @@ class LangGraphTravelAgentEngine:
             meals_by_day=state.meals_by_day,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
+            knowledge_result=state.knowledge_result,
             research_trace=state.research_trace,
             route_budget_trace=state.route_budget_trace,
             quality_report=state.quality_report,
+            quality_revision_count=state.quality_revision_count,
             fallback_used=state.fallback_used or draft_plan is None,
         )
 
@@ -501,10 +521,12 @@ class LangGraphTravelAgentEngine:
             meals_by_day=state.meals_by_day,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
+            knowledge_result=state.knowledge_result,
             research_trace=state.research_trace,
             route_budget_trace=state.route_budget_trace,
             final_plan=final_plan,
             quality_report=state.quality_report,
+            quality_revision_count=state.quality_revision_count,
             fallback_used=state.fallback_used,
         )
 
@@ -520,7 +542,7 @@ class LangGraphTravelAgentEngine:
             candidate_plan = build_mock_trip_plan(state.request, travel_tools, state.planning_context)
             fallback_used = True
 
-        final_plan, quality_report = run_plan_quality(
+        final_plan, quality_report, quality_revision_count = _run_bounded_quality_loop(
             candidate_plan,
             state.request,
             travel_tools,
@@ -537,11 +559,13 @@ class LangGraphTravelAgentEngine:
             meals_by_day=state.meals_by_day,
             routes_by_day=state.routes_by_day,
             budget=state.budget,
+            knowledge_result=state.knowledge_result,
             research_trace=state.research_trace,
             route_budget_trace=state.route_budget_trace,
             final_plan=final_plan,
             quality_report=quality_report,
-            fallback_used=fallback_used or quality_report.repaired,
+            quality_revision_count=quality_revision_count,
+            fallback_used=fallback_used or quality_revision_count > 0,
         )
 
     def _day_regeneration_node(self, state: DayRegenerationWorkflowState) -> DayRegenerationWorkflowState:
@@ -636,14 +660,40 @@ def _copy_trip_state(state: TripPlanningWorkflowState, **updates: object) -> Tri
         "meals_by_day": state.meals_by_day,
         "routes_by_day": state.routes_by_day,
         "budget": state.budget,
+        "knowledge_result": state.knowledge_result,
         "research_trace": state.research_trace,
         "route_budget_trace": state.route_budget_trace,
         "final_plan": state.final_plan,
         "quality_report": state.quality_report,
+        "quality_revision_count": state.quality_revision_count,
         "fallback_used": state.fallback_used,
     }
     payload.update(updates)
     return TripPlanningWorkflowState(**payload)
+
+
+def _run_bounded_quality_loop(
+    candidate_plan: TripPlanResponse,
+    request: TripPlanRequest,
+    travel_tools: TravelToolProvider,
+    planning_context: TravelPlanningContext | None,
+) -> tuple[TripPlanResponse, TripPlanQualityReport, int]:
+    current_plan = candidate_plan
+    revision_count = 0
+    final_report: TripPlanQualityReport | None = None
+
+    for attempt in range(3):
+        current_plan, report = run_plan_quality(current_plan, request, travel_tools, planning_context)
+        final_report = report
+        if report.passed or not report.repaired:
+            break
+        if revision_count >= 2 or attempt == 2:
+            break
+        revision_count += 1
+
+    if final_report is None:
+        current_plan, final_report = run_plan_quality(current_plan, request, travel_tools, planning_context)
+    return current_plan, final_report, revision_count
 
 
 def _wrap_workflow_node(
@@ -693,6 +743,11 @@ def _trip_node_events(state: TripPlanningWorkflowState) -> tuple[TravelAgentNode
         if state.draft_plan is None
         else _node_event("trip_draft", "SUCCEEDED", "draft_plan_generated")
     )
+    knowledge_event = (
+        _node_event("retrieve_knowledge", "SUCCEEDED", state.knowledge_result.to_trace_detail())
+        if state.knowledge_result is not None
+        else _node_event("retrieve_knowledge", "SKIPPED", "knowledge_not_available")
+    )
     research_event = (
         _node_event("research_agent", "SUCCEEDED", state.research_trace.to_detail())
         if state.research_trace is not None and state.research_trace.status == "success"
@@ -719,14 +774,19 @@ def _trip_node_events(state: TripPlanningWorkflowState) -> tuple[TravelAgentNode
     validation_event = (
         _node_event(
             "trip_validation",
-            "FALLBACK" if state.quality_report and state.quality_report.repaired else "SUCCEEDED",
-            state.quality_report.to_trace_detail() if state.quality_report else "quality_report_missing",
+            "FALLBACK" if state.quality_revision_count > 0 else "SUCCEEDED",
+            (
+                f"{state.quality_report.to_trace_detail()}; revisions={state.quality_revision_count}"
+                if state.quality_report
+                else "quality_report_missing"
+            ),
             score=state.quality_report.score if state.quality_report else None,
             grade=state.quality_report.grade if state.quality_report else None,
         )
     )
     return (
         context_event,
+        knowledge_event,
         draft_event,
         research_event,
         route_budget_event,

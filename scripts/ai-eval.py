@@ -69,7 +69,7 @@ def _run_case(engine: LangGraphTravelAgentEngine, case: EvalCase) -> dict[str, A
         issues.append("missing_trace")
     else:
         completed = set(trace.completed_nodes)
-        for node in ("trip_context", "research_agent", "route_budget", "planner_agent", "trip_validation"):
+        for node in ("trip_context", "retrieve_knowledge", "research_agent", "route_budget", "planner_agent", "trip_validation"):
             if node not in completed:
                 issues.append(f"missing_node:{node}")
         quality_event = next((event for event in trace.node_events if event.node_name == "trip_validation"), None)
@@ -138,4 +138,3 @@ def _cases() -> list[EvalCase]:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

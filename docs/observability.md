@@ -123,7 +123,7 @@ kubectl set env deployment/travel-gateway -n travel-agent-cloud \
 
 其他服务同理：`travel-auth`、`travel-trip`、`travel-agent`、`travel-mcp`、`agent-runtime`。
 
-后续可以继续补充业务 span，例如 `trip_context`、`research_agent`、`route_budget`、`planner_agent`、`trip_validation` 等 LangGraph 节点级 span。
+后续可以继续补充业务 span，例如 `trip_context`、`retrieve_knowledge`、`research_agent`、`route_budget`、`planner_agent`、`trip_validation` 等 LangGraph 节点级 span。
 
 ## K3s 启动
 

@@ -1,10 +1,18 @@
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
+from typing import Protocol
 
 from app.schemas import TripPlanRequest
 
 
 TERM_SPLIT_PATTERN = re.compile("[,\uFF0C;\uFF1B\u3001|/]+")
+
+
+class PromptKnowledgeHit(Protocol):
+    def to_prompt_line(self) -> str:
+        ...
 
 
 @dataclass(frozen=True)
@@ -19,6 +27,7 @@ class TravelPlanningContext:
     preference_terms: tuple[str, ...]
     style_tags: tuple[str, ...]
     constraints_present: bool
+    retrieved_knowledge: tuple[PromptKnowledgeHit, ...] = ()
 
     @property
     def interest_summary(self) -> str:
@@ -40,6 +49,7 @@ class TravelPlanningContext:
             f"Preferences: {self.preference_summary}",
             f"Style tags: {', '.join(self.style_tags) if self.style_tags else 'general'}",
             f"Additional constraints present: {'yes' if self.constraints_present else 'no'}",
+            *[f"Retrieved knowledge: {hit.to_prompt_line()}" for hit in self.retrieved_knowledge],
         ]
 
     def to_trace_detail(self) -> str:
@@ -47,7 +57,22 @@ class TravelPlanningContext:
         return (
             f"days={self.days}; interests={len(self.interest_terms)}; "
             f"preferences={len(self.preference_terms)}; constraints={'yes' if self.constraints_present else 'no'}; "
-            f"tags={tags}"
+            f"tags={tags}; knowledge={len(self.retrieved_knowledge)}"
+        )
+
+    def with_retrieved_knowledge(self, hits: tuple[PromptKnowledgeHit, ...]) -> "TravelPlanningContext":
+        return TravelPlanningContext(
+            destination=self.destination,
+            days=self.days,
+            budget=self.budget,
+            date_window=self.date_window,
+            transportation=self.transportation,
+            accommodation=self.accommodation,
+            interest_terms=self.interest_terms,
+            preference_terms=self.preference_terms,
+            style_tags=self.style_tags,
+            constraints_present=self.constraints_present,
+            retrieved_knowledge=hits,
         )
 
 
