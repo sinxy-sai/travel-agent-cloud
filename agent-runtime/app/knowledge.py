@@ -40,6 +40,30 @@ class KnowledgeRetrievalResult:
         return f"backend={self.backend};hits={len(self.hits)};types={types}"
 
 
+@dataclass(frozen=True)
+class KnowledgeRecordView:
+    id: str
+    destination: str
+    record_type: str
+    title: str
+    summary: str
+    source: str
+    score: float
+    expires_at: str | None
+
+    def to_dict(self) -> dict[str, str | float | None]:
+        return {
+            "id": self.id,
+            "destination": self.destination,
+            "recordType": self.record_type,
+            "title": self.title,
+            "summary": self.summary,
+            "source": self.source,
+            "score": self.score,
+            "expiresAt": self.expires_at,
+        }
+
+
 class KnowledgeRetriever:
     @property
     def backend(self) -> str:
@@ -50,6 +74,12 @@ class KnowledgeRetriever:
 
     def remember_successful_plan(self, request: TripPlanRequest, plan: TripPlanResponse) -> None:
         return None
+
+    def list_records(self, destination: str | None = None, limit: int = 20) -> tuple[KnowledgeRecordView, ...]:
+        return ()
+
+    def seed_destination_knowledge(self, destination: str) -> int:
+        return 0
 
 
 class StaticKnowledgeRetriever(KnowledgeRetriever):
@@ -154,6 +184,53 @@ class PostgresKnowledgeRetriever(KnowledgeRetriever):
             )
             session.commit()
 
+    def list_records(self, destination: str | None = None, limit: int = 20) -> tuple[KnowledgeRecordView, ...]:
+        limit = max(1, min(limit, 100))
+        with self._session_factory() as session:
+            statement = select(KnowledgeRecord).order_by(KnowledgeRecord.updated_at.desc()).limit(limit)
+            if destination and destination.strip():
+                statement = statement.where(KnowledgeRecord.destination.ilike(destination.strip()))
+            records = list(session.execute(statement).scalars())
+        return tuple(_record_to_view(record) for record in records)
+
+    def seed_destination_knowledge(self, destination: str) -> int:
+        now = datetime.now(UTC)
+        hits = _static_destination_knowledge(destination)
+        inserted = 0
+        with self._session_factory() as session:
+            for hit in hits:
+                existing = session.execute(
+                    select(KnowledgeRecord)
+                    .where(KnowledgeRecord.destination.ilike(destination.strip()))
+                    .where(KnowledgeRecord.record_type == hit.record_type)
+                    .where(KnowledgeRecord.title == hit.title)
+                    .limit(1)
+                ).scalar_one_or_none()
+                if existing is not None:
+                    existing.summary = hit.summary
+                    existing.source = "agent_runtime_seed"
+                    existing.score = max(existing.score, hit.score)
+                    existing.updated_at = now
+                    existing.expires_at = now + timedelta(days=180)
+                    continue
+                session.add(
+                    KnowledgeRecord(
+                        id=str(uuid4()),
+                        destination=destination.strip(),
+                        record_type=hit.record_type,
+                        title=hit.title[:240],
+                        summary=hit.summary,
+                        source="agent_runtime_seed",
+                        score=hit.score,
+                        created_at=now,
+                        updated_at=now,
+                        expires_at=now + timedelta(days=180),
+                    )
+                )
+                inserted += 1
+            session.commit()
+        return inserted
+
 
 def create_knowledge_retriever(settings: Settings) -> KnowledgeRetriever:
     fallback = StaticKnowledgeRetriever()
@@ -167,7 +244,7 @@ def create_knowledge_retriever(settings: Settings) -> KnowledgeRetriever:
 
 def _create_session_factory(database_url: str):
     normalized = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
-    engine = create_engine(normalized, pool_pre_ping=True)
+    engine = create_engine(normalized, pool_pre_ping=True, connect_args={"connect_timeout": 2})
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
@@ -252,6 +329,20 @@ def _dedupe_hits(hits: list[KnowledgeHit]) -> list[KnowledgeHit]:
         seen.add(key)
         deduped.append(hit)
     return deduped
+
+
+def _record_to_view(record: object) -> KnowledgeRecordView:
+    expires_at = getattr(record, "expires_at", None)
+    return KnowledgeRecordView(
+        id=str(getattr(record, "id")),
+        destination=str(getattr(record, "destination")),
+        record_type=str(getattr(record, "record_type")),
+        title=str(getattr(record, "title")),
+        summary=str(getattr(record, "summary")),
+        source=str(getattr(record, "source")),
+        score=float(getattr(record, "score")),
+        expires_at=expires_at.isoformat() if expires_at else None,
+    )
 
 
 def _plan_summary(plan: TripPlanResponse) -> str:

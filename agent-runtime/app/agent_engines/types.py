@@ -242,3 +242,13 @@ class TravelAgentEngine(Protocol):
 
     def revise_trip_plan(self, saved_trip_plan: SavedTripPlan, instruction: str) -> TripPlanResponse:
         ...
+
+    @property
+    def knowledge_backend(self) -> str:
+        ...
+
+    def list_knowledge_records(self, destination: str | None = None, limit: int = 20) -> tuple[dict[str, object], ...]:
+        ...
+
+    def seed_destination_knowledge(self, destination: str) -> int:
+        ...

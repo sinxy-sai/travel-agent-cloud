@@ -178,6 +178,12 @@ class LangGraphTravelAgentEngine:
     def knowledge_backend(self) -> str:
         return self._knowledge_retriever.backend
 
+    def list_knowledge_records(self, destination: str | None = None, limit: int = 20) -> tuple[dict[str, object], ...]:
+        return tuple(record.to_dict() for record in self._knowledge_retriever.list_records(destination, limit))
+
+    def seed_destination_knowledge(self, destination: str) -> int:
+        return self._knowledge_retriever.seed_destination_knowledge(destination)
+
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         started_at = _utc_timestamp()
         started = perf_counter()

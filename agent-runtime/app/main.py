@@ -81,6 +81,29 @@ def agent_tools() -> dict[str, object]:
     return _travel_tool_catalog()
 
 
+@app.get("/api/v1/agent/knowledge")
+def agent_knowledge(
+    destination: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> dict[str, object]:
+    records = travel_agent_service.list_knowledge_records(destination, limit)
+    return {
+        "backend": travel_agent_service.knowledge_backend,
+        "count": len(records),
+        "records": list(records),
+    }
+
+
+@app.post("/api/v1/agent/knowledge/seed")
+def seed_agent_knowledge(destination: str = Query(min_length=1, max_length=120)) -> dict[str, object]:
+    inserted = travel_agent_service.seed_destination_knowledge(destination)
+    return {
+        "backend": travel_agent_service.knowledge_backend,
+        "destination": destination,
+        "inserted": inserted,
+    }
+
+
 @app.get("/api/v1/agent/diagnostics")
 def agent_diagnostics() -> dict[str, object]:
     capabilities = travel_agent_service.engine_capabilities

@@ -56,6 +56,12 @@ class TravelAgentService:
     def knowledge_backend(self) -> str:
         return str(getattr(self._engine, "knowledge_backend", "disabled"))
 
+    def list_knowledge_records(self, destination: str | None = None, limit: int = 20) -> tuple[dict[str, object], ...]:
+        return self._engine.list_knowledge_records(destination, limit)
+
+    def seed_destination_knowledge(self, destination: str) -> int:
+        return self._engine.seed_destination_knowledge(destination)
+
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         return self._engine.generate_chat_reply(request, messages)
 

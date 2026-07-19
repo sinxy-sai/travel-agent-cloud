@@ -254,6 +254,16 @@ class BasicTravelAgentEngine:
         ))
         return response
 
+    @property
+    def knowledge_backend(self) -> str:
+        return "disabled"
+
+    def list_knowledge_records(self, destination: str | None = None, limit: int = 20) -> tuple[dict[str, object], ...]:
+        return ()
+
+    def seed_destination_knowledge(self, destination: str) -> int:
+        return 0
+
     def _record_trace(self, trace: TravelAgentRunTrace) -> None:
         self._last_run_trace = trace
         self._recent_run_traces.insert(0, trace)
