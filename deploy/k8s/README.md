@@ -83,7 +83,7 @@ docker.io/sinxysai/travel-agent-cloud-mcp:latest
 | `travel-auth-secrets` | 用户认证、邮箱、OAuth、auth 数据库连接 |
 | `travel-trip-secrets` | 行程服务数据库连接和用户 token 校验 |
 | `travel-agent-secrets` | 会话服务数据库连接和 RabbitMQ 连接 |
-| `agent-runtime-secrets` | LLM、Agent Runtime 内部 token 和用户 token 校验 |
+| `agent-runtime-secrets` | LLM、Agent Runtime 内部 token、用户 token 校验和 RAG 数据库连接 |
 | `travel-mcp-secrets` | 高德 Web Service key |
 | `observability-secrets` | Grafana 管理员密码 |
 
@@ -91,7 +91,7 @@ docker.io/sinxysai/travel-agent-cloud-mcp:latest
 
 - `AUTH_SECRET_KEY`：`travel-auth-secrets`、`travel-trip-secrets`、`travel-agent-secrets`、`agent-runtime-secrets`
 - `INTERNAL_SERVICE_TOKEN`：`travel-gateway-secrets`、`travel-auth-secrets`、`travel-trip-secrets`、`travel-agent-secrets`、`agent-runtime-secrets`
-- `DATABASE_URL`：`travel-auth-secrets`、`travel-trip-secrets`、`travel-agent-secrets`
+- `DATABASE_URL`：`travel-auth-secrets`、`travel-trip-secrets`、`travel-agent-secrets`、`agent-runtime-secrets`
 - `MESSAGE_QUEUE_URL`：`travel-agent-secrets`
 
 不要只 apply 单个 key 到已有 Secret，否则会覆盖并删除该 Secret 的其他 key。更新 Secret 时应使用完整 key 集合。
@@ -195,6 +195,7 @@ kubectl create secret generic travel-agent-secrets \
 ```bash
 kubectl create secret generic agent-runtime-secrets \
   -n travel-agent-cloud \
+  --from-literal=DATABASE_URL='postgresql://travel_agent:postgres-password@postgres:5432/travel_agent_cloud' \
   --from-literal=INTERNAL_SERVICE_TOKEN='same-internal-service-token' \
   --from-literal=AUTH_SECRET_KEY='same-auth-secret-key' \
   --from-literal=LLM_PROVIDER='openai_compatible' \

@@ -20,7 +20,7 @@ from app.agent_engines.types import (
     TravelAgentToolCall,
 )
 from app.llm import LLMClient
-from app.knowledge import KnowledgeRetrievalResult, KnowledgeRetriever
+from app.knowledge import KnowledgeRetrievalResult, KnowledgeRetriever, create_knowledge_retriever
 from app.plan_quality import TripPlanQualityReport
 from app.planning_context import TravelPlanningContext, build_travel_planning_context
 from app.planner import (
@@ -132,7 +132,7 @@ class LangGraphTravelAgentEngine:
     def __init__(self, settings: Settings, travel_tools: TravelToolProvider) -> None:
         self._llm_client = LLMClient(settings)
         self._langchain_node_runner = LangChainTravelAgentNodeRunner(settings)
-        self._knowledge_retriever = KnowledgeRetriever()
+        self._knowledge_retriever = create_knowledge_retriever(settings)
         self._travel_tools = travel_tools
         self._langgraph_available = StateGraph is not None
         self._last_run_trace: TravelAgentRunTrace | None = None
@@ -174,6 +174,10 @@ class LangGraphTravelAgentEngine:
     def recent_run_traces(self) -> tuple[TravelAgentRunTrace, ...]:
         return tuple(self._recent_run_traces)
 
+    @property
+    def knowledge_backend(self) -> str:
+        return self._knowledge_retriever.backend
+
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         started_at = _utc_timestamp()
         started = perf_counter()
@@ -212,6 +216,10 @@ class LangGraphTravelAgentEngine:
         ))
         state = workflow.state
         response = state.final_plan or build_mock_trip_plan(request, traced_tools, state.planning_context)
+        try:
+            self._knowledge_retriever.remember_successful_plan(request, response)
+        except Exception:
+            pass
         self._record_trace(self._build_trace(
             operation="trip_plan",
             completed_nodes=workflow.completed_nodes,

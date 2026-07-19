@@ -75,6 +75,8 @@ def _run_case(engine: LangGraphTravelAgentEngine, case: EvalCase) -> dict[str, A
         quality_event = next((event for event in trace.node_events if event.node_name == "trip_validation"), None)
         if quality_event is None or quality_event.score is None or not quality_event.grade:
             issues.append("missing_quality_score")
+        if _rag_backend(trace) in {"missing", "unknown"}:
+            issues.append("missing_rag_backend")
 
     return {
         "name": case.name,
@@ -84,6 +86,7 @@ def _run_case(engine: LangGraphTravelAgentEngine, case: EvalCase) -> dict[str, A
         "title": plan.title,
         "qualityScore": _latest_quality_score(trace),
         "fallbackUsed": bool(trace and trace.fallback_used),
+        "ragBackend": _rag_backend(trace),
     }
 
 
@@ -92,6 +95,19 @@ def _latest_quality_score(trace: Any) -> int | None:
         return None
     event = next((item for item in trace.node_events if item.node_name == "trip_validation"), None)
     return event.score if event else None
+
+
+def _rag_backend(trace: Any) -> str:
+    if trace is None:
+        return "missing"
+    event = next((item for item in trace.node_events if item.node_name == "retrieve_knowledge"), None)
+    if event is None:
+        return "missing"
+    detail = event.detail or ""
+    prefix = "backend="
+    if detail.startswith(prefix):
+        return detail[len(prefix):].split(";", 1)[0]
+    return "unknown"
 
 
 def _cases() -> list[EvalCase]:

@@ -54,6 +54,8 @@ def health() -> dict[str, str | bool | dict[str, bool | str | list[str]]]:
         "agentEngine": travel_agent_service.engine_name,
         "agentEngineCapabilities": travel_agent_service.engine_capabilities.to_dict(),
         "travelToolsProvider": travel_tool_provider.name,
+        "ragEnabled": settings.rag_enabled,
+        "ragBackend": travel_agent_service.knowledge_backend,
     }
 
 
@@ -70,6 +72,7 @@ def agent_status() -> dict[str, object]:
         "qualitySummary": travel_agent_service.quality_summary.to_dict(),
         "toolCallSummary": travel_agent_service.tool_call_summary.to_dict(),
         "toolCatalog": _travel_tool_catalog(),
+        "ragBackend": travel_agent_service.knowledge_backend,
     }
 
 
@@ -107,6 +110,7 @@ def agent_diagnostics() -> dict[str, object]:
         "statusCounts": status_counts,
         "capabilities": capabilities.to_dict(),
         "toolCatalog": tool_catalog,
+        "ragBackend": travel_agent_service.knowledge_backend,
         "runSummary": run_summary.to_dict(),
         "qualitySummary": quality_summary.to_dict(),
         "lastRunTrace": last_run_trace.to_dict() if last_run_trace else None,

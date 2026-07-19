@@ -182,6 +182,9 @@ services:
     container_name: runtime
     env_file:
       - ./agent-runtime/.env
+    environment:
+      DATABASE_URL: ${AGENT_RUNTIME_DATABASE_URL:-postgresql://travel_agent:travel_agent_dev@postgres:5432/travel_agent_cloud}
+      RAG_ENABLED: ${AGENT_RUNTIME_RAG_ENABLED:-true}
     ports:
       - "8000:8000"
     depends_on:

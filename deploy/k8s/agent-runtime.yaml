@@ -30,6 +30,8 @@ spec:
               value: INFO
             - name: RPC_TIMEOUT_SECONDS
               value: "5"
+            - name: RAG_ENABLED
+              value: "true"
             - name: AGENT_ENGINE
               value: langgraph
             - name: TRAVEL_TOOL_PROVIDER
@@ -47,6 +49,12 @@ spec:
                 secretKeyRef:
                   name: agent-runtime-secrets
                   key: INTERNAL_SERVICE_TOKEN
+                  optional: true
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: agent-runtime-secrets
+                  key: DATABASE_URL
                   optional: true
             - name: LLM_PROVIDER
               valueFrom:

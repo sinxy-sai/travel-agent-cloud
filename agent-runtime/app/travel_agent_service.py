@@ -52,6 +52,10 @@ class TravelAgentService:
     def llm_enabled(self) -> bool:
         return self._engine.llm_enabled
 
+    @property
+    def knowledge_backend(self) -> str:
+        return str(getattr(self._engine, "knowledge_backend", "disabled"))
+
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         return self._engine.generate_chat_reply(request, messages)
 

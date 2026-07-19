@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from app.planning_context import TravelPlanningContext
-from app.schemas import TripPlanRequest
+from app.schemas import TripPlanRequest, TripPlanResponse
+from app.settings import Settings
+
+try:
+    from sqlalchemy import DateTime, Float, Index, String, Text, create_engine, or_, select
+    from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+except ImportError:  # pragma: no cover - optional in local lightweight evals.
+    DateTime = Float = Index = String = Text = None
+    create_engine = or_ = select = None
+    DeclarativeBase = object
+    Mapped = mapped_column = sessionmaker = Session = None
 
 
 @dataclass(frozen=True)
@@ -21,28 +33,164 @@ class KnowledgeHit:
 @dataclass(frozen=True)
 class KnowledgeRetrievalResult:
     hits: tuple[KnowledgeHit, ...]
+    backend: str = "static"
 
     def to_trace_detail(self) -> str:
         types = ",".join(hit.record_type for hit in self.hits[:5]) if self.hits else "none"
-        return f"hits={len(self.hits)};types={types}"
+        return f"backend={self.backend};hits={len(self.hits)};types={types}"
 
 
 class KnowledgeRetriever:
-    """Replaceable retrieval adapter.
-
-    The first implementation is deterministic and local. It gives the workflow
-    a stable RAG boundary without adding a database or vector dependency yet.
-    """
+    @property
+    def backend(self) -> str:
+        return "unknown"
 
     def retrieve(self, request: TripPlanRequest, context: TravelPlanningContext) -> KnowledgeRetrievalResult:
-        candidates = _static_destination_knowledge(request.destination)
-        scored = sorted(
-            ((_score_hit(hit, context), hit) for hit in candidates),
-            key=lambda item: item[0],
-            reverse=True,
+        raise NotImplementedError
+
+    def remember_successful_plan(self, request: TripPlanRequest, plan: TripPlanResponse) -> None:
+        return None
+
+
+class StaticKnowledgeRetriever(KnowledgeRetriever):
+    @property
+    def backend(self) -> str:
+        return "static"
+
+    def retrieve(self, request: TripPlanRequest, context: TravelPlanningContext) -> KnowledgeRetrievalResult:
+        hits = _static_hits(request, context)
+        return KnowledgeRetrievalResult(hits=hits, backend="static")
+
+
+if create_engine is not None:
+    class Base(DeclarativeBase):
+        pass
+
+
+    class KnowledgeRecord(Base):
+        __tablename__ = "agent_knowledge_records"
+        __table_args__ = (
+            Index("ix_agent_knowledge_records_destination_record_type", "destination", "record_type"),
+            Index("ix_agent_knowledge_records_expires_at", "expires_at"),
         )
-        hits = tuple(hit for score, hit in scored if score > 0)[:5]
-        return KnowledgeRetrievalResult(hits=hits)
+
+        id: Mapped[str] = mapped_column(String(80), primary_key=True)
+        destination: Mapped[str] = mapped_column(String(120), index=True)
+        record_type: Mapped[str] = mapped_column(String(80), index=True)
+        title: Mapped[str] = mapped_column(String(240))
+        summary: Mapped[str] = mapped_column(Text)
+        source: Mapped[str] = mapped_column(String(120), default="agent_runtime")
+        score: Mapped[float] = mapped_column(Float, default=0.5)
+        created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+        updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+        expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+else:
+    Base = object
+    KnowledgeRecord = None
+
+
+class PostgresKnowledgeRetriever(KnowledgeRetriever):
+    def __init__(self, database_url: str, fallback: KnowledgeRetriever | None = None) -> None:
+        if create_engine is None or sessionmaker is None or KnowledgeRecord is None:
+            raise RuntimeError("SQLAlchemy is not installed")
+        self._fallback = fallback or StaticKnowledgeRetriever()
+        self._session_factory = _create_session_factory(database_url)
+
+    @property
+    def backend(self) -> str:
+        return "postgres"
+
+    def retrieve(self, request: TripPlanRequest, context: TravelPlanningContext) -> KnowledgeRetrievalResult:
+        now = datetime.now(UTC)
+        static_hits = list(self._fallback.retrieve(request, context).hits)
+        with self._session_factory() as session:
+            filters = [
+                KnowledgeRecord.destination.ilike(request.destination.strip()),
+                or_(KnowledgeRecord.expires_at.is_(None), KnowledgeRecord.expires_at > now),
+            ]
+            keyword_filters = _keyword_filters(context)
+            if keyword_filters is not None:
+                filters.append(keyword_filters)
+            records = list(
+                session.execute(
+                    select(KnowledgeRecord)
+                    .where(*filters)
+                    .order_by(KnowledgeRecord.score.desc(), KnowledgeRecord.updated_at.desc())
+                    .limit(8)
+                ).scalars()
+            )
+        db_hits = [
+            KnowledgeHit(
+                record_type=record.record_type,
+                title=record.title,
+                summary=record.summary[:700],
+                source=record.source,
+                score=record.score,
+            )
+            for record in records
+        ]
+        return KnowledgeRetrievalResult(hits=tuple(_dedupe_hits([*db_hits, *static_hits])[:5]), backend="postgres")
+
+    def remember_successful_plan(self, request: TripPlanRequest, plan: TripPlanResponse) -> None:
+        if not plan.days:
+            return
+        now = datetime.now(UTC)
+        title = f"{request.destination} {request.days}-day itinerary summary"
+        summary = _plan_summary(plan)
+        with self._session_factory() as session:
+            session.add(
+                KnowledgeRecord(
+                    id=str(uuid4()),
+                    destination=request.destination.strip(),
+                    record_type="itinerary_summary",
+                    title=title[:240],
+                    summary=summary,
+                    source="agent_runtime_successful_plan",
+                    score=0.6,
+                    created_at=now,
+                    updated_at=now,
+                    expires_at=now + timedelta(days=90),
+                )
+            )
+            session.commit()
+
+
+def create_knowledge_retriever(settings: Settings) -> KnowledgeRetriever:
+    fallback = StaticKnowledgeRetriever()
+    if not settings.rag_enabled or not settings.database_url.strip():
+        return fallback
+    try:
+        return PostgresKnowledgeRetriever(settings.database_url, fallback)
+    except Exception:
+        return fallback
+
+
+def _create_session_factory(database_url: str):
+    normalized = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    engine = create_engine(normalized, pool_pre_ping=True)
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+
+def _keyword_filters(context: TravelPlanningContext):
+    terms = [*context.interest_terms, *context.preference_terms, *context.style_tags]
+    clauses = []
+    for term in terms[:8]:
+        normalized = term.strip()
+        if not normalized:
+            continue
+        pattern = f"%{normalized}%"
+        clauses.extend((KnowledgeRecord.title.ilike(pattern), KnowledgeRecord.summary.ilike(pattern)))
+    return or_(*clauses) if clauses else None
+
+
+def _static_hits(request: TripPlanRequest, context: TravelPlanningContext) -> tuple[KnowledgeHit, ...]:
+    scored = sorted(
+        ((_score_hit(hit, context), hit) for hit in _static_destination_knowledge(request.destination)),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    return tuple(hit for score, hit in scored if score > 0)[:5]
 
 
 def _static_destination_knowledge(destination: str) -> tuple[KnowledgeHit, ...]:
@@ -92,3 +240,21 @@ def _score_hit(hit: KnowledgeHit, context: TravelPlanningContext) -> float:
         if term.lower() in text:
             score += 0.2
     return score
+
+
+def _dedupe_hits(hits: list[KnowledgeHit]) -> list[KnowledgeHit]:
+    deduped: list[KnowledgeHit] = []
+    seen: set[str] = set()
+    for hit in hits:
+        key = f"{hit.record_type}:{hit.title.lower()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(hit)
+    return deduped
+
+
+def _plan_summary(plan: TripPlanResponse) -> str:
+    day_themes = "; ".join(f"D{day.day}: {day.theme}" for day in plan.days[:8])
+    tips = "; ".join(plan.tips[:3])
+    return f"{plan.summary[:700]} Themes: {day_themes}. Tips: {tips}"[:1600]

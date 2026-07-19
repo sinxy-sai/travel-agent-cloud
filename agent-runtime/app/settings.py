@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     app_env: str = "local"
     allowed_origins: str = "http://localhost:5173"
     rpc_timeout_seconds: float = 5.0
+    database_url: str = ""
+    rag_enabled: bool = True
     auth_secret_key: str = "travel-agent-cloud-local-dev-secret"
     llm_provider: str = "mock"
     llm_api_key: str = ""
