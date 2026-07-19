@@ -7,7 +7,15 @@ from app.agent_engines.types import (
     TravelAgentRunTrace,
     TravelAgentToolCallSummary,
 )
-from app.schemas import ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
+from app.schemas import (
+    ChatMessage,
+    ChatRequest,
+    KnowledgeRecordCreateRequest,
+    SavedTripPlan,
+    TripDay,
+    TripPlanRequest,
+    TripPlanResponse,
+)
 from app.settings import Settings
 from app.travel_tools import TravelToolProvider
 
@@ -61,6 +69,12 @@ class TravelAgentService:
 
     def seed_destination_knowledge(self, destination: str) -> int:
         return self._engine.seed_destination_knowledge(destination)
+
+    def create_knowledge_record(self, request: KnowledgeRecordCreateRequest) -> dict[str, object]:
+        return self._engine.create_knowledge_record(request)
+
+    def delete_knowledge_record(self, record_id: str) -> bool:
+        return self._engine.delete_knowledge_record(record_id)
 
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         return self._engine.generate_chat_reply(request, messages)

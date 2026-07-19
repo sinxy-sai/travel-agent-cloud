@@ -243,3 +243,21 @@ class ChatResponse(APIModel):
     conversation_id: str
     message: ChatMessage
     suggestions: list[str]
+
+
+class KnowledgeRecordCreateRequest(APIModel):
+    destination: str = Field(min_length=1, max_length=120)
+    record_type: str = Field(default="destination_note", min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=240)
+    summary: str = Field(min_length=1, max_length=2000)
+    source: str = Field(default="manual", min_length=1, max_length=120)
+    score: float = Field(default=0.5, ge=0, le=1)
+    expires_in_days: int | None = Field(default=180, ge=1, le=1095)
+
+    @field_validator("destination", "record_type", "title", "summary", "source")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("Value is required")
+        return normalized

@@ -120,6 +120,12 @@ if (-not ($health.PSObject.Properties.Name -contains "agentEngineCapabilities"))
 if (-not ($health.PSObject.Properties.Name -contains "travelToolsProvider")) {
   throw "Health API did not return travelToolsProvider"
 }
+if (-not ($health.PSObject.Properties.Name -contains "ragEnabled")) {
+  throw "Health API did not return ragEnabled"
+}
+if (-not ($health.PSObject.Properties.Name -contains "ragBackend")) {
+  throw "Health API did not return ragBackend"
+}
 $agentStatus = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/status"
 if (-not $agentStatus.engine -or -not $agentStatus.capabilities) {
   throw "Agent status API did not return engine capabilities"
@@ -129,6 +135,9 @@ if (-not $agentStatus.toolCatalog -or -not $agentStatus.toolCatalog.tools -or $a
 }
 if (-not $agentStatus.qualitySummary -or -not ($agentStatus.qualitySummary.PSObject.Properties.Name -contains "scoredRuns")) {
   throw "Agent status API did not return quality summary"
+}
+if (-not ($agentStatus.PSObject.Properties.Name -contains "ragBackend")) {
+  throw "Agent status API did not return ragBackend"
 }
 $agentTools = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/tools"
 if (-not $agentTools.provider -or -not $agentTools.tools -or $agentTools.toolCount -lt 1) {
@@ -146,6 +155,41 @@ if (-not $agentDiagnostics.toolCatalog -or $agentDiagnostics.toolCatalog.toolCou
 }
 if (-not $agentDiagnostics.qualitySummary -or -not ($agentDiagnostics.qualitySummary.PSObject.Properties.Name -contains "averageScore")) {
   throw "Agent diagnostics API did not include quality summary"
+}
+if (-not ($agentDiagnostics.PSObject.Properties.Name -contains "ragBackend")) {
+  throw "Agent diagnostics API did not return ragBackend"
+}
+$knowledgeList = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/knowledge?destination=Chengdu&limit=5"
+if (-not $knowledgeList.backend -or -not ($knowledgeList.PSObject.Properties.Name -contains "records")) {
+  throw "Agent knowledge API did not return backend and records"
+}
+$seededKnowledge = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/knowledge/seed?destination=Chengdu" -Method Post -Headers $headers
+if ($seededKnowledge.destination -ne "Chengdu" -or -not ($seededKnowledge.PSObject.Properties.Name -contains "inserted")) {
+  throw "Agent knowledge seed API did not return seed metadata"
+}
+if ($seededKnowledge.backend -eq "postgres") {
+  $manualKnowledgeBody = @{
+    destination = "Chengdu"
+    recordType = "destination_note"
+    title = "Smoke test Chengdu knowledge"
+    summary = "Use this record to verify manual RAG write and delete through the gateway."
+    source = "smoke_test"
+    score = 0.6
+    expiresInDays = 7
+  } | ConvertTo-Json
+  $createdKnowledge = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/knowledge" -Method Post -ContentType "application/json" -Headers $headers -Body $manualKnowledgeBody
+  if (-not $createdKnowledge.record.id -or $createdKnowledge.record.title -ne "Smoke test Chengdu knowledge") {
+    throw "Agent knowledge create API did not return the created record"
+  }
+  $knowledgeAfterCreate = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/knowledge?destination=Chengdu&limit=20"
+  if (-not ($knowledgeAfterCreate.records | Where-Object { $_.id -eq $createdKnowledge.record.id })) {
+    throw "Agent knowledge list API did not include the created record"
+  }
+  Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/knowledge/$($createdKnowledge.record.id)" -Method Delete -Headers $headers
+  $knowledgeAfterDelete = Invoke-RestMethod -Uri "$BaseUrl/api/v1/agent/knowledge?destination=Chengdu&limit=20"
+  if ($knowledgeAfterDelete.records | Where-Object { $_.id -eq $createdKnowledge.record.id }) {
+    throw "Agent knowledge delete API did not remove the created record"
+  }
 }
 
 Write-Host "Preparing anonymous local data"

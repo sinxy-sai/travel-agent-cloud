@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from app.planning_context import TravelPlanningContext
-from app.schemas import TripPlanRequest, TripPlanResponse
+from app.schemas import KnowledgeRecordCreateRequest, TripPlanRequest, TripPlanResponse
 from app.settings import Settings
 
 try:
@@ -80,6 +80,12 @@ class KnowledgeRetriever:
 
     def seed_destination_knowledge(self, destination: str) -> int:
         return 0
+
+    def create_record(self, request: KnowledgeRecordCreateRequest) -> KnowledgeRecordView:
+        raise RuntimeError("Knowledge backend is read-only")
+
+    def delete_record(self, record_id: str) -> bool:
+        return False
 
 
 class StaticKnowledgeRetriever(KnowledgeRetriever):
@@ -230,6 +236,39 @@ class PostgresKnowledgeRetriever(KnowledgeRetriever):
                 inserted += 1
             session.commit()
         return inserted
+
+    def create_record(self, request: KnowledgeRecordCreateRequest) -> KnowledgeRecordView:
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(days=request.expires_in_days) if request.expires_in_days else None
+        record = KnowledgeRecord(
+            id=str(uuid4()),
+            destination=request.destination,
+            record_type=request.record_type,
+            title=request.title[:240],
+            summary=request.summary[:2000],
+            source=request.source,
+            score=request.score,
+            created_at=now,
+            updated_at=now,
+            expires_at=expires_at,
+        )
+        with self._session_factory() as session:
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+            return _record_to_view(record)
+
+    def delete_record(self, record_id: str) -> bool:
+        normalized_id = record_id.strip()
+        if not normalized_id:
+            return False
+        with self._session_factory() as session:
+            record = session.get(KnowledgeRecord, normalized_id)
+            if record is None:
+                return False
+            session.delete(record)
+            session.commit()
+            return True
 
 
 def create_knowledge_retriever(settings: Settings) -> KnowledgeRetriever:

@@ -38,6 +38,7 @@ from app.schemas import (
     ChatMessage,
     ChatRequest,
     Hotel,
+    KnowledgeRecordCreateRequest,
     Meal,
     RouteLeg,
     SavedTripPlan,
@@ -183,6 +184,12 @@ class LangGraphTravelAgentEngine:
 
     def seed_destination_knowledge(self, destination: str) -> int:
         return self._knowledge_retriever.seed_destination_knowledge(destination)
+
+    def create_knowledge_record(self, request: KnowledgeRecordCreateRequest) -> dict[str, object]:
+        return self._knowledge_retriever.create_record(request).to_dict()
+
+    def delete_knowledge_record(self, record_id: str) -> bool:
+        return self._knowledge_retriever.delete_record(record_id)
 
     def generate_chat_reply(self, request: ChatRequest, messages: list[ChatMessage]) -> str:
         started_at = _utc_timestamp()

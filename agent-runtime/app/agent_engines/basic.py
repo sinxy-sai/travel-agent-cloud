@@ -20,7 +20,16 @@ from app.planner import (
     trip_plan_request_from_saved,
 )
 from app.progress import notify_trip_plan_progress
-from app.schemas import AgentMode, ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
+from app.schemas import (
+    AgentMode,
+    ChatMessage,
+    ChatRequest,
+    KnowledgeRecordCreateRequest,
+    SavedTripPlan,
+    TripDay,
+    TripPlanRequest,
+    TripPlanResponse,
+)
 from app.settings import Settings
 from app.travel_tools import TravelToolProvider
 
@@ -263,6 +272,12 @@ class BasicTravelAgentEngine:
 
     def seed_destination_knowledge(self, destination: str) -> int:
         return 0
+
+    def create_knowledge_record(self, request: KnowledgeRecordCreateRequest) -> dict[str, object]:
+        raise RuntimeError("Knowledge backend is disabled for the basic engine")
+
+    def delete_knowledge_record(self, record_id: str) -> bool:
+        return False
 
     def _record_trace(self, trace: TravelAgentRunTrace) -> None:
         self._last_run_trace = trace

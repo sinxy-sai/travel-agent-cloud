@@ -246,6 +246,8 @@ async def _gateway_health_payload() -> dict[str, Any]:
         "agentEngine": str(runtime.get("agentEngine", "unknown")),
         "agentEngineCapabilities": runtime.get("agentEngineCapabilities", {}),
         "travelToolsProvider": str(runtime.get("travelToolsProvider", "unknown")),
+        "ragEnabled": bool(runtime.get("ragEnabled", False)),
+        "ragBackend": str(runtime.get("ragBackend", "unknown")),
         "upstreams": checks,
     }
 

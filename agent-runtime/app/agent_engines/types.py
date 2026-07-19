@@ -1,7 +1,15 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from app.schemas import ChatMessage, ChatRequest, SavedTripPlan, TripDay, TripPlanRequest, TripPlanResponse
+from app.schemas import (
+    ChatMessage,
+    ChatRequest,
+    KnowledgeRecordCreateRequest,
+    SavedTripPlan,
+    TripDay,
+    TripPlanRequest,
+    TripPlanResponse,
+)
 
 
 @dataclass(frozen=True)
@@ -251,4 +259,10 @@ class TravelAgentEngine(Protocol):
         ...
 
     def seed_destination_knowledge(self, destination: str) -> int:
+        ...
+
+    def create_knowledge_record(self, request: KnowledgeRecordCreateRequest) -> dict[str, object]:
+        ...
+
+    def delete_knowledge_record(self, record_id: str) -> bool:
         ...

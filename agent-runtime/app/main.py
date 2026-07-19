@@ -11,6 +11,7 @@ from app.schemas import (
     ChatRequest,
     ChatResponse,
     ChatMessage,
+    KnowledgeRecordCreateRequest,
     MessageRole,
     RuntimeTripDayRegenerateRequest,
     RuntimeTripPlanReviseRequest,
@@ -22,7 +23,7 @@ from app.settings import get_settings
 from app.tracing import add_tracing
 from app.travel_agent_service import TravelAgentService
 from app.travel_tools import create_travel_tool_provider
-from app.users import get_user_id
+from app.users import DEFAULT_USER_ID, get_user_id
 
 settings = get_settings()
 configure_logging(settings)
@@ -95,13 +96,58 @@ def agent_knowledge(
 
 
 @app.post("/api/v1/agent/knowledge/seed")
-def seed_agent_knowledge(destination: str = Query(min_length=1, max_length=120)) -> dict[str, object]:
+def seed_agent_knowledge(
+    destination: str = Query(min_length=1, max_length=120),
+    user_id: str = Depends(get_user_id),
+) -> dict[str, object]:
+    _require_non_anonymous_user(user_id)
     inserted = travel_agent_service.seed_destination_knowledge(destination)
     return {
         "backend": travel_agent_service.knowledge_backend,
         "destination": destination,
         "inserted": inserted,
     }
+
+
+@app.post("/api/v1/agent/knowledge", status_code=status.HTTP_201_CREATED)
+def create_agent_knowledge_record(
+    request: KnowledgeRecordCreateRequest,
+    user_id: str = Depends(get_user_id),
+) -> dict[str, object]:
+    _require_non_anonymous_user(user_id)
+    try:
+        record = travel_agent_service.create_knowledge_record(request)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "KNOWLEDGE_BACKEND_UNAVAILABLE", "message": str(exc)},
+        ) from exc
+    return {
+        "backend": travel_agent_service.knowledge_backend,
+        "record": record,
+    }
+
+
+@app.delete("/api/v1/agent/knowledge/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_agent_knowledge_record(
+    record_id: str = Path(min_length=1, max_length=120),
+    user_id: str = Depends(get_user_id),
+) -> None:
+    _require_non_anonymous_user(user_id)
+    deleted = travel_agent_service.delete_knowledge_record(record_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "KNOWLEDGE_RECORD_NOT_FOUND", "message": "Knowledge record not found"},
+        )
+
+
+def _require_non_anonymous_user(user_id: str) -> None:
+    if not user_id or user_id == DEFAULT_USER_ID:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "NOT_AUTHENTICATED", "message": "Not authenticated"},
+        )
 
 
 @app.get("/api/v1/agent/diagnostics")

@@ -59,6 +59,16 @@ if [ "${HAS_TRAVEL_TOOLS_PROVIDER_FIELD}" != "yes" ]; then
   echo "Health API did not return travelToolsProvider" >&2
   exit 1
 fi
+HAS_RAG_ENABLED_FIELD="$(printf '%s' "${HEALTH_JSON}" | python3 -c 'import json, sys; print("yes" if "ragEnabled" in json.load(sys.stdin) else "no")')"
+if [ "${HAS_RAG_ENABLED_FIELD}" != "yes" ]; then
+  echo "Health API did not return ragEnabled" >&2
+  exit 1
+fi
+HAS_RAG_BACKEND_FIELD="$(printf '%s' "${HEALTH_JSON}" | python3 -c 'import json, sys; print("yes" if "ragBackend" in json.load(sys.stdin) else "no")')"
+if [ "${HAS_RAG_BACKEND_FIELD}" != "yes" ]; then
+  echo "Health API did not return ragBackend" >&2
+  exit 1
+fi
 AGENT_STATUS_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/status")"
 HAS_AGENT_STATUS_ENGINE="$(printf '%s' "${AGENT_STATUS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); print("yes" if data.get("engine") and data.get("capabilities") else "no")')"
 if [ "${HAS_AGENT_STATUS_ENGINE}" != "yes" ]; then
@@ -75,6 +85,11 @@ if [ "${HAS_AGENT_STATUS_QUALITY_SUMMARY}" != "yes" ]; then
   echo "Agent status API did not return quality summary" >&2
   exit 1
 fi
+HAS_AGENT_STATUS_RAG_BACKEND="$(printf '%s' "${AGENT_STATUS_JSON}" | python3 -c 'import json, sys; print("yes" if "ragBackend" in json.load(sys.stdin) else "no")')"
+if [ "${HAS_AGENT_STATUS_RAG_BACKEND}" != "yes" ]; then
+  echo "Agent status API did not return ragBackend" >&2
+  exit 1
+fi
 AGENT_TOOLS_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/tools")"
 HAS_AGENT_TOOLS="$(printf '%s' "${AGENT_TOOLS_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); print("yes" if data.get("provider") and data.get("tools") and data.get("toolCount", 0) > 0 else "no")')"
 if [ "${HAS_AGENT_TOOLS}" != "yes" ]; then
@@ -86,6 +101,52 @@ HAS_AGENT_DIAGNOSTICS="$(printf '%s' "${AGENT_DIAGNOSTICS_JSON}" | python3 -c 'i
 if [ "${HAS_AGENT_DIAGNOSTICS}" != "yes" ]; then
   echo "Agent diagnostics API did not return checks" >&2
   exit 1
+fi
+HAS_AGENT_DIAGNOSTICS_RAG_BACKEND="$(printf '%s' "${AGENT_DIAGNOSTICS_JSON}" | python3 -c 'import json, sys; print("yes" if "ragBackend" in json.load(sys.stdin) else "no")')"
+if [ "${HAS_AGENT_DIAGNOSTICS_RAG_BACKEND}" != "yes" ]; then
+  echo "Agent diagnostics API did not return ragBackend" >&2
+  exit 1
+fi
+KNOWLEDGE_LIST_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/knowledge?destination=Chengdu&limit=5")"
+KNOWLEDGE_LIST_VALID="$(printf '%s' "${KNOWLEDGE_LIST_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); print("yes" if data.get("backend") and "records" in data else "no")')"
+if [ "${KNOWLEDGE_LIST_VALID}" != "yes" ]; then
+  echo "Agent knowledge API did not return backend and records" >&2
+  exit 1
+fi
+SEEDED_KNOWLEDGE_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/agent/knowledge/seed?destination=Chengdu" \
+  -H "X-User-Id: ${USER_ID}")"
+SEEDED_KNOWLEDGE_VALID="$(printf '%s' "${SEEDED_KNOWLEDGE_JSON}" | python3 -c 'import json, sys; data=json.load(sys.stdin); print("yes" if data.get("destination") == "Chengdu" and "inserted" in data else "no")')"
+if [ "${SEEDED_KNOWLEDGE_VALID}" != "yes" ]; then
+  echo "Agent knowledge seed API did not return seed metadata" >&2
+  exit 1
+fi
+SEEDED_KNOWLEDGE_BACKEND="$(printf '%s' "${SEEDED_KNOWLEDGE_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("backend", ""))')"
+if [ "${SEEDED_KNOWLEDGE_BACKEND}" = "postgres" ]; then
+  MANUAL_KNOWLEDGE_JSON='{"destination":"Chengdu","recordType":"destination_note","title":"Smoke test Chengdu knowledge","summary":"Use this record to verify manual RAG write and delete through the gateway.","source":"smoke_test","score":0.6,"expiresInDays":7}'
+  CREATED_KNOWLEDGE_JSON="$(curl -fsS -X POST "${BASE_URL}/api/v1/agent/knowledge" \
+    -H "Content-Type: application/json" \
+    -H "X-User-Id: ${USER_ID}" \
+    -d "${MANUAL_KNOWLEDGE_JSON}")"
+  CREATED_KNOWLEDGE_ID="$(printf '%s' "${CREATED_KNOWLEDGE_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("record", {}).get("id", ""))')"
+  CREATED_KNOWLEDGE_TITLE="$(printf '%s' "${CREATED_KNOWLEDGE_JSON}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("record", {}).get("title", ""))')"
+  if [ -z "${CREATED_KNOWLEDGE_ID}" ] || [ "${CREATED_KNOWLEDGE_TITLE}" != "Smoke test Chengdu knowledge" ]; then
+    echo "Agent knowledge create API did not return the created record" >&2
+    exit 1
+  fi
+  KNOWLEDGE_AFTER_CREATE_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/knowledge?destination=Chengdu&limit=20")"
+  KNOWLEDGE_AFTER_CREATE_HAS_RECORD="$(printf '%s' "${KNOWLEDGE_AFTER_CREATE_JSON}" | CREATED_KNOWLEDGE_ID="${CREATED_KNOWLEDGE_ID}" python3 -c 'import json, os, sys; data=json.load(sys.stdin).get("records", []); print("yes" if any(item.get("id") == os.environ["CREATED_KNOWLEDGE_ID"] for item in data) else "no")')"
+  if [ "${KNOWLEDGE_AFTER_CREATE_HAS_RECORD}" != "yes" ]; then
+    echo "Agent knowledge list API did not include the created record" >&2
+    exit 1
+  fi
+  curl -fsS -X DELETE "${BASE_URL}/api/v1/agent/knowledge/${CREATED_KNOWLEDGE_ID}" \
+    -H "X-User-Id: ${USER_ID}"
+  KNOWLEDGE_AFTER_DELETE_JSON="$(curl -fsS "${BASE_URL}/api/v1/agent/knowledge?destination=Chengdu&limit=20")"
+  KNOWLEDGE_AFTER_DELETE_HAS_RECORD="$(printf '%s' "${KNOWLEDGE_AFTER_DELETE_JSON}" | CREATED_KNOWLEDGE_ID="${CREATED_KNOWLEDGE_ID}" python3 -c 'import json, os, sys; data=json.load(sys.stdin).get("records", []); print("yes" if any(item.get("id") == os.environ["CREATED_KNOWLEDGE_ID"] for item in data) else "no")')"
+  if [ "${KNOWLEDGE_AFTER_DELETE_HAS_RECORD}" = "yes" ]; then
+    echo "Agent knowledge delete API did not remove the created record" >&2
+    exit 1
+  fi
 fi
 echo
 
